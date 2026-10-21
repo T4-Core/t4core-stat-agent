@@ -108,11 +108,10 @@ flowchart TD
 작성 예정..
 ```
 
----
-
+```
 ## 6. 프로젝트 폴더 구조 (초안)
 
-```
+
 kosis-stat-agent/
 ├── README.md               # 프로젝트 개요 및 실행 방법
 ├── .env                    # API Key 및 환경변수 설정
@@ -128,7 +127,6 @@ kosis-stat-agent/
 ├── data/                   # KOSIS 원본 데이터 및 전처리 데이터
 ├── notebooks/              # EDA 및 실험용 Jupyter Notebook
 └── tests/                  # 기능 테스트 및 성능 검증
-```
 
 ### 설계 원칙
 
