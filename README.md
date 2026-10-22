@@ -89,7 +89,7 @@ flowchart TD
 | | **CrewAI** | 역할 기반 다중 에이전트: 심층 분석 리포트, 배치 데이터 보강 |
 | **데이터 엔진** | DuckDB, Parquet, pandas | 대용량 통계 조회 (좌표 → 데이터) |
 | **Backend** | **FastAPI** | 채팅(SSE 스트리밍), 검색, 데이터, 차트 API |
-| **Frontend** | **JavaScript** (Vanilla JS 또는 Vite) + ECharts/Chart.js | 채팅 UI, 차트 렌더링, 근거표 |
+| **Frontend** | **React | 채팅 UI, 차트 렌더링, 근거표 |
 | **EDA / 시각화** | **matplotlib, seaborn**, plotly | 데이터 품질 점검, 분포·결측 분석, 검색 성능 시각화 |
 | **기타** | **JEV** *(용도 확정 필요)* | — |
 
