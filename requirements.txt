@@ -1,0 +1,12 @@
+requests>=2.31          # KOSIS OpenAPI 호출
+pandas>=2.0             # catalog / schema / raw CSV 처리
+python-dotenv>=1.0      # .env 의 KOSIS_API_KEY 로드
+xlrd==2.0.2            
+duckdb>=1.0             # 대용량 CSV → Parquet 변환, 좌표(source) 재조회
+pyarrow>=14.0           # Parquet 읽기/쓰기
+kiwipiepy>=0.17         # --kiwi : BM25용 한국어 형태소 토큰(bm25_tokens)
+openai>=1.30            # enrich : OpenAI 호환 API 클라이언트 (LLM 보강)
+plotly>=5.18            # render : 좌표로 차트 재생성(검증용)
+ipykernel>=6.0
+matplotlib>=3.8         # EDA 시각화 (예정)
+seaborn>=0.13           
