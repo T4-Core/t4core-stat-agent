@@ -1,4 +1,52 @@
+# ── 환경변수 / 비밀키 ──
 .env
+.env.*
+!.env.example
+
+# ── 데이터 (KOSIS 수집 결과, 용량이 큼) ──
+kosis_data/
+data/
+*.parquet
+*.duckdb
+*.duckdb.wal
+
+# ── RAG 산출물 (인덱스, 벡터DB) ──
+*.faiss
+chroma_db/
+vector_store/
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ── Jupyter ──
+.ipynb_checkpoints/
+
+# ── Frontend (React) ──
+node_modules/
+frontend/dist/
+frontend/build/
+
+# ── 로그 / 임시 파일 ──
+*.log
+logs/
+*.tmp
+
+# ── 에디터 / OS ──
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 학습 및 개인용
 kosis_data/
 kosis_rag_qa.py
 kosis_views.py
