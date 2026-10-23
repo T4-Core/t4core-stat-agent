@@ -1,1 +1,7 @@
 .env
+kosis_data/
+kosis_rag_qa.py
+kosis_views.py
+test.ipynb
+__pycache__/
+solutions/
