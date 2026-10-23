@@ -9,4 +9,6 @@ openai>=1.30            # enrich : OpenAI 호환 API 클라이언트 (LLM 보강
 plotly>=5.18            # render : 좌표로 차트 재생성(검증용)
 ipykernel>=6.0
 matplotlib>=3.8         # EDA 시각화 (예정)
-seaborn>=0.13           
+seaborn>=0.13
+scikit-learn>=1.4       # RAG 비교 : TF-IDF retriever
+rank-bm25>=0.2.2        # RAG 비교 : BM25 retriever

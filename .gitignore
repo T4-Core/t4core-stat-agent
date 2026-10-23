@@ -9,6 +9,7 @@ data/
 *.parquet
 *.duckdb
 *.duckdb.wal
+population_files/
 
 # ── RAG 산출물 (인덱스, 벡터DB) ──
 *.faiss

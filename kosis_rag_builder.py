@@ -3,14 +3,27 @@
 KOSIS 인구 카테고리 → (표본 제외) 전수부문 통계표만 수집 → 조사별 병합 CSV → RAG 문서 생성
 
 단계별 실행 (앞 단계 결과는 캐시되어 재실행 시 이어서 진행됨
-  python kosis_rag_builder.py catalog    # 1) 목록 트리 전체 탐색 → catalog.csv (전수/표본 판별 포함)
-  python kosis_rag_builder.py schema     # 2) 선택된 표의 메타(분류·항목·시점·주석) → table_schema.csv
-  python kosis_rag_builder.py download   # 3) 수치 데이터 수집 (4만 셀 제한 자동 분할)
-  python kosis_rag_builder.py status     #    조사별 진행 현황 (남은 표, 대용량 건너뜀, 실패)
-  python kosis_rag_builder.py build      # 4) 조사별 병합 CSV + RAG 문서(csv/jsonl)
-  python kosis_rag_builder.py store      # 5) 에이전트용 저장소: 표 카드 + 분류 사전 + 표별 parquet + DuckDB
-  python kosis_rag_builder.py all
-  python kosis_rag_builder.py roots      #    주제별 최상위 목록 ID 확인 (인구 외 주제 수집 시 --root, --out)
+python kosis_rag_builder.py catalog    # 1) 목록 트리 전체 탐색 → catalog.csv (전수/표본 판별 포함)
+python kosis_rag_builder.py schema     # 2) 선택된 표의 메타(분류·항목·시점·주석) → table_schema.csv
+python kosis_rag_builder.py download   # 3) 수치 데이터 수집 (4만 셀 제한 자동 분할)
+python kosis_rag_builder.py status     #    조사별 진행 현황 (남은 표, 대용량 건너뜀, 실패)
+python kosis_rag_builder.py build      # 4) 조사별 병합 CSV + RAG 문서(csv/jsonl)
+python kosis_rag_builder.py store      # 5) 에이전트용 저장소: 표 카드 + 분류 사전 + 표별 parquet + DuckDB
+python kosis_rag_builder.py all
+python kosis_rag_builder.py roots      #    주제별 최상위 목록 ID 확인 (인구 외 주제 수집 시 --root, --out)
+
+
+python kosis_rag_builder.py catalog 
+python kosis_rag_builder.py schema 
+python kosis_rag_builder.py download 
+python kosis_rag_builder.py status
+
+python kosis_rag_builder.py build
+python kosis_rag_builder.py store 
+python kosis_rag_builder.py all
+python kosis_rag_builder.py roots 
+
+
 
 옵션
   --surveys 인구총조사 주민등록인구현황   # 특정 조사만
@@ -71,6 +84,20 @@ RELATED_HINT = {
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+######## 추가 코드##########
+try:
+    from tqdm import tqdm             # 진행률 표시
+except ImportError:                   # tqdm 미설치 시 아무것도 하지 않는 대체 객체
+    class tqdm:
+        def __init__(self, *a, total=0, **k):
+            self.n, self.total = 0, total
+        def update(self, k=1):
+            self.n += k
+        def set_postfix_str(self, *a, **k): pass
+        def refresh(self): pass
+        def close(self): pass
+######## 추가 코드##########
 
 WORKERS = 4                       # 동시 요청 수 (서버 응답 대기 시간을 겹쳐서 활용)
 MIN_INTERVAL = 60 / 180           # 분당 200건 제한보다 약간 낮게 (전체 스레드 합산)
@@ -332,7 +359,15 @@ def stage_schema(args):
     cat = load_selected(args)
     (OUT / "meta").mkdir(parents=True, exist_ok=True)
     rows = []
+    ######## 추가 코드##########
+    _pbar = tqdm(total=len(cat), desc="schema", unit="표")
+    ######## 추가 코드##########
     for i, r in enumerate(cat.itertuples(), 1):
+        ######## 추가 코드##########
+        _pbar.n = i - 1
+        _pbar.set_postfix_str(str(r.tbl_nm)[:30])
+        _pbar.refresh()
+        ######## 추가 코드##########
         mp = meta_path(r.org_id, r.tbl_id)
         if mp.exists():
             meta = json.loads(mp.read_text(encoding="utf-8"))
@@ -356,6 +391,11 @@ def stage_schema(args):
             "est_cells_total": n_per_prd * n_prd,
         })
         print(f"[{i}/{len(cat)}] {r.tbl_nm[:40]:40s} {rows[-1]['dimensions'][:60]}")
+    ######## 추가 코드##########
+    _pbar.n = _pbar.total
+    _pbar.refresh()
+    _pbar.close()
+    ######## 추가 코드##########
     sch = pd.DataFrame(rows)
     sch.to_csv(OUT / "table_schema.csv", index=False, encoding="utf-8-sig")
     print(f"\n스키마 저장 → {OUT/'table_schema.csv'}")
@@ -485,7 +525,15 @@ def stage_download(args):
         s_df = pd.read_csv(OUT / "table_schema.csv", dtype={"tbl_id": str})
         sch = dict(zip(s_df["tbl_id"], s_df["est_cells_total"]))
     fails, skipped = [], []
+    ######## 추가 코드##########
+    _pbar = tqdm(total=len(cat), desc="download", unit="표")
+    ######## 추가 코드##########
     for i, r in enumerate(cat.itertuples(), 1):
+        ######## 추가 코드##########
+        _pbar.n = i - 1                   # continue 로 건너뛰어도 완료 수가 맞도록 시작 시점에 갱신
+        _pbar.set_postfix_str(str(r.tbl_nm)[:30])
+        _pbar.refresh()
+        ######## 추가 코드##########
         out = OUT / "raw" / safe(r.category) / f"{r.org_id}_{r.tbl_id}.csv"
         if out.exists() and getattr(args, "refresh", False):     # 최신 자료로 다시 받기
             out.unlink()
@@ -531,7 +579,13 @@ def stage_download(args):
         frames, tbl_fails = [], []
         with ThreadPoolExecutor(max_workers=args.workers) as ex:
             futs = {ex.submit(fetch_part, part_dir, r.org_id, r.tbl_id, *t): t for t in tasks}
+            ######## 추가 코드##########
+            _sub = tqdm(total=len(tasks), desc="  요청", unit="건", leave=False, position=1)
+            ######## 추가 코드##########
             for n, fu in enumerate(as_completed(futs), 1):
+                ######## 추가 코드##########
+                _sub.update(1)
+                ######## 추가 코드##########
                 prd_se, sel, s, e = futs[fu]
                 try:
                     df_part = fu.result()
@@ -542,6 +596,9 @@ def stage_download(args):
                                       "sel": str(sel)[:200], "reason": str(err)})
                 if len(tasks) >= 20 and n % 20 == 0:
                     print(f"    {n}/{len(tasks)} ({time.time() - t0:.0f}s)", flush=True)
+            ######## 추가 코드##########
+            _sub.close()
+            ######## 추가 코드##########
         if frames:
             df = pd.concat(frames, ignore_index=True)
             df = df[[c for c in KEEP_COLS if c in df.columns]].drop_duplicates()
@@ -555,6 +612,11 @@ def stage_download(args):
             fp = OUT / "failed.csv"
             pd.DataFrame(tbl_fails).to_csv(fp, mode="a", header=not fp.exists(), index=False,
                                            encoding="utf-8-sig")
+    ######## 추가 코드##########
+    _pbar.n = _pbar.total
+    _pbar.refresh()
+    _pbar.close()
+    ######## 추가 코드##########
     if skipped:
         pd.DataFrame(skipped).to_csv(OUT / "skipped_large.csv", index=False, encoding="utf-8-sig")
         print(f"대용량으로 건너뛴 표 {len(skipped)}개 → {OUT / 'skipped_large.csv'}")
@@ -669,11 +731,21 @@ def stage_build(args):
                 f.write(json.dumps(doc, ensure_ascii=False) + "\n")
 
     emit(survey_docs(cat))
+    ######## 추가 코드##########
+    _pbar = tqdm(total=len(cat), desc="build", unit="표")
+    _done = 0
+    ######## 추가 코드##########
     for category, sub in cat.groupby("category"):
         merged = OUT / "merged" / f"{safe(category)}.csv"
         merged.unlink(missing_ok=True)
         n_rows = 0
         for r in sub.itertuples():
+            ######## 추가 코드##########
+            _pbar.n = _done
+            _done += 1
+            _pbar.set_postfix_str(str(category)[:20])
+            _pbar.refresh()
+            ######## 추가 코드##########
             raw = OUT / "raw" / safe(category) / f"{r.org_id}_{r.tbl_id}.csv"
             mp = meta_path(r.org_id, r.tbl_id)
             if mp.exists():
@@ -693,6 +765,11 @@ def stage_build(args):
             if not args.no_data_docs:
                 emit(data_docs(r, df, args.chunk_lines))
         print(f"{category}: {n_rows:,} rows → {merged}")
+    ######## 추가 코드##########
+    _pbar.n = _pbar.total
+    _pbar.refresh()
+    _pbar.close()
+    ######## 추가 코드##########
     print(f"RAG 문서 → {rag_csv} / {rag_jsonl}")
 
 
@@ -764,7 +841,15 @@ def stage_store(args):
     st = OUT / "store"
     (st / "data").mkdir(parents=True, exist_ok=True)
     tables, dims = [], []
+    ######## 추가 코드##########
+    _pbar = tqdm(total=len(cat), desc="store", unit="표")
+    ######## 추가 코드##########
     for i, r in enumerate(cat.itertuples(), 1):
+        ######## 추가 코드##########
+        _pbar.n = i - 1
+        _pbar.set_postfix_str(str(r.tbl_nm)[:30])
+        _pbar.refresh()
+        ######## 추가 코드##########
         key = f"{r.org_id}_{r.tbl_id}"
         mp = meta_path(r.org_id, r.tbl_id)
         if not mp.exists():
@@ -797,6 +882,11 @@ def stage_store(args):
         })
         if i % 100 == 0:
             print(f"  {i}/{len(cat)}", flush=True)
+    ######## 추가 코드##########
+    _pbar.n = _pbar.total
+    _pbar.refresh()
+    _pbar.close()
+    ######## 추가 코드##########
     tb = pd.DataFrame(tables)
     tb.to_csv(st / "tables.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame(dims).to_csv(st / "dimensions.csv", index=False, encoding="utf-8-sig")
