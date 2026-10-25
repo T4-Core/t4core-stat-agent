@@ -48,8 +48,6 @@ desktop.ini
 
 # 학습 및 개인용
 kosis_data/
-kosis_rag_qa.py
-kosis_views.py
-test.ipynb
 __pycache__/
 solutions/
+statrag/

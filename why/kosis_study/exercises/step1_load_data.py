@@ -25,7 +25,8 @@ from pathlib import Path
 
 import pandas as pd
 
-DATA_DIR = Path(os.getenv("KOSIS_DATA", "kosis_data"))
+
+DATA_DIR = Path("C:/Project/Llion/project/t4core-stat-agent/kosis_data")
 KEYWORD = "주택"
 
 
@@ -36,30 +37,21 @@ def safe(name):
 
 # ─────────────── 1-1. 목록(catalog) 읽기 ───────────────
 def load_catalog():
-    # TODO(1-1a): DATA_DIR / "catalog.csv" 를 읽고, selected 컬럼이 "True" 인 행만 남겨 반환하세요.
-    # 힌트: pd.read_csv(..., dtype=str)  ← 모든 값을 문자열로 읽어야 "True" 와 비교할 수 있습니다.
-    #       마지막에 .reset_index(drop=True)
-    raise NotImplementedError("TODO 1-1a")
-
+    cat = pd.read_csv(DATA_DIR / "catalog.csv", dtype=str)
+    return cat[cat["selected"] == "True"].reset_index(drop=True)
 
 def find_tables(cat, keyword=KEYWORD):
-    # TODO(1-1b): category(조사 이름) 또는 tbl_nm(표 이름)에 keyword 가 들어간 행만 반환하세요.
-    # 힌트: cat["category"].str.contains(keyword, na=False)  →  True/False 시리즈
-    #       두 조건을 | (또는)로 묶고 cat[mask]
-    raise NotImplementedError("TODO 1-1b")
+    mask = (cat["category"].str.contains(keyword, na=False)) | cat["tbl_nm"].str.contains(keyword, na=False)
+    return cat[mask].reset_index(drop=True)
 
 
 # ─────────────── 1-2. 표 1개의 파일 경로 만들기 ───────────────
 def raw_path(row):
-    # TODO(1-2a): raw CSV 경로를 만드세요.
-    # 모양: DATA_DIR / "raw" / <safe(조사이름)> / "<org_id>_<tbl_id>.csv"
-    # 힌트: row["category"], row["org_id"], row["tbl_id"]
-    raise NotImplementedError("TODO 1-2a")
+    return DATA_DIR / "raw" / safe(row["category"]) / f"{row['org_id']}_{row['tbl_id']}.csv"
 
 
 def meta_path(row):
-    # TODO(1-2b): meta JSON 경로를 만드세요.   모양: DATA_DIR / "meta" / "<org_id>_<tbl_id>.json"
-    raise NotImplementedError("TODO 1-2b")
+    return DATA_DIR / "meta" / f"{row['org_id']}_{row['tbl_id']}.json"
 
 
 def with_raw(tables):
@@ -69,15 +61,11 @@ def with_raw(tables):
 
 
 def load_raw(row):
-    # TODO(1-2c): raw CSV 를 DataFrame 으로 읽어 반환하세요.
-    # 힌트: dtype=str 로 읽어야 코드 '01' 의 앞자리 0 이 사라지지 않습니다.
-    raise NotImplementedError("TODO 1-2c")
+    return pd.read_csv(raw_path(row), dtype=str)
 
 
 def load_meta(row):
-    # TODO(1-2d): meta JSON 을 dict 로 읽어 반환하세요.
-    # 힌트: json.loads(경로.read_text(encoding="utf-8"))
-    raise NotImplementedError("TODO 1-2d")
+    return json.loads(meta_path(row).read_text(encoding="utf-8"))
 
 
 # ─────────────── 1-3. 메타데이터 정리 ───────────────
@@ -92,12 +80,10 @@ def summarize_meta(meta):
     for r in meta.get("ITM") or []:
         if not isinstance(r, dict) or "_error" in r:
             continue
-        # TODO(1-3): r 을 항목(items) 또는 분류(dims) 중 한 곳에 넣으세요.
-        #   항목이면  items.append({"id": ITM_ID, "name": ITM_NM, "unit": UNIT_NM(없으면 "")})
-        #   분류이면  dims[OBJ_NM] 리스트에 {"code": ITM_ID, "name": ITM_NM} 추가
-        # 힌트: r.get("OBJ_ID") == "ITEM" 으로 구분.  코드는 str(...) 로 감싸 문자열로 통일
-        #       dims.setdefault(키, []).append(...)  → 키가 없으면 빈 리스트를 만들고 추가
-        raise NotImplementedError("TODO 1-3")
+        if r.get("OBJ_ID") == "ITEM":
+            items.append({"id": str(r.get("ITM_ID")), "name": r.get("ITM_NM"), "unit": r.get("UNIT_NM") or ""})
+        else:
+            dims.setdefault(r.get("OBJ_NM"), []).append({"code": str(r.get("ITM_ID")), "name": r.get("ITM_NM")})
 
     periods = []
     for r in meta.get("PRD") or []:
@@ -118,13 +104,10 @@ def summarize_meta(meta):
 # ─────────────── 1-4. 데이터 ↔ 메타 연결 확인 ───────────────
 def check_link(raw, summary):
     """raw CSV 의 코드(C1, ITM_ID)가 메타에 정의된 코드와 얼마나 맞는지"""
-    # TODO(1-4): 아래 4개의 집합(set)을 만드세요.
-    #   meta_codes : summary["dims"] 안의 모든 code
-    #   raw_codes  : raw["C1"] 의 값들 (결측 제외, 문자열)
-    #   meta_items : summary["items"] 의 id
-    #   raw_items  : raw["ITM_ID"] 의 값들
-    # 힌트: set(raw["C1"].dropna().astype(str)),  {c["code"] for codes in ... for c in codes}
-    raise NotImplementedError("TODO 1-4")
+    meta_codes = {c["code"] for codes in summary["dims"].values() for c in codes}
+    raw_codes = set(raw["C1"].dropna().astype(str))
+    meta_items = {it["id"] for it in summary["items"]}
+    raw_items = set(raw["ITM_ID"].dropna().astype(str))
     return {"분류코드(C1) 연결": f"{len(raw_codes & meta_codes)}/{len(raw_codes)}",
             "항목코드(ITM_ID) 연결": f"{len(raw_items & meta_items)}/{len(raw_items)}"}
 
