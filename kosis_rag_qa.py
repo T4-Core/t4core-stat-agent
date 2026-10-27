@@ -55,7 +55,6 @@ DEFAULT_RECORDS = {"base": VIEWS_DIR / "records.jsonl",
                    "enriched": DATA / "rag_views_enriched" / "records.jsonl"}
 
 def _host(url):
-    """'https://host/v1/openai' 처럼 경로까지 넣어도 호스트만 사용"""
     m = re.match(r"(https?://[^/\s]+)", (url or "").strip())
     return m.group(1) if m else "https://clovastudio.stream.ntruss.com"
 
@@ -84,9 +83,16 @@ def _session():
 
 
 def _post(path, body, timeout=60):
-    key = os.getenv("HCX_API_KEY")
+    key = os.getenv("HCX_API_KEY", "").strip()
     if not key:
         raise SystemExit(".env 에 HCX_API_KEY 를 넣어 주세요.")
+
+    app_type = os.getenv("HCX_APP_TYPE", "testapp").strip()
+    if path.startswith(("/serviceapp/", "/testapp/")):
+        path = re.sub(r"^/(serviceapp|testapp)/", f"/{app_type}/", path)
+    elif not path.startswith(f"/{app_type}/"):
+        path = f"/{app_type}/" + path.lstrip("/")
+
     import requests
     try:
         r = _session().post(HCX_HOST + path, json=body, timeout=timeout, headers={

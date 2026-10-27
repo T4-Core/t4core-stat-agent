@@ -25,6 +25,7 @@ import pandas as pd
 
 from step1_load_data import find_tables, load_catalog, load_raw, with_raw
 
+
 OUT_DIR = Path("study_out")
 TOTAL_NAMES = {"계", "합계", "총계", "소계", "전체", "전국"}
 
