@@ -55,9 +55,8 @@ golden_prompts.py
 kosis_golden_pipeline.py
 kosis_query_debugger.ipynb
 kosis_human_eval.py
-kosis_fast_human_review_seq.ipynb
-kosis_fast_human_review.ipynb
-kosis_query_debug.ipynb
+kosis_fast_human_review_gpt.ipynb
 kosis_rag_eval_50.csv
 kosis_rag_eval_50.jsonl
 test.ipynb
+review_images/
