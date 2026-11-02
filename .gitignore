@@ -62,9 +62,14 @@ kosis_rag_eval_50.csv
 kosis_rag_eval_50.jsonl
 test.ipynb
 
-# 프로파일링: 재생성 가능한 결과물과 개인 기록은 올리지 않는다
-profiling/output/
-profiling/*.md
-!profiling/README.md
-profiling/**/*.json
-profiling/**/*.jsonl
+
+# playground (로컬 실험용 도구)
+rag/playground.py
+rag/playground.html
+
+# JSON 데이터 / 픽스처
+*.json
+*.jsonl
+
+# 검색 모듈 테스트 (로컬용)
+tests/test_searcher.py
