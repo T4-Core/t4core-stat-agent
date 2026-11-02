@@ -1,0 +1,117 @@
+{
+ "source": "쿼리 모듈 담당자 제공 예시 (베이스라인 = original, 슬롯 형식 = rewritten). 질의문만 사용, 11/1 실험 결과값은 미포함",
+ "copied_from": "ys_work/output/view_query_test/queries.csv",
+ "queries": [
+  {
+   "query_id": "1",
+   "original": "작년 대구의 남자 20대 인구 수",
+   "rewritten": "[시점] 2025년 [지역] 대구광역시 [대상] 인구 [성별] 남자 [연령] 20~29세 [지표] 인구수 [의도] 값 조회",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "2",
+   "original": "작년 대구 인구 수",
+   "rewritten": "[시점] 2025년 [지역] 대구광역시 [대상] 인구 [지표] 인구수 [의도] 값 조회",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "3",
+   "original": "출생아수 추이",
+   "rewritten": "[대상] 출생아 [지표] 출생아수 [의도] 추이",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "4",
+   "original": "신생아 수 발생 건수",
+   "rewritten": "[대상] 출생아 [지표] 출생아수 [의도] 값 조회",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "5",
+   "original": "2023년 시도별 인구",
+   "rewritten": "[시점] 2023년 [대상] 인구 [지표] 인구수 [비교축] 시도 [의도] 비교",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "6",
+   "original": "부산 출생아 수 및 대구 사망자 수",
+   "rewritten": "[지역] 부산광역시, 대구광역시 [대상] 출생아, 사망자 [지표] 출생아수, 사망자수 [의도] 값 조회",
+   "sub_ids": [
+    "6-1",
+    "6-2"
+   ],
+   "sub_questions": [
+    "[지역] 부산광역시 [대상] 출생아 [지표] 출생아수 [의도] 값 조회",
+    "[지역] 대구광역시 [대상] 사망자 [지표] 사망자수 [의도] 값 조회"
+   ],
+   "original_sub_questions": [
+    "부산의 연도별 출생아 수",
+    "대구의 연도별 사망자 수"
+   ]
+  },
+  {
+   "query_id": "7",
+   "original": "노인 비율이 높은 지역",
+   "rewritten": "[연령] 65세 이상 [지표] 고령인구비율 [비교축] 지역 [의도] 순위",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "8",
+   "original": "남자와 여자의 평균 수명 비교",
+   "rewritten": "[성별] 남자, 여자 [지표] 기대수명 [의도] 비교",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "9",
+   "original": "부산의 1인 가구 수",
+   "rewritten": "[지역] 부산광역시 [대상] 1인가구 [지표] 가구수 [의도] 값 조회",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "10",
+   "original": "경기도 가구 수",
+   "rewritten": "[지역] 경기도 [대상] 가구 [지표] 가구수 [의도] 값 조회",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "11",
+   "original": "기대수명과 고령 인구 변화 관계 분석",
+   "rewritten": "[지표] 기대수명, 고령인구비율 [의도] 추이",
+   "sub_ids": [
+    "11-1",
+    "11-2"
+   ],
+   "sub_questions": [
+    "[지표] 기대수명 [의도] 추이",
+    "[지표] 고령인구비율 [의도] 추이"
+   ],
+   "original_sub_questions": []
+  },
+  {
+   "query_id": "12",
+   "original": "최근 5년간 대전의 인구 변화 추이",
+   "rewritten": "[시점] 2021년, 2022년, 2023년, 2024년, 2025년 [지역] 대전광역시 [대상] 인구 [지표] 인구수 [의도] 추이",
+   "sub_ids": [],
+   "sub_questions": [],
+   "original_sub_questions": []
+  }
+ ]
+}
