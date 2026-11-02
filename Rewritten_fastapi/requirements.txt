@@ -1,0 +1,11 @@
+# 재작성 모듈 (rewriter) + 베이스 코드 복사본(kosis_rag_qa.py) import 에 필요
+requests
+python-dotenv
+numpy
+pandas
+# API
+fastapi
+uvicorn
+# 테스트
+pytest
+httpx
