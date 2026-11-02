@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>정답 라벨 검토</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f1f3f6; --line: #e2e5ea; --text: #1d2330; --muted: #6a7282;
+    --accent: #2f6fde; --accent-soft: #e6eefc; --ok: #1f8a4c; --ok-soft: #e3f4ea; --bad: #c23b3b; --bad-soft: #fbe7e7;
+    --warn: #9a6a00; --warn-soft: #fbf1d9; --hold: #7a4fc4; --hold-soft: #efe8fb; --code-bg: #f4f5f8;
+    --shadow: 0 1px 2px rgba(20, 30, 50, .06), 0 2px 8px rgba(20, 30, 50, .04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b; --panel: #1a1e26; --panel-2: #222733; --line: #2e3442; --text: #e6e9ef; --muted: #98a0b0;
+      --accent: #6d9cf5; --accent-soft: #233252; --ok: #5cc98a; --ok-soft: #1d3a2a; --bad: #ef7b7b; --bad-soft: #432427;
+      --warn: #e2b552; --warn-soft: #3f3420; --hold: #b593f0; --hold-soft: #31274a; --code-bg: #151920; --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151b; --panel: #1a1e26; --panel-2: #222733; --line: #2e3442; --text: #e6e9ef; --muted: #98a0b0;
+    --accent: #6d9cf5; --accent-soft: #233252; --ok: #5cc98a; --ok-soft: #1d3a2a; --bad: #ef7b7b; --bad-soft: #432427;
+    --warn: #e2b552; --warn-soft: #3f3420; --hold: #b593f0; --hold-soft: #31274a; --code-bg: #151920; --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.55 "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif; }
+  code, .mono { font-family: "D2Coding", Consolas, Menlo, monospace; }
+  button, .btn {
+    font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+  }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.small { font-size: 12px; padding: 2px 8px; }
+  input[type=file] { display: none; }
+  input[type=text], textarea, select {
+    font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; width: 100%;
+  }
+  input[type=text]:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  input.diff { border-color: var(--warn); background: var(--warn-soft); }
+  input:disabled, select:disabled { opacity: .45; }
+
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; }
+  .progress { display: flex; gap: 6px; font-size: 12px; flex-wrap: wrap; }
+  .progress span { border-radius: 6px; padding: 2px 8px; background: var(--panel-2); color: var(--muted); }
+  .saved { font-size: 12px; color: var(--muted); }
+  .spacer { flex: 1; }
+
+  .layout { display: grid; grid-template-columns: 330px 1fr; height: calc(100% - 55px); }
+  aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .search { padding: 10px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+  .filters { display: flex; gap: 5px; flex-wrap: wrap; }
+  .filters button { font-size: 12px; padding: 2px 9px; border-radius: 999px; }
+  .filters button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .count { font-size: 12px; color: var(--muted); }
+  .list { overflow-y: auto; flex: 1; }
+  .item { padding: 8px 10px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: 46px 1fr; gap: 6px; }
+  .item:hover { background: var(--panel-2); }
+  .item.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  /* 상태별 색: 검토 전 = 회색, 완료 = 초록, 보류 = 보라 (왼쪽 띠 + 배경) */
+  .item.st-todo { box-shadow: inset 4px 0 0 var(--line); }
+  .item.st-done { box-shadow: inset 4px 0 0 var(--ok); background: color-mix(in srgb, var(--ok-soft) 55%, transparent); }
+  .item.st-hold { box-shadow: inset 4px 0 0 var(--hold); background: color-mix(in srgb, var(--hold-soft) 55%, transparent); }
+  .item.st-done .q { color: var(--muted); }
+  .item.sel.st-done { background: var(--ok-soft); box-shadow: inset 4px 0 0 var(--ok), inset 0 0 0 2px var(--accent); }
+  .item.sel.st-hold { background: var(--hold-soft); box-shadow: inset 4px 0 0 var(--hold), inset 0 0 0 2px var(--accent); }
+  .item.sel.st-todo { box-shadow: inset 4px 0 0 var(--muted), inset 0 0 0 2px var(--accent); }
+  .item .id { font-size: 12px; color: var(--muted); }
+  .item .q { font-size: 13px; }
+  .pills { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
+  .pill { font-size: 11px; border-radius: 4px; padding: 0 6px; background: var(--panel-2); color: var(--muted); }
+  .pill.todo { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+  .pill.done { background: var(--ok); color: #fff; font-weight: 700; }
+  .pill.hold { background: var(--hold); color: #fff; font-weight: 700; }
+  .qhead .meta span.badge-status { font-size: 13px; font-weight: 700; border-radius: 6px; padding: 1px 10px; }
+  .qhead .meta span.badge-status.todo { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+  .qhead .meta span.badge-status.done { background: var(--ok); color: #fff; }
+  .qhead .meta span.badge-status.hold { background: var(--hold); color: #fff; }
+  .card.st-done { border-color: var(--ok); box-shadow: inset 4px 0 0 var(--ok), var(--shadow); }
+  .card.st-hold { border-color: var(--hold); box-shadow: inset 4px 0 0 var(--hold), var(--shadow); }
+  .progress .p-done { background: var(--ok-soft); color: var(--ok); font-weight: 700; }
+  .progress .p-hold { background: var(--hold-soft); color: var(--hold); font-weight: 700; }
+  .pill.flag { background: var(--warn-soft); color: var(--warn); }
+  .pill.empty { background: var(--bad-soft); color: var(--bad); }
+
+  main { overflow-y: auto; padding: 16px 22px 80px; min-width: 0; }
+  .empty-state { max-width: 560px; margin: 80px auto; text-align: center; color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); margin-bottom: 14px; min-width: 0; }
+  .card h2 { font-size: 14px; margin: 0 0 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .card h3 { font-size: 13px; margin: 14px 0 6px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .qhead .meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+  .qhead .meta span { background: var(--panel-2); border-radius: 6px; padding: 1px 8px; color: var(--muted); }
+  .qhead .qtext { font-size: 18px; font-weight: 700; margin: 6px 0; }
+  .flags { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; }
+  .flags li { font-size: 13px; background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 3px 10px; }
+  .ref { font-size: 13px; color: var(--muted); margin-top: 8px; display: grid; gap: 2px; }
+  .ref b { color: var(--text); font-weight: 600; }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 14px; align-items: start; }
+  @media (max-width: 1250px) { .cols { grid-template-columns: 1fr; } }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left; vertical-align: middle; }
+  td.k { width: 72px; color: var(--muted); white-space: nowrap; font-size: 12px; }
+  td.rule { width: 46px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .val { display: inline-block; background: var(--panel-2); border-radius: 5px; padding: 0 7px; margin: 1px 3px 1px 0; }
+  .none { color: var(--muted); font-size: 13px; }
+  .sentence { background: var(--accent-soft); color: var(--accent); border-radius: 8px; padding: 5px 10px; font-weight: 600; display: inline-block; }
+  .log { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
+  .sub { border: 1px dashed var(--line); border-radius: 8px; padding: 8px; margin-bottom: 8px; }
+  .sub .t { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .terms .row { margin-bottom: 4px; flex-wrap: nowrap; }
+  .chk { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .help { font-size: 12px; color: var(--muted); }
+  .wcheck { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .w { font-size: 12px; border-radius: 4px; padding: 0 6px; }
+  .w.ok { background: var(--ok-soft); color: var(--ok); }
+  .w.bad { background: var(--bad-soft); color: var(--bad); }
+  .status-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  /* 상태 버튼: 선택 안 됨 = 색 테두리, 선택됨 = 색 채움 */
+  .status-bar button.todo { border-color: var(--muted); color: var(--muted); }
+  .status-bar button.done { border-color: var(--ok); color: var(--ok); }
+  .status-bar button.hold { border-color: var(--hold); color: var(--hold); }
+  .status-bar button.on.todo { background: var(--muted); color: #fff; font-weight: 700; }
+  .status-bar button.on.done { background: var(--ok); color: #fff; font-weight: 700; }
+  .status-bar button.on.hold { background: var(--hold); color: #fff; font-weight: 700; }
+  .sticky { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); margin: 12px -16px -14px; padding: 10px 16px; border-radius: 0 0 12px 12px; }
+  .disabled-note { font-size: 13px; background: var(--bad-soft); color: var(--bad); border-radius: 6px; padding: 6px 10px; margin-top: 6px; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); }
+    .list { max-height: 38vh; }
+    main { padding: 12px 16px 60px; }
+  }
+</style>
+<!-- 지금 실행 결과 (scripts/run_eval.py 가 만듦) / 정답 라벨 초안 (scripts/make_gold_draft.py 가 만듦) -->
+<script src="../dashboard/rewrite_trace.js"></script>
+<script src="gold_draft.js"></script>
+</head>
+<body>
+<header>
+  <h1>정답 라벨 검토</h1>
+  <div class="progress" id="progress"></div>
+  <span class="saved" id="saved"></span>
+  <div class="spacer"></div>
+  <label class="btn" for="file">JSON 불러오기</label>
+  <input type="file" id="file" accept=".json,application/json">
+  <button id="download" class="primary">JSON 내려받기</button>
+  <button id="reset">초안으로 되돌리기</button>
+  <button id="theme">테마</button>
+</header>
+<div class="layout">
+  <aside>
+    <div class="search">
+      <input type="text" id="q" placeholder="질문·id 검색">
+      <div class="filters" id="filters">
+        <button data-f="all" class="on">전체</button>
+        <button data-f="검토 전">검토 전</button>
+        <button data-f="flag">확인 필요</button>
+        <button data-f="완료">완료</button>
+        <button data-f="보류">보류</button>
+        <button data-f="empty">비어야 함</button>
+      </div>
+      <div class="count" id="count"></div>
+    </div>
+    <div class="list" id="list"></div>
+  </aside>
+  <main id="main"><div class="empty-state" id="nodata" hidden>
+    <h2>초안이 없습니다</h2>
+    <p><code>python scripts/make_gold_draft.py</code> 를 실행하면 <code>labeling/gold_draft.js</code> 가 생기고, 이 화면을 새로 고치면 읽습니다.<br>
+       내려받아 둔 라벨 파일이 있으면 위의 <b>JSON 불러오기</b> 를 누르세요.</p>
+  </div><div id="detail"></div></main>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const STORE_KEY = "rw-gold-80-v1";
+  const DEFAULT_KEYS = ["시점", "지역", "전출지", "전입지", "국적", "대상", "성별", "연령", "조건", "이동", "지표", "비교축"];
+  const EXTRACT_KEYS = ["시점", "지역", "성별", "연령", "국적", "조건"];
+  const INTENTS = ["값 조회", "추이", "비교", "순위", "구성비", "증감"];
+  const STATUSES = [["검토 전", "todo"], ["완료", "done"], ["보류", "hold"]];
+  const STATUS_ICON = { "검토 전": "○", "완료": "✓", "보류": "⏸" };
+  const statusLabel = (s) => `${STATUS_ICON[s] || ""} ${s}`.trim();
+
+  let GOLD = null, CUR = {}, SEL = 0, FILTER = "all";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const arr = (v) => (Array.isArray(v) ? v : v == null || v === "" ? [] : [v]);
+  const toText = (v) => arr(v).join(", ");
+  const parse = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const keys = () => (GOLD && GOLD.meta && GOLD.meta.slot_keys) || DEFAULT_KEYS;
+  const exactKeys = () => new Set((GOLD && GOLD.meta && GOLD.meta.rules && GOLD.meta.rules.exact) || []);
+  const sameList = (a, b) => JSON.stringify([...arr(a)].sort()) === JSON.stringify([...arr(b)].sort());
+
+  // ---------- 테마 ----------
+  const root = document.documentElement;
+  try { const t = localStorage.getItem("rw-theme"); if (t) root.dataset.theme = t; } catch (e) {}
+  $("theme").onclick = () => {
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("rw-theme", root.dataset.theme); } catch (e) {}
+  };
+
+  // ---------- 저장 (브라우저 자동 저장) ----------
+  let saveTimer = null;
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify(GOLD));
+        $("saved").textContent = "브라우저에 자동 저장됨 " + new Date().toLocaleTimeString();
+      } catch (e) { $("saved").textContent = "자동 저장 실패 — JSON 내려받기로 저장하세요"; }
+    }, 300);
+  }
+  function loadStored() {
+    try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+  }
+
+  // ---------- 데이터 ----------
+  function setGold(g, msg) {
+    if (!g || !Array.isArray(g.items)) { alert("정답 라벨 형식이 아닙니다 (items 가 없음)"); return; }
+    GOLD = g;
+    const h = (location.hash.match(/id=(Q\d+)/) || [])[1];
+    SEL = Math.max(0, GOLD.items.findIndex((it) => it.id === h));
+    $("nodata").hidden = true;
+    if (msg) $("saved").textContent = msg;
+    renderAll();
+  }
+  if (window.REWRITE_TRACE) for (const it of window.REWRITE_TRACE.items) CUR[it.question] = it;
+
+  $("file").onchange = (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { try { setGold(JSON.parse(r.result), "불러옴: " + f.name); save(); } catch (err) { alert("JSON 을 읽지 못했습니다: " + err.message); } };
+    r.readAsText(f, "utf-8"); e.target.value = "";
+  };
+  $("download").onclick = () => {
+    const out = clone(GOLD);
+    const c = counts();
+    out.meta = { ...out.meta, status: c["완료"] === out.items.length ? "reviewed" : "in_review",
+                 reviewed: `${c["완료"]}/${out.items.length}`, saved_at: new Date().toISOString().slice(0, 19) };
+    const blob = new Blob([JSON.stringify(out, null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "rewrite_gold_80.json"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  $("reset").onclick = () => {
+    if (!window.GOLD_DRAFT) { alert("gold_draft.js 가 없습니다"); return; }
+    if (!confirm("브라우저에 저장된 검토 내용을 지우고 초안으로 되돌릴까요? (내려받은 파일은 그대로)")) return;
+    try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+    setGold(clone(window.GOLD_DRAFT), "초안으로 되돌림");
+  };
+
+  // ---------- 목록 ----------
+  function counts() {
+    const c = { "검토 전": 0, "완료": 0, "보류": 0 };
+    for (const it of GOLD.items) c[it.status] = (c[it.status] || 0) + 1;
+    return c;
+  }
+  function matches(it) {
+    const q = $("q").value.trim().toLowerCase();
+    if (q && !(it.id + " " + it.question).toLowerCase().includes(q)) return false;
+    if (FILTER === "flag") return (it.flags || []).length > 0;
+    if (FILTER === "empty") return !!it.expect_empty;
+    if (FILTER !== "all") return it.status === FILTER;
+    return true;
+  }
+  const statusCls = (s) => (STATUSES.find((x) => x[0] === s) || ["", "todo"])[1];
+  function renderList() {
+    const c = counts();
+    $("progress").innerHTML = `<span class="p-done">✓ 완료 ${c["완료"]} / ${GOLD.items.length}</span><span class="p-hold">⏸ 보류 ${c["보류"]}</span><span>○ 검토 전 ${c["검토 전"]}</span>`;
+    const view = GOLD.items.filter(matches);
+    $("count").textContent = `${view.length} / ${GOLD.items.length}개`;
+    const selId = GOLD.items[SEL] && GOLD.items[SEL].id;
+    $("list").innerHTML = view.map((it) => `<div class="item st-${statusCls(it.status)}${it.id === selId ? " sel" : ""}" data-id="${it.id}">
+      <div class="id">${esc(it.id)}</div>
+      <div><div class="q">${esc(it.question)}</div><div class="pills">
+        <span class="pill ${statusCls(it.status)}">${esc(statusLabel(it.status))}</span>
+        ${(it.flags || []).length ? `<span class="pill flag">확인 ${it.flags.length}</span>` : ""}
+        ${it.expect_empty ? `<span class="pill empty">비어야 함</span>` : ""}
+      </div></div></div>`).join("") || `<div class="item"><div></div><div class="none">조건에 맞는 질문이 없습니다</div></div>`;
+  }
+  $("list").onclick = (e) => { const el = e.target.closest(".item[data-id]"); el && select(el.dataset.id); };
+  function select(id) {
+    SEL = GOLD.items.findIndex((it) => it.id === id);
+    history.replaceState(null, "", "#id=" + id);
+    renderList(); renderDetail(); $("main").scrollTop = 0;
+    const el = document.querySelector(`.item[data-id="${id}"]`); el && el.scrollIntoView({ block: "nearest" });
+  }
+  $("q").oninput = renderList;
+  $("filters").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    FILTER = b.dataset.f;
+    document.querySelectorAll("#filters button").forEach((x) => x.classList.toggle("on", x === b));
+    renderList();
+  };
+  document.addEventListener("keydown", (e) => {
+    if (!GOLD || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const view = GOLD.items.filter(matches);
+    const i = view.findIndex((it) => it.id === GOLD.items[SEL].id);
+    const n = view[Math.min(view.length - 1, Math.max(0, i + (e.key === "ArrowDown" ? 1 : -1)))];
+    n && select(n.id);
+  });
+
+  // ---------- 지금 결과 (읽기 전용) ----------
+  const vals = (v) => arr(v).length ? arr(v).map((x) => `<span class="val">${esc(x)}</span>`).join("") : `<span class="none">—</span>`;
+  function slotRows(s, withIntent) {
+    const rows = keys().filter((k) => arr(s && s[k]).length).map((k) => `<tr><td class="k">${esc(k)}</td><td>${vals(s[k])}</td></tr>`);
+    if (withIntent && s && s["의도"]) rows.push(`<tr><td class="k">의도</td><td>${vals(s["의도"])}</td></tr>`);
+    return rows.join("") || `<tr><td class="none">값 있는 슬롯 없음</td></tr>`;
+  }
+  function currentPanel(cur) {
+    if (!cur) return `<div class="card"><h2>지금 결과</h2><div class="none">rewrite_trace.js 에 이 질문의 결과가 없습니다</div></div>`;
+    const terms = cur.term_hits || [];
+    const rf = cur.rule_found || {};
+    return `<div class="card"><h2>지금 결과 <span class="pill">읽기 전용</span></h2>
+      <h3>2-1 용어 사전</h3>${terms.length ? terms.map(([a, t]) => `<span class="val">${esc(a)} → ${esc(arr(t).join(", "))}</span>`).join("") : `<span class="none">없음</span>`}
+      <h3>2-2 코드 추출</h3>${cur.input_question !== cur.question ? `<div class="help">HCX 입력: ${esc(cur.input_question)}</div>` : ""}
+      <table>${Object.keys(rf).map((k) => `<tr><td class="k">${esc(k)}</td><td>${vals(rf[k])}</td></tr>`).join("") || `<tr><td class="none">없음</td></tr>`}</table>
+      <h3>2-4 검증 후 슬롯</h3><table>${slotRows(cur.valid_slots, true)}</table>
+      ${(cur.valid_log || []).length ? `<h3>2-4 고친 내역</h3><ul class="log">${cur.valid_log.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
+      <h3>하위 슬롯 (${(cur.valid_subs || []).length}개)</h3>
+      ${(cur.valid_subs || []).map((s, j) => `<div class="sub"><div class="t">하위 ${j}</div><table>${slotRows(s, true)}</table></div>`).join("") || `<span class="none">없음</span>`}
+      <h3>3 문장</h3><div class="sentence">${esc(cur.rewritten || "(빈 문장)")}</div>
+      ${(cur.sub_questions || []).length ? `<ol class="log">${cur.sub_questions.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
+    </div>`;
+  }
+
+  // ---------- 정답 라벨 편집 ----------
+  function slotInputs(s, prefix, cur, disabled) {
+    const ex = exactKeys();
+    return keys().map((k) => {
+      const v = toText(s[k]);
+      const diff = cur && !sameList(s[k], cur[k]) ? " diff" : "";
+      return `<tr><td class="k">${esc(k)}</td><td class="rule">${ex.has(k) ? "정확" : "허용값"}</td>
+        <td><input type="text" data-bind="${prefix}:${esc(k)}" value="${esc(v)}" class="${diff}" ${disabled ? "disabled" : ""}></td></tr>`;
+    }).join("");
+  }
+  function intentSelect(v, bind, disabled) {
+    return `<select data-bind="${bind}" ${disabled ? "disabled" : ""}><option value="">(없음)</option>
+      ${INTENTS.map((x) => `<option ${x === v ? "selected" : ""}>${x}</option>`).join("")}</select>`;
+  }
+  function wordCheck(words, sentence, mustHave) {
+    if (!arr(words).length) return "";
+    const s = (sentence || "").replace(/\s+/g, "");
+    return `<div class="wcheck">${arr(words).map((w) => {
+      const has = s.includes(String(w).replace(/\s+/g, ""));
+      const ok = mustHave ? has : !has;
+      return `<span class="w ${ok ? "ok" : "bad"}">${ok ? "✓" : "✗"} ${esc(w)}</span>`;
+    }).join("")} <span class="help">← 지금 문장 기준</span></div>`;
+  }
+
+  function editorPanel(it, cur) {
+    const dis = !!it.expect_empty;
+    const curSlots = cur && cur.valid_slots;
+    return `<div class="card"><h2>정답 라벨 <span class="pill">편집</span>
+        <span class="spacer"></span>
+        <span class="status-bar">
+          ${STATUSES.map(([s, c]) => `<button class="small ${c}${it.status === s ? " on" : ""}" data-act="status" data-s="${s}">${esc(statusLabel(s))}</button>`).join("")}
+          <button class="small primary" data-act="done-next">완료하고 다음 →</button>
+        </span></h2>
+      <div class="row" style="justify-content:flex-end;margin-bottom:6px">
+        <button class="small" data-act="copy" ${cur ? "" : "disabled"}>지금 결과를 정답으로 복사</button></div>
+      <label class="chk"><input type="checkbox" data-bind="expect_empty" ${dis ? "checked" : ""}> 슬롯이 비어야 함 (범위 밖·답 불가)</label>
+      ${dis ? `<div class="disabled-note">이 질문의 정답은 "슬롯·하위 질문이 모두 비어야 함"입니다. 2-1 용어 사전과 2-2 코드 추출 정답은 그대로 채점합니다.</div>` : ""}
+
+      <h3>2-1 용어 사전 <span class="help">찾아야 할 [일상어 → 대표 용어]</span></h3>
+      <div class="terms">${(it.terms || []).map(([a, t], i) => `<div class="row">
+          <input type="text" data-bind="term:${i}:0" value="${esc(a)}" placeholder="일상어">
+          <span>→</span><input type="text" data-bind="term:${i}:1" value="${esc(t)}" placeholder="대표 용어">
+          <button class="small" data-act="del-term" data-i="${i}">삭제</button></div>`).join("")}
+        <button class="small" data-act="add-term">+ 추가</button></div>
+
+      <h3>2-2 코드 추출 <span class="help">코드가 뽑아야 할 값 (쉼표로 구분)</span></h3>
+      <table>${EXTRACT_KEYS.map((k) => {
+        const v = (it.extract || {})[k];
+        const diff = cur && !sameList(v, (cur.rule_found || {})[k]) ? " diff" : "";
+        return `<tr><td class="k">${esc(k)}</td><td><input type="text" data-bind="extract:${esc(k)}" value="${esc(toText(v))}" class="${diff}"></td></tr>`;
+      }).join("")}</table>
+
+      <h3>슬롯 정답 <span class="help">쉼표로 구분 · 허용 값 여러 개는 A|B · 노란 칸 = 지금 결과와 다름</span></h3>
+      <table>${slotInputs(it.slots || {}, "slots", curSlots, dis)}
+        <tr><td class="k">의도</td><td class="rule">정확</td><td>${intentSelect(it.intent, "intent", dis)}</td></tr></table>
+
+      <h3>하위 질문 정답 (${(it.sub_questions || []).length}개) <span class="help">나누면 안 되는 질문이면 비워 둠</span></h3>
+      ${(it.meta && it.meta.ref_expected_sub_questions) ? `<div class="help">정답 참고: ${esc(it.meta.ref_expected_sub_questions.join(" / "))}</div>` : ""}
+      ${(it.sub_questions || []).map((s, j) => `<div class="sub"><div class="t">하위 ${j}
+          <button class="small" data-act="del-sub" data-i="${j}" ${dis ? "disabled" : ""}>삭제</button></div>
+        <table>${slotInputs(s, "sub:" + j, cur && (cur.valid_subs || [])[j], dis)}
+          <tr><td class="k">의도</td><td class="rule">정확</td><td>${intentSelect(s["의도"], "sub:" + j + ":의도", dis)}</td></tr></table></div>`).join("")}
+      <button class="small" data-act="add-sub" ${dis ? "disabled" : ""}>+ 하위 질문 추가</button>
+
+      <h3>3 문장 <span class="help">rewritten 에 꼭 들어갈 단어 / 들어가면 안 되는 단어 (쉼표로 구분)</span></h3>
+      <table>
+        <tr><td class="k">포함</td><td><input type="text" data-bind="must_include" value="${esc(toText(it.rewritten && it.rewritten.must_include))}" ${dis ? "disabled" : ""}>
+          ${wordCheck(it.rewritten && it.rewritten.must_include, cur && cur.rewritten, true)}</td></tr>
+        <tr><td class="k">금지</td><td><input type="text" data-bind="must_not_include" value="${esc(toText(it.rewritten && it.rewritten.must_not_include))}" ${dis ? "disabled" : ""}>
+          ${wordCheck(it.rewritten && it.rewritten.must_not_include, cur && cur.rewritten, false)}</td></tr>
+      </table>
+
+      <h3>메모</h3><textarea data-bind="note" rows="2" placeholder="판단 근거, 논의할 점">${esc(it.note || "")}</textarea>
+    </div>`;
+  }
+
+  function renderDetail() {
+    const it = GOLD.items[SEL];
+    if (!it) { $("detail").innerHTML = ""; return; }
+    const cur = CUR[it.question];
+    const m = it.meta || {};
+    const ref = [
+      m.ref_pass_criteria && `<div><b>통과 기준(참고)</b> ${esc(m.ref_pass_criteria)}</div>`,
+      m.ref_expected_filters && `<div><b>기대 필터(참고)</b> <span class="mono">${esc(JSON.stringify(m.ref_expected_filters))}</span></div>`,
+      m.ref_expected_sub_questions && `<div><b>기대 하위 질문(참고)</b> ${esc(m.ref_expected_sub_questions.join(" / "))}</div>`,
+    ].filter(Boolean).join("");
+    const sc = statusCls(it.status);
+    $("detail").innerHTML = `
+      <div class="card qhead st-${sc}">
+        <div class="meta"><span class="badge-status ${sc}">${esc(statusLabel(it.status))}</span><span>${esc(it.id)}</span>${m.survey ? `<span>${esc(m.survey)}</span>` : ""}${m.test_type ? `<span>${esc(m.test_type)}</span>` : ""}
+          ${m.answerability ? `<span>${esc(m.answerability)}</span>` : ""}${m.view_complexity ? `<span>${esc(m.view_complexity)}</span>` : ""}
+          <span>기준일 ${esc((GOLD.meta || {}).today || "")}</span></div>
+        <div class="qtext">${esc(it.question)}</div>
+        ${ref ? `<div class="ref">${ref}</div>` : ""}
+        ${(it.flags || []).length ? `<ul class="flags">${it.flags.map((f) => `<li>⚠ ${esc(f)}</li>`).join("")}</ul>` : ""}
+      </div>
+      <div class="cols">${currentPanel(cur)}${editorPanel(it, cur)}</div>`;
+  }
+
+  // ---------- 편집 반영 ----------
+  function setBind(it, bind, el) {
+    const p = bind.split(":");
+    if (bind === "expect_empty") { it.expect_empty = el.checked; return true; }
+    if (bind === "intent") { it.intent = el.value || null; return false; }
+    if (bind === "note") { it.note = el.value; return false; }
+    if (bind === "must_include" || bind === "must_not_include") {
+      it.rewritten = it.rewritten || { must_include: [], must_not_include: [] };
+      it.rewritten[bind] = parse(el.value); return false;
+    }
+    if (p[0] === "term") { it.terms[+p[1]][+p[2]] = el.value.trim(); return false; }
+    if (p[0] === "extract" || p[0] === "slots") {
+      const box = p[0] === "extract" ? (it.extract = it.extract || {}) : (it.slots = it.slots || {});
+      const v = parse(el.value); v.length ? (box[p[1]] = v) : delete box[p[1]]; return false;
+    }
+    if (p[0] === "sub") {
+      const s = it.sub_questions[+p[1]];
+      if (p[2] === "의도") { s["의도"] = el.value || null; return false; }
+      const v = parse(el.value); v.length ? (s[p[2]] = v) : delete s[p[2]]; return false;
+    }
+    return false;
+  }
+  $("detail").addEventListener("input", (e) => {
+    const b = e.target.dataset.bind; if (!b) return;
+    const it = GOLD.items[SEL];
+    const rerender = setBind(it, b, e.target);
+    save();
+    if (rerender) { renderDetail(); renderList(); }
+  });
+  $("detail").addEventListener("change", (e) => {
+    const b = e.target.dataset.bind; if (!b) return;
+    if (/^(slots|extract|sub|must_)/.test(b)) renderDetail();      // 노란 칸·✓✗ 갱신 (입력을 마친 뒤)
+  });
+  $("detail").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-act]"); if (!btn) return;
+    const it = GOLD.items[SEL], cur = CUR[it.question], act = btn.dataset.act;
+    if (act === "add-term") (it.terms = it.terms || []).push(["", ""]);
+    if (act === "del-term") it.terms.splice(+btn.dataset.i, 1);
+    if (act === "add-sub") (it.sub_questions = it.sub_questions || []).push({ "의도": "값 조회" });
+    if (act === "del-sub") it.sub_questions.splice(+btn.dataset.i, 1);
+    if (act === "copy" && cur) {
+      if (!confirm("지금 결과(용어 사전·코드 추출·슬롯·하위 질문)로 정답 칸을 덮어쓸까요?")) return;
+      const pick = (s) => Object.fromEntries(keys().filter((k) => arr(s && s[k]).length).map((k) => [k, [...s[k]]]));
+      it.terms = (cur.term_hits || []).map(([a, t]) => [a, arr(t).join(", ")]);
+      it.extract = clone(cur.rule_found || {});
+      it.slots = pick(cur.valid_slots); it.intent = (cur.valid_slots || {})["의도"] || null;
+      it.sub_questions = (cur.valid_subs || []).map((s) => ({ ...pick(s), "의도": s["의도"] || null }));
+      it.expect_empty = false;
+    }
+    if (act === "status") it.status = btn.dataset.s;
+    if (act === "done-next") {
+      it.status = "완료";
+      const view = GOLD.items.filter(matches);
+      const i = view.findIndex((x) => x.id === it.id);
+      save();
+      const next = view[i + 1] || view.find((x) => x.status !== "완료");
+      if (next && next.id !== it.id) { select(next.id); return; }
+    }
+    save(); renderDetail(); renderList();
+  });
+
+  function renderAll() { renderList(); renderDetail(); }
+
+  // ---------- 시작: 브라우저에 저장된 작업 → 없으면 초안 ----------
+  const stored = loadStored();
+  if (stored && Array.isArray(stored.items)) setGold(stored, "브라우저에 저장된 작업을 불러옴");
+  else if (window.GOLD_DRAFT) setGold(clone(window.GOLD_DRAFT), "초안을 불러옴 (아직 저장 전)");
+  else $("nodata").hidden = false;
+})();
+</script>
+</body>
+</html>

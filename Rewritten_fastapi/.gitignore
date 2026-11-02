@@ -1,0 +1,10 @@
+# API 키
+.env
+.env.*
+!.env.example
+
+# 파이썬·노트북 실행 부산물
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/

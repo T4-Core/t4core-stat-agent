@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>질문 재작성 파이프라인</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --panel-2: #f1f3f6;
+    --line: #e2e5ea;
+    --text: #1d2330;
+    --muted: #6a7282;
+    --accent: #2f6fde;
+    --accent-soft: #e6eefc;
+    --add: #1f8a4c;
+    --add-soft: #e3f4ea;
+    --del: #c23b3b;
+    --del-soft: #fbe7e7;
+    --chg: #9a6a00;
+    --chg-soft: #fbf1d9;
+    --code-bg: #f4f5f8;
+    --shadow: 0 1px 2px rgba(20, 30, 50, .06), 0 2px 8px rgba(20, 30, 50, .04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b; --panel: #1a1e26; --panel-2: #222733; --line: #2e3442; --text: #e6e9ef; --muted: #98a0b0;
+      --accent: #6d9cf5; --accent-soft: #233252; --add: #5cc98a; --add-soft: #1d3a2a; --del: #ef7b7b; --del-soft: #432427;
+      --chg: #e2b552; --chg-soft: #3f3420; --code-bg: #151920; --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151b; --panel: #1a1e26; --panel-2: #222733; --line: #2e3442; --text: #e6e9ef; --muted: #98a0b0;
+    --accent: #6d9cf5; --accent-soft: #233252; --add: #5cc98a; --add-soft: #1d3a2a; --del: #ef7b7b; --del-soft: #432427;
+    --chg: #e2b552; --chg-soft: #3f3420; --code-bg: #151920; --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.55 "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  }
+  code, pre, .mono { font-family: "D2Coding", Consolas, "SFMono-Regular", Menlo, monospace; }
+
+  /* ---------- 상단 ---------- */
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  .meta { display: flex; gap: 6px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+  .meta span { background: var(--panel-2); border-radius: 6px; padding: 2px 8px; }
+  .spacer { flex: 1; }
+  button, .btn {
+    font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; cursor: pointer;
+  }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  input[type=file] { display: none; }
+
+  /* ---------- 본문 ---------- */
+  .layout { display: grid; grid-template-columns: 360px 1fr; height: calc(100% - 57px); }
+  aside { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+  .search { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+  .search input {
+    width: 100%; font: inherit; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filters button { font-size: 12px; padding: 3px 9px; border-radius: 999px; }
+  .filters button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .count { font-size: 12px; color: var(--muted); }
+  .list { overflow-y: auto; flex: 1; }
+  .item {
+    display: grid; grid-template-columns: 34px 1fr; gap: 6px; padding: 9px 12px;
+    border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  .item:hover { background: var(--panel-2); }
+  .item.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  .item .no { color: var(--muted); font-size: 12px; padding-top: 2px; }
+  .item .q { font-size: 13px; }
+  .item .rw { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .tag { font-size: 11px; border-radius: 4px; padding: 0 6px; background: var(--panel-2); color: var(--muted); }
+  .tag.sub { background: var(--accent-soft); color: var(--accent); }
+  .tag.fix { background: var(--chg-soft); color: var(--chg); }
+  .tag.err { background: var(--del-soft); color: var(--del); }
+
+  main { overflow-y: auto; padding: 20px 28px 60px; min-width: 0; }
+  .empty { max-width: 560px; margin: 80px auto; text-align: center; color: var(--muted); }
+  .drop {
+    margin-top: 16px; border: 2px dashed var(--line); border-radius: 12px; padding: 32px; background: var(--panel);
+  }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+
+  .title { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); }
+  .title .qno { color: var(--muted); font-size: 12px; }
+  .title .qtext { font-size: 18px; font-weight: 700; margin: 2px 0 10px; }
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .flow .arrow { color: var(--muted); }
+  .final { background: var(--accent-soft); color: var(--accent); border-radius: 8px; padding: 4px 10px; font-weight: 600; }
+
+  /* ---------- 단계 ---------- */
+  .steps { margin-top: 18px; position: relative; }
+  .step { display: grid; grid-template-columns: 44px 1fr; gap: 12px; margin-bottom: 14px; }
+  .rail { display: flex; flex-direction: column; align-items: center; }
+  .dot {
+    width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--panel); border: 2px solid var(--accent); color: var(--accent); font-size: 12px; font-weight: 700;
+  }
+  .step.hcx .dot { background: var(--accent); color: #fff; }
+  .rail .line { flex: 1; width: 2px; background: var(--line); margin-top: 4px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); min-width: 0; }
+  .card h2 { font-size: 14px; margin: 0 0 2px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .card .desc { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .badge { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 6px; background: var(--panel-2); color: var(--muted); }
+  .badge.hcx { background: var(--accent); color: #fff; }
+  .badge.ok { background: var(--add-soft); color: var(--add); }
+  .badge.bad { background: var(--del-soft); color: var(--del); }
+  .sub-h { font-size: 12px; font-weight: 700; color: var(--muted); margin: 12px 0 6px; }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--line); background: var(--panel-2); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
+  .chip b { color: var(--accent); font-weight: 600; }
+  .none { color: var(--muted); font-size: 13px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+  td.k { width: 90px; color: var(--muted); white-space: nowrap; }
+  .val { display: inline-block; background: var(--panel-2); border-radius: 5px; padding: 0 7px; margin: 1px 3px 1px 0; }
+  tr.chg td.v2 .val { background: var(--chg-soft); color: var(--chg); }
+  tr.add td.v2 .val { background: var(--add-soft); color: var(--add); }
+  tr.del td.v1 .val { background: var(--del-soft); color: var(--del); text-decoration: line-through; }
+  .status { font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .status.chg { color: var(--chg); } .status.add { color: var(--add); } .status.del { color: var(--del); } .status.same { color: var(--muted); font-weight: 400; }
+
+  .log { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+  .log li { font-size: 13px; padding: 3px 10px; border-radius: 6px; border-left: 3px solid var(--line); background: var(--panel-2); }
+  .log li.del { border-left-color: var(--del); }
+  .log li.add { border-left-color: var(--add); }
+  .log li.chg { border-left-color: var(--chg); }
+
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+    font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; margin: 0; max-height: 460px; overflow: auto;
+  }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--accent); font-size: 13px; user-select: none; }
+  details[open] summary { margin-bottom: 6px; }
+  .sentence { font-size: 16px; font-weight: 600; background: var(--accent-soft); color: var(--accent); border-radius: 8px; padding: 8px 12px; display: inline-block; }
+  .subs { margin: 8px 0 0; padding-left: 20px; }
+  .subgrid { display: grid; gap: 10px; }
+  .subbox { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .subbox .t { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .toggle { font-size: 12px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+  .help { color: var(--muted); font-size: 12px; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); }
+    .list { max-height: 40vh; }
+    main { padding: 16px; }
+    .step { grid-template-columns: 32px 1fr; gap: 8px; }
+    .dot { width: 28px; height: 28px; font-size: 10px; }
+  }
+</style>
+<!-- 노트북 5단계가 만든 데이터 (window.REWRITE_TRACE). 없으면 화면에서 rewrite_trace.json 을 직접 고름 -->
+<script src="rewrite_trace.js"></script>
+</head>
+<body>
+<header>
+  <h1>질문 재작성 파이프라인</h1>
+  <div class="meta" id="meta"></div>
+  <div class="spacer"></div>
+  <label class="btn" for="file">JSON 열기</label>
+  <input type="file" id="file" accept=".json,application/json">
+  <button id="theme" title="밝게/어둡게">테마</button>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="search">
+      <input id="q" type="search" placeholder="질문·재작성 문장 검색">
+      <div class="filters" id="filters">
+        <button data-f="all" class="on">전체</button>
+        <button data-f="sub">하위 질문</button>
+        <button data-f="fix">고친 내역</button>
+        <button data-f="err">실패·빈 문장</button>
+      </div>
+      <div class="count" id="count"></div>
+    </div>
+    <div class="list" id="list"></div>
+  </aside>
+  <main id="main">
+    <div class="empty" id="empty">
+      <h2>데이터가 없습니다</h2>
+      <p>노트북 <b>5. 대시보드용 중간 결과 저장</b> 셀을 실행하면 같은 폴더에 <code>rewrite_trace.js</code> 가 생기고, 이 화면을 새로 고치면 자동으로 읽습니다.</p>
+      <div class="drop" id="drop">
+        <code>rewrite_trace.json</code> 을 여기로 끌어 놓거나 위의 <b>JSON 열기</b> 를 누르세요
+      </div>
+    </div>
+    <div id="detail" hidden></div>
+  </main>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const DEFAULT_KEYS = ["시점", "지역", "전출지", "전입지", "국적", "대상", "성별", "연령", "조건", "이동", "지표", "비교축"];
+  const STEPS = [
+    ["1", "사용자 질문", "CSV 의 question 열 그대로"],
+    ["2-1", "용어 사전 조회", "질문에 나온 일상어 → KOSIS 대표 용어 (코드)"],
+    ["2-2", "코드 추출", "상대 시점 변환 · 정규식과 대응표로 확실한 값 추출 (코드)"],
+    ["2-3", "HCX 슬롯 추출", "용어 사전·코드 추출 값을 힌트로 넣어 HCX 1회 호출"],
+    ["2-4", "슬롯 검증", "HCX 슬롯을 코드 추출 값·질문으로 검사·보완 (코드)"],
+    ["3", "슬롯 → 문장", "정해진 순서로 이어 붙인 검색용 명사구 (코드)"],
+    ["4", "최종 출력: QueryBundle", "검색 모듈에 넘기는 결과"],
+  ];
+
+  let DATA = null, VIEW = [], SEL = 0, FILTER = "all", SHOW_EMPTY = false;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const arr = (v) => (Array.isArray(v) ? v : v == null || v === "" ? [] : [v]);
+  const vals = (v) => arr(v).length ? arr(v).map((x) => `<span class="val">${esc(x)}</span>`).join("") : `<span class="none">—</span>`;
+  const keysOf = () => (DATA && DATA.meta && DATA.meta.slot_keys) || DEFAULT_KEYS;
+
+  // ---------- 테마 ----------
+  const root = document.documentElement;
+  try { const t = localStorage.getItem("rw-theme"); if (t) root.dataset.theme = t; } catch (e) {}
+  $("theme").onclick = () => {
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("rw-theme", root.dataset.theme); } catch (e) {}
+  };
+
+  // ---------- 데이터 읽기 ----------
+  function load(data) {
+    if (!data || !Array.isArray(data.items)) { alert("rewrite_trace.json 형식이 아닙니다 (items 가 없음)"); return; }
+    DATA = data;
+    const m = data.meta || {};
+    $("meta").innerHTML = [
+      m.n != null && `질문 ${m.n}개`, m.model && `모델 ${esc(m.model)}`, m.today && `기준일 ${esc(m.today)}`,
+      m.created && `생성 ${esc(m.created.replace("T", " "))}`, m.source && esc(m.source),
+    ].filter(Boolean).map((x) => `<span>${x}</span>`).join("");
+    $("empty").hidden = true; $("detail").hidden = false;
+    const h = parseInt((location.hash.match(/q=(\d+)/) || [])[1], 10);
+    SEL = Math.max(0, data.items.findIndex((it) => it.no === h));
+    renderList();
+  }
+  function readFile(f) {
+    const r = new FileReader();
+    r.onload = () => { try { load(JSON.parse(r.result)); } catch (e) { alert("JSON 을 읽지 못했습니다: " + e.message); } };
+    r.readAsText(f, "utf-8");
+  }
+  $("file").onchange = (e) => e.target.files[0] && readFile(e.target.files[0]);
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  document.addEventListener("drop", (e) => e.dataTransfer.files[0] && readFile(e.dataTransfer.files[0]));
+
+  // ---------- 목록 ----------
+  const isErr = (it) => !it.parsed || !it.rewritten;
+  function matches(it) {
+    const q = $("q").value.trim().toLowerCase();
+    if (q && !(it.question + " " + it.rewritten + " " + (it.sub_questions || []).join(" ")).toLowerCase().includes(q)) return false;
+    if (FILTER === "sub") return (it.sub_questions || []).length > 0;
+    if (FILTER === "fix") return (it.valid_log || []).length > 0;
+    if (FILTER === "err") return isErr(it);
+    return true;
+  }
+  function renderList() {
+    if (!DATA) return;
+    VIEW = DATA.items.filter(matches);
+    $("count").textContent = `${VIEW.length} / ${DATA.items.length}개`;
+    const selNo = DATA.items[SEL] && DATA.items[SEL].no;
+    $("list").innerHTML = VIEW.map((it) => {
+      const tags = [
+        it.bundle && it.bundle.intent && `<span class="tag">${esc(it.bundle.intent)}</span>`,
+        (it.sub_questions || []).length && `<span class="tag sub">하위 ${it.sub_questions.length}</span>`,
+        (it.valid_log || []).length && `<span class="tag fix">고침 ${it.valid_log.length}</span>`,
+        isErr(it) && `<span class="tag err">${it.parsed ? "빈 문장" : "실패"}</span>`,
+      ].filter(Boolean).join("");
+      return `<div class="item${it.no === selNo ? " sel" : ""}" data-no="${it.no}">
+        <div class="no">${it.no}</div>
+        <div><div class="q">${esc(it.question)}</div><div class="rw">→ ${esc(it.rewritten || "(빈 문장)")}</div><div class="tags">${tags}</div></div>
+      </div>`;
+    }).join("") || `<div class="item"><div></div><div class="none">조건에 맞는 질문이 없습니다</div></div>`;
+    renderDetail();
+  }
+  $("list").onclick = (e) => {
+    const el = e.target.closest(".item[data-no]"); if (!el) return;
+    select(+el.dataset.no);
+  };
+  function select(no) {
+    SEL = DATA.items.findIndex((it) => it.no === no);
+    history.replaceState(null, "", "#q=" + no);
+    document.querySelectorAll(".item").forEach((el) => el.classList.toggle("sel", +el.dataset.no === no));
+    const el = document.querySelector(`.item[data-no="${no}"]`); el && el.scrollIntoView({ block: "nearest" });
+    renderDetail(); $("main").scrollTop = 0;
+  }
+  $("q").oninput = renderList;
+  $("filters").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    FILTER = b.dataset.f;
+    document.querySelectorAll("#filters button").forEach((x) => x.classList.toggle("on", x === b));
+    renderList();
+  };
+  document.addEventListener("keydown", (e) => {
+    if (!DATA || e.target.tagName === "INPUT") return;
+    if (!["ArrowDown", "ArrowUp", "j", "k"].includes(e.key)) return;
+    e.preventDefault();
+    const cur = VIEW.findIndex((it) => it.no === (DATA.items[SEL] || {}).no);
+    const nxt = VIEW[Math.min(VIEW.length - 1, Math.max(0, cur + (e.key === "ArrowDown" || e.key === "j" ? 1 : -1)))];
+    nxt && select(nxt.no);
+  });
+
+  // ---------- 상세 ----------
+  function slotTable(slots, intent) {
+    const keys = keysOf();
+    const rows = keys.filter((k) => SHOW_EMPTY || arr(slots && slots[k]).length)
+      .map((k) => `<tr><td class="k">${esc(k)}</td><td>${vals(slots && slots[k])}</td></tr>`);
+    if (intent !== undefined) rows.push(`<tr><td class="k">의도</td><td>${vals(intent)}</td></tr>`);
+    return `<table>${rows.join("") || `<tr><td class="none">값이 있는 슬롯 없음</td></tr>`}</table>`;
+  }
+  function compareTable(before, after) {
+    const keys = [...keysOf(), "의도"];
+    const same = (a, b) => JSON.stringify(arr(a)) === JSON.stringify(arr(b));
+    const rows = keys.map((k) => {
+      const a = before ? before[k] : undefined, b = after ? after[k] : undefined;
+      let cls = "same", label = "같음";
+      if (!same(a, b)) {
+        if (!arr(a).length) { cls = "add"; label = "채움"; }
+        else if (!arr(b).length) { cls = "del"; label = "삭제"; }
+        else { cls = "chg"; label = "바뀜"; }
+      }
+      if (!SHOW_EMPTY && !arr(a).length && !arr(b).length) return "";
+      return `<tr class="${cls}"><td class="k">${esc(k)}</td><td class="v1">${vals(a)}</td><td class="v2">${vals(b)}</td>
+              <td><span class="status ${cls}">${label}</span></td></tr>`;
+    }).join("");
+    return `<table><tr><th>슬롯</th><th>HCX 응답</th><th>검증 후</th><th></th></tr>${rows}</table>`;
+  }
+  const logClass = (s) => (/삭제|무시|뺌/.test(s) ? "del" : /채움|추가/.test(s) ? "add" : "chg");
+
+  function stepHtml(i, body, extraBadge = "") {
+    const [no, name, desc] = STEPS[i];
+    const hcx = no === "2-3";
+    return `<div class="step${hcx ? " hcx" : ""}">
+      <div class="rail"><div class="dot">${no}</div>${i < STEPS.length - 1 ? '<div class="line"></div>' : ""}</div>
+      <div class="card"><h2>${esc(name)} ${hcx ? '<span class="badge hcx">HCX</span>' : '<span class="badge">코드</span>'} ${extraBadge}</h2>
+        <div class="desc">${esc(desc)}</div>${body}</div></div>`;
+  }
+
+  function renderDetail() {
+    const it = DATA && DATA.items[SEL];
+    if (!it) { $("detail").innerHTML = ""; return; }
+    const m = DATA.meta || {};
+    const b = it.bundle || {};
+
+    const s1 = `<div style="font-size:15px">${esc(it.question)}</div>`;
+
+    const hits = it.term_hits || [];
+    const s21 = hits.length
+      ? `<div class="chips">${hits.map(([a, t]) => `<span class="chip">${esc(a)} → <b>${esc(arr(t).join(", "))}</b></span>`).join("")}</div>`
+      : `<div class="none">찾은 표현 없음 (프롬프트에 [용어 사전] 을 넣지 않음)</div>`;
+
+    const rf = it.rule_found || {};
+    const rfRows = Object.keys(rf).map((k) => `<tr><td class="k">${esc(k)}</td><td>${vals(rf[k])}</td></tr>`).join("");
+    const s22 = `
+      <div class="sub-h">HCX 에 보낼 질문</div>
+      ${it.input_question !== it.question
+        ? `<div class="row"><span class="none">${esc(it.question)}</span><span class="arrow">→</span><b>${esc(it.input_question)}</b></div>`
+        : `<div>${esc(it.input_question)} <span class="none">(바뀐 것 없음)</span></div>`}
+      ${(it.time_notes || []).length ? `<div class="chips" style="margin-top:6px">${it.time_notes.map((n) => `<span class="chip">${esc(n)}</span>`).join("")}</div>` : ""}
+      <div class="sub-h">코드가 찾은 값 (rule_found)</div>
+      ${rfRows ? `<table>${rfRows}</table>` : `<div class="none">찾은 값 없음</div>`}`;
+
+    const subsRaw = it.hcx_subs || [];
+    const s23 = `
+      <div class="sub-h">user 프롬프트</div><pre>${esc(it.user_prompt)}</pre>
+      ${m.system_prompt ? `<details><summary>system 프롬프트 보기 (모든 질문 공통)</summary><pre>${esc(m.system_prompt)}</pre></details>` : ""}
+      <div class="sub-h">HCX 응답 · slots</div>
+      ${it.parsed ? slotTable(it.hcx_slots, it.hcx_slots && it.hcx_slots["의도"]) : `<div class="none" style="color:var(--del)">실패: ${esc(it.error)}</div>`}
+      <div class="sub-h">HCX 응답 · sub_questions (${subsRaw.length}개)</div>
+      ${subsRaw.length ? `<div class="subgrid">${subsRaw.map((s, j) => `<div class="subbox"><div class="t">하위 ${j}</div>${slotTable(s, s["의도"])}</div>`).join("")}</div>` : `<div class="none">[]</div>`}
+      <details><summary>HCX 원 응답 JSON</summary><pre>${esc(JSON.stringify(it.hcx_out, null, 1))}</pre></details>`;
+    const s23badge = `<span class="badge ${it.parsed ? "ok" : "bad"}">${it.parsed ? "응답 읽음" : "실패"}</span>` +
+      (it.elapsed_s != null ? ` <span class="badge">${it.elapsed_s}초</span>` : "");
+
+    const log = it.valid_log || [];
+    const vsubs = it.valid_subs || [];
+    const s24 = `
+      <div class="sub-h">고친 내역 (${log.length}건)</div>
+      ${log.length ? `<ul class="log">${log.map((l) => `<li class="${logClass(l)}">${esc(l)}</li>`).join("")}</ul>` : `<div class="none">고친 것 없음 — HCX 응답을 그대로 씀</div>`}
+      <div class="sub-h">메인 슬롯: HCX 응답 → 검증 후</div>
+      ${compareTable(it.hcx_slots, it.valid_slots)}
+      <div class="sub-h">하위 슬롯 (검증 후 ${vsubs.length}개)</div>
+      ${vsubs.length ? `<div class="subgrid">${vsubs.map((s, j) => `<div class="subbox"><div class="t">하위 ${j}</div>${slotTable(s, s["의도"])}</div>`).join("")}</div>` : `<div class="none">없음</div>`}`;
+
+    const subsQ = it.sub_questions || [];
+    const s3 = `
+      <div class="sub-h">rewritten</div><div class="sentence">${esc(it.rewritten || "(빈 문장 → QueryBundle 에는 원 질문)")}</div>
+      <div class="sub-h">sub_questions (${subsQ.length}개)</div>
+      ${subsQ.length ? `<ol class="subs">${subsQ.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : `<div class="none">[]</div>`}`;
+
+    const fRows = ["original", "rewritten", "sub_questions", "intent", "filters", "sub_filters"].map((k) => {
+      const v = b[k];
+      let cell;
+      if (k === "filters" && v) cell = `<table>${Object.keys(v).map((kk) => `<tr><td class="k">${esc(kk)}</td><td>${vals(v[kk])}</td></tr>`).join("")}</table>`;
+      else if (k === "sub_filters" && v) cell = v.map((f, j) => `<div class="subbox" style="margin-bottom:6px"><div class="t">하위 ${j}</div>${Object.keys(f).map((kk) => `<div><span class="none">${esc(kk)}</span> ${vals(f[kk])}</div>`).join("")}</div>`).join("");
+      else if (Array.isArray(v)) cell = v.length ? vals(v) : `<span class="none">[]</span>`;
+      else cell = v == null ? `<span class="none">None</span>` : esc(v);
+      return `<tr><td class="k mono">${k}</td><td>${cell}</td></tr>`;
+    }).join("");
+    const s4 = `<table>${fRows}</table>
+      <details><summary>JSON 보기</summary>
+        <div class="row" style="margin-bottom:6px"><button id="copy">JSON 복사</button><span class="help" id="copied"></span></div>
+        <pre id="bjson">${esc(JSON.stringify(b, null, 1))}</pre></details>`;
+
+    $("detail").innerHTML = `
+      <div class="title">
+        <div class="qno">질문 ${it.no} / ${DATA.items.length} · ↑↓ 키로 이동</div>
+        <div class="qtext">${esc(it.question)}</div>
+        <div class="flow"><span class="final">${esc(b.rewritten || it.rewritten || "")}</span>
+          ${b.intent ? `<span class="badge">${esc(b.intent)}</span>` : ""}
+          ${subsQ.length ? `<span class="badge">하위 질문 ${subsQ.length}개</span>` : ""}
+          ${log.length ? `<span class="badge">고친 내역 ${log.length}건</span>` : ""}
+          <span class="spacer"></span>
+          <label class="toggle"><input type="checkbox" id="showEmpty" ${SHOW_EMPTY ? "checked" : ""}> 빈 슬롯도 보기</label>
+        </div>
+      </div>
+      <div class="steps">
+        ${stepHtml(0, s1)}${stepHtml(1, s21)}${stepHtml(2, s22)}${stepHtml(3, s23, s23badge)}
+        ${stepHtml(4, s24)}${stepHtml(5, s3)}${stepHtml(6, s4)}
+      </div>`;
+    $("showEmpty").onchange = (e) => { SHOW_EMPTY = e.target.checked; renderDetail(); };
+    const copy = $("copy");
+    copy && (copy.onclick = () => {
+      const t = JSON.stringify(b, null, 1);
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject())
+        .then(() => ($("copied").textContent = "복사됨"))
+        .catch(() => ($("copied").textContent = "복사하지 못함 — 아래 내용을 직접 선택하세요"));
+    });
+  }
+
+  if (window.REWRITE_TRACE) load(window.REWRITE_TRACE);
+})();
+</script>
+</body>
+</html>
