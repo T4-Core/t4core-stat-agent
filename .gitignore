@@ -73,3 +73,6 @@ rag/playground.html
 
 # 검색 모듈 테스트 (로컬용)
 tests/test_searcher.py
+
+# 개인 프로파일링
+profiling/
