@@ -6,6 +6,18 @@
 # ── 데이터 (KOSIS 수집 결과, 용량이 큼) ──
 kosis_data/
 data/
+# [ADDED] 새 구조의 로컬 저장소: 폴더 뼈대(.gitkeep, README)만 올림
+storage/*
+!storage/README.md
+!storage/parquet/
+!storage/indices/
+storage/parquet/*
+storage/indices/*
+!storage/**/.gitkeep
+# [ADDED] 구 view_model/.gitignore 의 output/ (예전 위치)
+view_model/output/
+# [ADDED] 질의 재작성 예시 입력은 올림 (data/ 규칙 예외, 구 view_model/.gitignore 의 !data/)
+!backend/rag/query_analyzer/data/
 *.parquet
 *.duckdb
 *.duckdb.wal
@@ -55,24 +67,8 @@ golden_prompts.py
 kosis_golden_pipeline.py
 kosis_query_debugger.ipynb
 kosis_human_eval.py
-kosis_fast_human_review_seq.ipynb
-kosis_fast_human_review.ipynb
-kosis_query_debug.ipynb
-kosis_rag_eval_50.csv
-kosis_rag_eval_50.jsonl
+kosis_fast_human_review_gpt.ipynb
+# kosis_rag_eval_50.csv
+# kosis_rag_eval_50.jsonl
 test.ipynb
-
-
-# playground (로컬 실험용 도구)
-rag/playground.py
-rag/playground.html
-
-# JSON 데이터 / 픽스처
-*.json
-*.jsonl
-
-# 검색 모듈 테스트 (로컬용)
-tests/test_searcher.py
-
-# 개인 프로파일링
-profiling/
+review_images/

@@ -109,40 +109,57 @@ flowchart TD
 ```
 
 ```
-## 6. 프로젝트 폴더 구조 (초안)
+## 6. 프로젝트 폴더 구조
+
+> 이전 구조(루트의 `kosis_*.py`, `view_model/`, `Rewritten_fastapi/`)에서 무엇이 어디로 갔는지는 **[MIGRATION.md](MIGRATION.md)**
+> 수집 → 색인 → 서비스 실행 순서는 **[docs/PIPELINE.md](docs/PIPELINE.md)**
 
 ```text
-kosis-stat-agent/
-├── README.md               # 프로젝트 개요 및 실행 방법
-├── .env                    # API Key 및 환경변수 설정
-├── .gitignore              # Git 추적 제외 파일 설정
-│
-├── backend/                # FastAPI 기반 백엔드 및 API
-├── frontend/               # JavaScript 기반 사용자 인터페이스
-├── src/                    # 공통 기능 및 데이터 처리 로직
-│
-├── rag/                    # RAG 검색 및 임베딩 관련 기능
-├── agent/                  # AI Agent 워크플로 및 처리 로직
-│
-├── data/                   # KOSIS 원본 데이터 및 전처리 데이터
-├── notebooks/              # EDA 및 실험용 Jupyter Notebook
-└── tests/                  # 기능 테스트 및 성능 검증
-```         
+t4core-stat-agent/
+├── .env.example · requirements.txt · pytest.ini · MIGRATION.md
+├── backend/                      # FastAPI 백엔드 + AI 코어
+│   ├── main.py                   # 통합 Swagger (uvicorn backend.main:app)
+│   ├── core/                     # config.py(동적 경로·.env) · llm.py(HCX chat·임베딩) · utils.py
+│   ├── schemas/                  # query.py · record.py · search.py · chat.py · view.py (모듈 간 계약)
+│   ├── api/                      # v1_query · v1_ingest · v1_search · v1_chat (+ deps.py)
+│   ├── rag/
+│   │   ├── query_analyzer/       # [파트 1] 질의 재작성 → QueryBundle (+ adapter: View 모듈 입력으로 변환)
+│   │   ├── ingestion/            # [파트 2] 수집(collector) · 정규화 · View 생성 · 인덱싱
+│   │   └── retrieval/            # [파트 3] 표 검색(BM25→bge-m3) · 하이브리드(RRF) · 리랭커(자리)
+│   ├── agent/                    # light_agent(통합 파이프라인·legacy 답변) · prompts · tools
+│   └── data_engine/              # duckdb_client(좌표 재조회) · chart_generator
+├── frontend/                     # (예약)
+├── eval/                         # golden_set/ · query_rewrite/ · run_eval.py · review_app.py
+├── notebooks/                    # why/ · query_rewrite/ (실험·기록용)
+├── docs/                         # view_model/ · query_rewrite/ (모듈별 상세 문서)
+├── tests/                        # query_analyzer 단위 테스트 + 통합 파이프라인 테스트(HCX 없이)
+└── storage/                      # 로컬 데이터 (git 제외) — kosis_data/ · parquet/ · indices/
+```
 
 ### 설계 원칙
 
-1. **원본 보존:** `data/kosis/`는 KOSIS 구조 그대로 둡니다. 가공은 모두 그다음 단계 폴더에서만 합니다.
+1. **원본 보존:** `storage/kosis_data/`는 KOSIS 구조 그대로 둡니다. 가공은 모두 그다음 단계 폴더에서만 합니다.
 2. **검색과 수치 분리:** 검색은 "어떤 뷰인가"만 찾고, 답변의 숫자는 항상 `source` 좌표로 원본을 다시 조회합니다.
-3. **`src/` 공용화:** 파이프라인과 백엔드가 같은 검색·조회 코드를 써서, 오프라인 평가 결과와 실제 서비스 동작이 일치합니다.
-4. **교체 가능한 모델:** LLM(HCX)과 임베딩 모델은 인터페이스 뒤에 두어 비교 실험과 교체가 쉽게 합니다.
+3. **경로는 한 곳에서:** 모든 모듈은 `backend/core/config.py` 의 경로만 씁니다 (환경변수 → `storage/` → 예전 위치 순으로 자동 탐색).
+4. **교체 가능한 모델:** LLM(HCX)과 임베딩 모델은 `core/llm.py`, `retrieval/dense.py` 뒤에 두어 비교 실험과 교체가 쉽게 합니다.
 
 ---
 
 ## 7. 빠른 시작
 
 ```bash
+pip install -r requirements.txt
+cp .env.example .env                      # KOSIS_API_KEY, HCX_API_KEY 입력
 
+# 데이터: 기존 kosis_data 폴더를 storage/kosis_data 로 옮기거나(권장) 그대로 루트에 두거나 .env 의 KOSIS_DATA_DIR 로 지정
+python -m backend.core.config             # 경로 해석 결과 확인
 
+uvicorn backend.main:app --reload --port 8000
+# http://localhost:8000/docs
+#   ⓪ POST /api/v1/rag/chunk-and-index   (처음 한 번: 메타 프로필 + 표 색인)
+#   ★ POST /api/v1/chat                  (질문 → 재작성 → 검색·View → 답변)
+
+pytest -q                                 # HCX·네트워크 없이 단위 + 통합 테스트
 ```
 
 ---

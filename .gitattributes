@@ -1,0 +1,23 @@
+# Line endings: git stores LF; each OS checks out its native ending (Windows CRLF, mac/linux LF)
+# -> no "LF will be replaced by CRLF" noise, and no whole-file diffs between Windows / mac teammates
+* text=auto
+
+# Windows-only scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary (never convert)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.xlsx binary
+*.xls binary
+*.parquet binary
+*.duckdb binary
+*.sqlite binary
+*.pkl binary
+*.npy binary
+*.zip binary
