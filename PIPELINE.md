@@ -178,7 +178,7 @@ uvicorn backend.main:app --reload --port 8000       # http://localhost:8000/docs
 | `pip install` 에서 `cp949` 오류 | Windows 인코딩 | `requirements.txt` 는 ASCII 로 유지, 또는 `$env:PYTHONUTF8=1` |
 
 
-### streamlit 사용법
+### streamlit 사용법 => 평가 파이프라인용
 python eval/pipeline_review/review_80.py list                     # 찾은 세트·열 매핑·진행 현황
 python eval/pipeline_review/review_80.py run --queries 80 --n 5   # 번호 | 이름 일부 | 경로로 선택
 python eval/pipeline_review/review_80.py run --all --no-png       # 모든 세트
