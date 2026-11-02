@@ -61,3 +61,18 @@ kosis_query_debug.ipynb
 kosis_rag_eval_50.csv
 kosis_rag_eval_50.jsonl
 test.ipynb
+
+
+# playground (로컬 실험용 도구)
+rag/playground.py
+rag/playground.html
+
+# JSON 데이터 / 픽스처
+*.json
+*.jsonl
+
+# 검색 모듈 테스트 (로컬용)
+tests/test_searcher.py
+
+# 개인 프로파일링
+profiling/
