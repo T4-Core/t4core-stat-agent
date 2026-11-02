@@ -1,0 +1,6 @@
+# View 모듈 산출물·캐시는 올리지 않음 (정규화 parquet, 임베딩 캐시, 결과 파일 등 데이터)
+output/
+__pycache__/
+
+# 저장소 루트 .gitignore 의 data/ 규칙 예외: 예시 질의 입력(data/slot_queries.json)은 올림
+!data/
