@@ -56,3 +56,10 @@ def health():
 @app.get("/api/v1/system/paths", tags=["system"], summary="데이터 경로 해석 결과 (환경변수 → storage → 예전 위치)")
 def system_paths():
     return paths()
+
+
+@app.get("/api/v1/system/pipelines", tags=["system"], summary="[NEW] 사용 가능한 파이프라인 (기본 + 개인 폴더 플러그인)")
+def system_pipelines():
+    from backend.core import plugins
+    from backend.core.config import PRIVATE_DIR
+    return {"private_dir": str(PRIVATE_DIR) if PRIVATE_DIR else None, "pipelines": plugins.available()}

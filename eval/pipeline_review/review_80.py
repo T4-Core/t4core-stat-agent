@@ -33,7 +33,9 @@ import html
 import json
 import re
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -200,9 +202,14 @@ def load_questions(queries=None, test_dir=None):
     return items
 
 
-def run_for(queries=None, test_dir=None):
-    """테스트 세트 → 결과 폴더 (storage/eval_runs/<질문 파일 이름>)"""
-    return resolve_test_set(queries, test_dir)["run"]
+def run_name_for(ts, pipeline=None):
+    """결과 폴더: 기본 파이프라인 = <질문 파일 이름>, 개인 파이프라인 = <질문 파일 이름>__<파이프라인>"""
+    return ts["run"] if not pipeline or pipeline == "default" else RunPaths(f"{ts['name']}__{pipeline}")
+
+
+def run_for(queries=None, test_dir=None, pipeline=None):
+    """테스트 세트 → 결과 폴더 (storage/eval_runs/<질문 파일 이름>[__파이프라인])"""
+    return run_name_for(resolve_test_set(queries, test_dir), pipeline)
 
 
 def expected_tables(ref):
@@ -389,9 +396,12 @@ def evidence(out, max_rows=30):
     return ev
 
 
-def run_one(item, today=DEFAULT_TODAY, top_k=10, n_views=3):
-    """질문 하나 → 검수용 레코드 (구 노트북 run_single_query_and_pack_evidence 와 같은 모양)"""
-    from backend.agent.light_agent import record_context, run_chat
+def run_one(item, today=DEFAULT_TODAY, top_k=10, n_views=3, pipeline=None):
+    """질문 하나 → 검수용 레코드 (구 노트북 run_single_query_and_pack_evidence 와 같은 모양)
+    pipeline = None/'default' | 개인 폴더 파이프라인 이름 (backend/core/plugins.py) — 출력 계약이 같아 채점·카드가 그대로 동작"""
+    from backend.agent.light_agent import record_context
+    from backend.core import plugins
+    run_chat = plugins.get(pipeline)
     t0 = time.time()
     base = {"id": item["id"], "survey": item["survey"], "test_type": item["test_type"],
             "target_modules": item.get("target_modules", ""), "question": item["question"],
@@ -425,6 +435,7 @@ def run_one(item, today=DEFAULT_TODAY, top_k=10, n_views=3):
                             "survey_nm": c["survey_nm"], "score": c["score"], "bm25_rank": c.get("bm25_rank"),
                             "has_view": c["has_view"]} for u in out["views"]["units"] for c in u["candidates"]],
             "chart": res.get("chart"), "sources": res.get("sources"),
+            "name": pipeline or "default", "trace": out.get("trace"),     # 개인 파이프라인 단계 기록 (있으면)
         },
         "human_review": _init_human(m),
         "elapsed_s": round(time.time() - t0, 2),
@@ -464,40 +475,52 @@ def save_results(run, data):
 
 
 def run_batch(run=None, ids=None, n=None, force=False, today=DEFAULT_TODAY, top_k=10, n_views=3, png=True,
-              test_dir=None, log=print, queries=None):
+              test_dir=None, log=print, queries=None, pipeline=None, workers=1):
     """테스트 세트 자동 실행. 이미 성공한 문항은 건너뜀(force=True 면 다시). 사람 판정은 다시 실행해도 유지
-    queries = 테스트 세트 (None | 번호 | 이름 일부 | 경로), run = 결과 폴더 (None 이면 질문 파일 이름)"""
+    queries = 테스트 세트 (None | 번호 | 이름 일부 | 경로), run = 결과 폴더 (None 이면 질문 파일 이름[__파이프라인])
+    pipeline = None/'default' | 개인 파이프라인 이름 → 결과 폴더가 따로 생겨 같은 세트로 나란히 비교"""
     ts = resolve_test_set(queries, test_dir)
-    run = run or ts["run"]
+    run = run or run_name_for(ts, pipeline)
     items = load_questions(str(ts["path"]))
     run.dir.mkdir(parents=True, exist_ok=True)
     (run.dir / "run_meta.json").write_text(json.dumps({
         "queries_file": str(ts["path"]), "refs_file": str(ts["refs"]) if ts.get("refs") else None,
         "n_questions": len(items), "columns": ts["columns"], "today": today, "top_k": top_k, "n_views": n_views,
+        "pipeline": pipeline or "default", "kosis_data_dir": str(KOSIS_DATA_DIR),
         "updated": time.strftime("%Y-%m-%d %H:%M:%S")}, ensure_ascii=False, indent=1), encoding="utf-8")
     log(f"테스트 세트: {ts['path'].name} ({len(items)}문항)" + (f" + 정답 참고 {ts['refs'].name}" if ts.get("refs") else "")
-        + f" → {run.dir}")
+        + f" | 파이프라인 {pipeline or 'default'} | 데이터 {KOSIS_DATA_DIR} → {run.dir}")
     if ids:
         items = [it for it in items if it["id"] in set(ids)]
     if n:
         items = items[:n]
     data = load_results(run)
     t0 = time.time()
-    for i, it in enumerate(items, 1):
-        old = data.get(it["id"])
-        if old and not force and not str(old.get("ai_answer", "")).startswith("[API 호출 오류"):
-            continue
-        rec = run_one(it, today, top_k, n_views)
-        if old and old["human_review"].get("reviewed"):          # 사람이 이미 본 판정은 보존
-            rec["human_review"] = old["human_review"]
-        data[it["id"]] = rec
-        save_results(run, data)
-        write_card(run, rec, png=png)
+    todo = [(i, it) for i, it in enumerate(items, 1) if force or not data.get(it["id"])
+            or str(data[it["id"]].get("ai_answer", "")).startswith("[API 호출 오류")]
+    lock = threading.Lock()
+
+    def one(i, it):
+        rec = run_one(it, today, top_k, n_views, pipeline)
+        with lock:                                           # 결과 파일은 한 번에 하나씩 저장
+            old = data.get(it["id"])
+            if old and old["human_review"].get("reviewed"):      # 사람이 이미 본 판정은 보존
+                rec["human_review"] = old["human_review"]
+            data[it["id"]] = rec
+            save_results(run, data)
+            write_card(run, rec, png=png)                    # 카드 그리기(matplotlib)도 스레드 하나씩
         mm = rec["auto_metrics"]
         log(f"[{i:02d}/{len(items)}] {it['id']} {it['test_type']:<14} 검색:{mm['검색_적합성']:<7} 추출:{mm['원본_수치_추출']:<7} "
             f"Ctx:{mm['Context_충분성']:<7} 완성:{mm['변화율_응답_완성도']:<7} 환각:{mm['자동_환각_검증']:<7} "
             f"→ {mm['자동_종합_판정']} ({rec['elapsed_s']}s)")
-    log(f"완료: {len(data)}문항 저장 ({time.time() - t0:.0f}s) → {run.auto}")
+
+    if workers <= 1:
+        for i, it in todo:
+            one(i, it)
+    else:                                                    # [NEW] 문항 병렬 실행 (HCX 429 가 많으면 줄임)
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            list(ex.map(lambda x: one(*x), todo))
+    log(f"완료: {len(data)}문항 저장 ({time.time() - t0:.0f}s, 이번 실행 {len(todo)}문항, workers={workers}) → {run.auto}")
     return data
 
 
@@ -572,7 +595,13 @@ def card_html(rec):
     pipe = (f"<div><b>① 재작성</b> {_esc(rw.get('rewritten'))} <span class='g'>intent={_esc(rw.get('intent'))}</span></div>"
             f"<div><b>② View 조건</b> <code>{_esc(json.dumps(p.get('view_filters'), ensure_ascii=False))}</code></div>"
             + (f"<div><b>하위 질문</b> {_esc(p.get('sub_questions'))}</div>" if p.get("sub_questions") else "")
-            + f"<div class='g'>검색 문장: {_esc(p.get('search_text'))} · 소요 {_esc(p.get('timings'))}</div>")
+            + f"<div class='g'>검색 문장: {_esc(p.get('search_text'))} · 소요 {_esc(p.get('timings'))}</div>"
+            + f"<div class='g'>파이프라인: <b>{_esc(p.get('name') or 'default')}</b></div>")
+    if p.get("trace"):      # 개인 파이프라인의 단계 기록 (단계 · 내용 한 줄씩)
+        steps = "".join(f"<tr><td>{_esc(t.get('step'))}</td><td>{_esc(t.get('title'))}</td><td>{_esc(t.get('s', ''))}</td>"
+                         f"<td>{_esc(json.dumps(t.get('detail'), ensure_ascii=False)[:400])}</td></tr>" for t in p["trace"][:20])
+        pipe += ("<div><b>🧭 단계 기록</b><table class='t'><thead><tr><th>단계</th><th>내용</th><th>초</th><th>세부</th></tr></thead>"
+                 f"<tbody>{steps}</tbody></table></div>")
     cand = "".join(f"<tr><td>{c['unit']}</td><td>{c['rank']}</td><td>{_esc(c['survey_nm'])}</td><td>{_esc(c['tbl_nm'])}</td>"
                    f"<td>{c['tbl_id']}</td><td>{c['score']}</td><td>{c.get('bm25_rank')}</td><td>{'●' if c['has_view'] else ''}</td></tr>"
                    for c in (p.get("candidates") or [])[:10])
@@ -666,12 +695,21 @@ def list_sets(test_dir=None, log=print):
         if "error" in t:
             log(f"  [-] {t['path'].name}: {t['error']}")
             continue
-        done = load_results(t["run"])
-        rv_ = sum(bool(r["human_review"].get("reviewed")) for r in done.values())
         log(f"  [{i}] {t['path'].name}  {t['n']}문항  열={t['columns']}"
             + (f"  정답참고={t['refs'].name}" if t.get("refs") else "")
-            + (f"  정답 참고 열={t['extra']}" if t.get("extra") else "")
-            + f"  | 실행 {len(done)}/{t['n']} · 검수 {rv_}")
+            + (f"  정답 참고 열={t['extra']}" if t.get("extra") else ""))
+        runs = [t["run"].dir] + sorted(EVAL_RUNS_DIR.glob(f"{t['name']}__*"))
+        for d in runs:
+            done = load_results(RunPaths(d.name))
+            if done or d == t["run"].dir:
+                rv_ = sum(bool(r["human_review"].get("reviewed")) for r in done.values())
+                pipe = d.name.split("__", 1)[1] if "__" in d.name else "default"
+                log(f"       └ 파이프라인 {pipe:<12} 실행 {len(done)}/{t['n']} · 검수 {rv_}")
+    try:
+        from backend.core import plugins
+        log("파이프라인: " + " | ".join(f"{k} = {v}" for k, v in plugins.available().items()))
+    except Exception as e:  # noqa: BLE001
+        log(f"파이프라인 목록 실패: {e}")
     return sets
 
 
@@ -681,7 +719,8 @@ def main():
     ap.add_argument("--queries", help="테스트 세트: 번호 | 파일 이름 일부 | 경로 (하나뿐이면 생략)")
     ap.add_argument("--all", action="store_true", help="run: 모든 테스트 세트")
     ap.add_argument("--test-dir", default=None, help="평가 질문 폴더 (기본 config.TEST_DATA_DIR)")
-    ap.add_argument("--run", default=None, help="결과 폴더 이름 (기본: 질문 파일 이름). 설정을 바꿔 비교할 때 지정")
+    ap.add_argument("--run", default=None, help="결과 폴더 이름 (기본: 질문 파일 이름[__파이프라인]). 설정을 바꿔 비교할 때 지정")
+    ap.add_argument("--pipeline", default=None, help="default | 개인 폴더 파이프라인 이름 (list 에서 확인)")
     ap.add_argument("--ids", nargs="*")
     ap.add_argument("--n", type=int)
     ap.add_argument("--force", action="store_true", help="이미 실행한 문항도 다시 (사람 판정은 유지)")
@@ -690,16 +729,25 @@ def main():
     ap.add_argument("--n-views", type=int, default=3)
     ap.add_argument("--png", action="store_true", help="cards: PNG 도 만들기 (run 은 기본으로 만듦)")
     ap.add_argument("--no-png", action="store_true", help="run: PNG 만들지 않기 (빠름)")
+    ap.add_argument("--workers", type=int, default=1, help="run: 동시에 돌릴 문항 수 (HCX 429 가 많으면 줄임)")
     a = ap.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     if a.cmd == "list":
         list_sets(a.test_dir)
         return
+    if a.cmd == "run" and a.pipeline and a.pipeline != "default":
+        # [NEW] 개인 파이프라인이 없는 환경(예: private/ 없이 clone) → traceback 대신 안내하고 종료
+        from backend.core import plugins
+        if a.pipeline not in plugins.available():
+            print(f"✗ 파이프라인 '{a.pipeline}' 없음. 사용 가능: {list(plugins.available())}\n"
+                  f"  개인 파이프라인은 git 에 없는 private/ 폴더에 있습니다 (PRIVATE_DIR 로 위치 지정 가능)."
+                  f" 기본 파이프라인은 --pipeline 없이 실행하세요.")
+            sys.exit(2)
     if a.cmd == "run" and a.all:
         for t in [t for t in find_test_sets(a.test_dir) if "error" not in t]:
             run_batch(None, a.ids, a.n, a.force, a.today, a.top_k, a.n_views, png=not a.no_png,
-                      test_dir=a.test_dir, queries=str(t["path"]))
+                      test_dir=a.test_dir, queries=str(t["path"]), pipeline=a.pipeline, workers=a.workers)
         return
     try:
         ts = resolve_test_set(a.queries, a.test_dir)
@@ -707,10 +755,10 @@ def main():
         print(f"✗ {e}\n")
         list_sets(a.test_dir)
         sys.exit(2)
-    run = RunPaths(a.run) if a.run else ts["run"]
+    run = RunPaths(a.run) if a.run else run_name_for(ts, a.pipeline)
     if a.cmd == "run":
         run_batch(run, a.ids, a.n, a.force, a.today, a.top_k, a.n_views, png=not a.no_png,
-                  test_dir=a.test_dir, queries=str(ts["path"]))
+                  test_dir=a.test_dir, queries=str(ts["path"]), pipeline=a.pipeline, workers=a.workers)
     elif a.cmd == "cards":
         write_cards(run, a.ids, png=a.png)
     else:

@@ -5,7 +5,7 @@
   POST /api/v1/agent/answer   ③ 만: 질문 + Record 목록 → 답변              (Swagger 에서 ①②③ 을 이어 붙여 테스트)
   POST /api/v1/chat/legacy    구 kosis_rag_qa.py ask (records.jsonl 하이브리드 인덱스) — 비교용
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from backend.agent.light_agent import answer, answer_from_records, run_chat
 from backend.api.deps import guard
@@ -19,6 +19,12 @@ def chat(body: ChatRequest):
     """HCX 호출: 재작성 1회 + 임베딩(캐시 없을 때) + 답변 1회. 각 단계 결과를 모두 돌려준다
     (rewrite → view_bundle → views/records → result, timings)."""
     with guard("chat: "):
+        if body.pipeline and body.pipeline != "default":     # [NEW] 개인 폴더 파이프라인 (같은 출력 계약)
+            from backend.core import plugins
+            if body.pipeline not in plugins.available():    # [NEW] private/ 가 없는 환경 → 400 (서버 오류 아님)
+                raise HTTPException(400, f"파이프라인 '{body.pipeline}' 없음. 사용 가능: {list(plugins.available())}")
+            return plugins.get(body.pipeline)(body.question, body.today, body.top_k, body.n_views,
+                                              max_rows=body.max_rows)
         return run_chat(body.question, body.today, body.top_k, body.n_views, body.search_with, body.use_rewrite,
                         body.max_rows, body.save)
 

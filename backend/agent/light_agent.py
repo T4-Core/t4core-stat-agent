@@ -485,17 +485,48 @@ def record_context(rec, max_rows, notes=None, title=None):
     return "\n".join(lines)
 
 
-def answer_from_records(question, records, notes=None, titles=None, max_rows=40, queries=None):
-    """③ 답변 노드: Record 목록 → AnswerResult(dict). HCX 1회"""
+def pick_context(records, notes, groups=None, k=4, k_max=6):
+    """[NEW] 답변에 넣을 Record 고르기. groups 없으면 예전과 같음: 조건을 모두 맞춘 View → 일부 → 빈 View 순 앞 k 개
+    groups = {record id: 하위 질의 id} 를 주면 하위 질의마다 가장 좋은 1개를 먼저 (질의 순서대로) 넣고 남는 자리를 채움
+    → 비슷한 표가 앞자리를 차지해 다른 하위 질의의 표가 빠지는 문제 방지 (하위 질의가 k 보다 많으면 k_max 까지 늘림)"""
+    def key(r):
+        return (not (r.get("table") or {}).get("rows"), len(notes.get(r["id"], [])))
+    ordered = sorted(records, key=key)
+    if not groups:
+        return ordered[:k]
+    order = list(dict.fromkeys(groups.get(r["id"]) for r in records))
+    first = [next(r for r in ordered if groups.get(r["id"]) == g) for g in order]
+    k = min(max(k, len(first)), k_max)
+    seen = {(r.get("source") or {}).get("tbl_id") for r in first}
+    rest = []
+    for r in ordered:                                  # 남는 자리: 이미 들어간 표와 다른 표만 (같은 예비 표가 두 번 들어가지 않게)
+        t = (r.get("source") or {}).get("tbl_id")
+        if r not in first and t not in seen:
+            seen.add(t)
+            rest.append(r)
+    return (first + rest)[:k]
+
+
+def answer_from_records(question, records, notes=None, titles=None, max_rows=40, queries=None, extra_context=None,
+                        groups=None):
+    """③ 답변 노드: Record 목록 → AnswerResult(dict). HCX 1회
+    [CHANGED] extra_context 인자 추가 (기본 None → 예전과 같음). 코드가 계산한 [계산 결과] 블록 등을 [자료] 뒤에 붙이고
+    숫자 검증 근거에도 포함 — 개인 파이프라인(stat_rag)이 v2 계산 도구 결과를 넘길 때 사용
+    [CHANGED] groups 인자 추가 (기본 None → 예전과 같음): 하위 질의마다 최소 1개 View 를 넣음 (pick_context)"""
     from backend.data_engine.chart_generator import chart_from_record
     notes, titles = notes or {}, titles or {}
     by_id = {r["id"]: r for r in records}
     # 조건을 모두 맞춘 View → 일부 → 빈 View 순 (같으면 검색 순서 유지) — answer() 의 정렬 기준과 같음
-    ctx = sorted(records, key=lambda r: (not (r.get("table") or {}).get("rows"), len(notes.get(r["id"], []))))[:4]
+    ctx = pick_context(records, notes, groups)
+    # [CHANGED] 이전: ctx = sorted(records, key=lambda r: (not rows, len(notes)))[:4]  — groups 가 없으면 같은 결과
+    if len(ctx) > 4:                                   # 표가 많으면 표마다 행 수를 줄여 전체 분량 유지
+        max_rows = max(12, max_rows * 4 // len(ctx))
     if not ctx:
         return {"answer": "질문에 맞는 통계표를 찾지 못했습니다.", "summary": "", "key_points": [], "insufficient": True,
                 "unverified_numbers": [], "used_ids": [], "chart_id": None, "chart": None, "sources": [], "caveats": []}
     context = "\n\n".join(record_context(r, max_rows, notes.get(r["id"]), titles.get(r["id"])) for r in ctx)
+    if extra_context:                                  # [NEW] 이전: context 는 [자료] 만
+        context = f"{context}\n\n{extra_context}"
     out = chat([{"role": "system", "content": ANSWER_SYS},
                 {"role": "user", "content": f"[질문]\n{question}\n\n[검색어]\n{' / '.join(queries or [question])}"
                                             f"\n\n[자료]\n{context}"}],

@@ -100,16 +100,18 @@ def with_retry(fn, tries=8):
             time.sleep(min(60, 2 * 2 ** i) + random.random())
 
 
-def chat(messages, schema=None, temperature=0.0, max_tokens=1500):
+def chat(messages, schema=None, temperature=0.0, max_tokens=1500, model=None):
     """HCX v3 대화. schema 를 주면 구조화 출력(responseFormat json + schema).
-    HCX-007 의 구조화 출력은 추론(thinking)과 함께 쓸 수 없어 effort=none 으로 호출"""
+    HCX-007 의 구조화 출력은 추론(thinking)과 함께 쓸 수 없어 effort=none 으로 호출
+    [CHANGED] model 인자 추가 (단계별로 다른 모델을 쓸 때). 비우면 예전과 같이 .env 의 HCX_MODEL"""
+    model = model or CHAT_MODEL
     body = {"messages": messages, "temperature": temperature, "topP": 0.8,
             "maxCompletionTokens": max_tokens, "repetitionPenalty": 1.1}
-    if CHAT_MODEL.upper().startswith("HCX-007"):
+    if model.upper().startswith("HCX-007"):          # [CHANGED] 이전: CHAT_MODEL.upper()…
         body["thinking"] = {"effort": "none"}
     if schema:
         body["responseFormat"] = {"type": "json", "schema": schema}
-    path = f"/v3/chat-completions/{CHAT_MODEL}"
+    path = f"/v3/chat-completions/{model}"            # [CHANGED] 이전: …/{CHAT_MODEL}
     try:
         res = with_retry(lambda: _post(path, body))
     except HcxError as e:

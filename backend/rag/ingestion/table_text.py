@@ -57,12 +57,16 @@ def table_text(p):
 _kiwi = None
 
 
+_kiwi_lock = __import__("threading").Lock()   # [NEW] 병렬 실행(review_80 --workers) 때 Kiwi 초기화·호출을 한 번에 하나씩
+
+
 def tokenize(text):
     global _kiwi
-    if _kiwi is None:
-        from kiwipiepy import Kiwi
-        _kiwi = Kiwi()
-    return [t.form for t in _kiwi.tokenize(text) if t.tag.startswith(TOKEN_TAGS)]
+    with _kiwi_lock:
+        if _kiwi is None:
+            from kiwipiepy import Kiwi
+            _kiwi = Kiwi()
+        return [t.form for t in _kiwi.tokenize(text) if t.tag.startswith(TOKEN_TAGS)]
 
 
 def build_index(progress=print):

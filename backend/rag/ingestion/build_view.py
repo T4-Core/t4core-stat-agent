@@ -219,6 +219,11 @@ def build_view(tbl_id, f, num, con=None):
         for l in prof["levels"]:
             sel = match_level(l, f, stems, notes)
             dims[l["level"]] = (l, sel)
+        # [NEW] 지역을 물었는데 이 표에 지역 분류가 없으면 메모 (이전: 아무 메모 없이 전국 값이 '조건을 다 맞춘 표'로 쓰임
+        #       → 답변이 전국 값을 요청 지역 값처럼 말함). 메모가 있으면 답변 문맥 정렬에서 뒤로 가고, LLM 에도 경고로 전달됨
+        want_geo = [r for r in (f.get("지역") or []) if r not in ("전국", "전체")]
+        if want_geo and not any(l["kind"] == "regions" for l in prof["levels"]):
+            notes.append(f"지역 {want_geo}: 이 표에는 지역 구분이 없음 → 전국 값")
         # 성별 분류가 없는 표: 성별이 다른 분류의 코드 이름 끝에 있을 수 있음 ('기대수명 - 남')
         sexes = {SEX_ALIAS.get(s, s) for s in (f.get("성별") or [])}
         sex_done = any(l["kind"] == "sex" for l in prof["levels"])

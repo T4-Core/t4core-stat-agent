@@ -48,6 +48,20 @@ TABLES = [
         "items": [("T10", "총전입", "명"), ("T20", "총전출", "명")],
         "prd_se": "M", "prd_meta": "월", "periods": [f"{y}{m:02d}" for y in (2024, 2025) for m in range(1, 13)],
     },
+    {  # catalog.csv 에는 있지만 selected=False (메타 JSON 은 있음) → 개인 카탈로그 'catalog_csv' 경로
+        "org_id": "101", "tbl_id": "DT_1B83A35", "tbl_nm": "시도별 혼인건수",
+        "category": "인구동향조사", "section": "혼인", "josa": "인구동향조사",
+        "levels": [("A", "행정구역(시도)별", SIDO)],
+        "items": [("T1", "혼인건수", "건")],
+        "prd_se": "A", "prd_meta": "년", "periods": ["2023", "2024", "2025"], "selected": False,
+    },
+    {  # catalog.csv 에도 없고 메타 JSON 도 없는 raw CSV 만 → 'data_only' 경로
+        "org_id": "101", "tbl_id": "DT_1B81A01", "tbl_nm": "시도별 출생아수",
+        "category": "인구동향조사", "section": "출생", "josa": "인구동향조사",
+        "levels": [("A", "행정구역(시도)별", SIDO)],
+        "items": [("T1", "출생아수", "명")],
+        "prd_se": "A", "prd_meta": "년", "periods": ["2023", "2024", "2025"], "catalog": False, "meta": False,
+    },
 ]
 
 
@@ -57,10 +71,11 @@ def build(data_dir):
     rows = []
     for t in TABLES:
         key = f"{t['org_id']}_{t['tbl_id']}"
-        rows.append({"category": t["category"], "section": t["section"], "path": f"{t['category']} > {t['section']}",
+        if t.get("catalog", True):  # catalog.csv 에 행을 넣을지
+            rows.append({"category": t["category"], "section": t["section"], "path": f"{t['category']} > {t['section']}",
                      "depth": 2, "org_id": t["org_id"], "tbl_id": t["tbl_id"], "tbl_nm": t["tbl_nm"],
                      "stat_id": "1", "send_de": "2026-01-01", "rec_tbl": "", "root": "인구", "is_sample": False,
-                     "is_full": False, "survey_type": "구분없음(전체집계)", "selected": True, "related_hint": "",
+                     "is_full": False, "survey_type": "구분없음(전체집계)", "selected": t.get("selected", True), "related_hint": "",
                      "dup": False, "also_in": ""})
         itm = []
         for sn, (oid, onm, codes) in enumerate(t["levels"], 1):
@@ -70,7 +85,8 @@ def build(data_dir):
                 "PRD": [{"PRD_SE": t["prd_meta"], "STRT_PRD_DE": t["periods"][0], "END_PRD_DE": t["periods"][-1]}],
                 "CMMT": [], "SOURCE": [{"JOSA_NM": f"「{t['josa']}」"}]}
         (data_dir / "meta").mkdir(parents=True, exist_ok=True)
-        (data_dir / "meta" / f"{key}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+        if t.get("meta", True):  # 메타 JSON 을 만들지
+            (data_dir / "meta" / f"{key}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
         # 원본: 모든 분류 조합 × 항목 × 시점
         combos = [{}]
         for i, (oid, onm, codes) in enumerate(t["levels"], 1):

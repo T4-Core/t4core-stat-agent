@@ -65,6 +65,7 @@ python -m backend.rag.ingestion.collector status      # 조사별 진행 현황 
 
 - A1 + A2 = Swagger **`POST /api/v1/rag/chunk-and-index`** (진행: `GET /api/v1/rag/chunk-and-index/status`). 둘 중 하나만 하면 됩니다
 - A2 는 **raw CSV 가 없는 표를 제외**합니다 → download 를 더 받았으면 A2 다시
+- A1·A2 는 catalog.csv `selected=True` 표만 다룹니다. 다만 **View 생성(정규화)은 selected 밖 표도 됩니다**: `normalize.load_targets` 가 selected → catalog.csv 전체 → `raw/<조사>/<기관>_<표>.csv` 순으로 찾고, 메타 JSON 이 없으면 raw CSV 의 코드·이름으로 코드 사전을 만듭니다. 그래서 개인 파이프라인처럼 raw 폴더 전체에서 표를 고르는 경우에도 View 가 만들어집니다
 - 확인: `GET /health` → `meta_profiles: true`, `table_index: true`
 
 ### 질문할 때 자동으로 되는 것
@@ -148,7 +149,7 @@ python eval/run_eval.py retrieval --variants base enriched                      
 | `/api/v1/ingest/dict/{name}` | `normalize --tables …` CLI 한 번 |
 | `/api/v1/rag/hybrid-search`, `/chat/legacy` | [0] + B1 + B2 + B4 |
 | `/api/v1/data/source` | 해당 표의 parquet (A: 질문하면 자동 / B: B1) |
-| 평가 세트 검수 [C] | [0] + A1 + A2 + HCX 키 + `storage/test_data` 에 질문 파일 |
+| 평가 세트 검수 [C] | [0] + **A1 + A2** + HCX 키 + `storage/test_data` 에 질문 파일 |
 
 ---
 
@@ -175,6 +176,7 @@ python eval/pipeline_review/review_80.py list                       # 찾은 세
 python eval/pipeline_review/review_80.py run --queries 80 --n 5     # 세트 선택: 번호 | 이름 일부 | 경로 (하나뿐이면 생략)
 python eval/pipeline_review/review_80.py run --queries 80 --no-png  # 전체, 중단 후 다시 실행하면 이어서
 python eval/pipeline_review/review_80.py run --all --no-png         # 모든 세트
+python eval/pipeline_review/review_80.py run --queries 80 --workers 3   # 문항 3개씩 동시에 (HCX 429 가 잦으면 줄임)
 streamlit run eval/review_app.py                                    # 사이드바에서 세트 골라 검수
 ```
 
@@ -189,6 +191,17 @@ streamlit run eval/review_app.py                                    # 사이드�
 - Streamlit·노트북 어느 쪽에서 저장해도 위 파일이 같이 갱신되고, `run` 을 다시 해도 검수한 문항의 판정은 유지
 - 같은 세트를 설정만 바꿔 비교하려면 `--run 이름` 으로 결과 폴더를 따로 지정
 - 자동 지표 기준: `review_80.py` `score()`
+
+---
+
+## [D] 개인 파이프라인 플러그인 (git 제외)
+
+`private/pipelines/<이름>.py` 에 `run_chat(question, today, top_k, n_views, **kw)` 를 두면 자동으로 등록됩니다.
+- **출력 형식:** 기본 파이프라인과 같은 dict를 돌려주면 됩니다. 단계 기록을 보이게 하려면 `trace` 를 더합니다.
+- **폴더 위치 (`config.PRIVATE_DIR`):** 환경변수 `PRIVATE_DIR` → `<저장소>/private` → `<저장소 상위>/private` → `<저장소 상위>/<저장소이름>_private` 순서로 찾습니다.
+- **확인:** Swagger `GET /api/v1/system/pipelines`, 또는 `python eval/pipeline_review/review_80.py list`
+- **평가:** `review_80.py run --queries 80 --pipeline <이름>` 을 실행하면 결과 폴더 `<세트>__<이름>` 이 따로 생깁니다. Streamlit에서 기본 파이프라인 결과와 나란히 비교할 수 있습니다.
+- **API:** `POST /api/v1/chat {"question": …, "pipeline": "<이름>"}`
 
 ---
 

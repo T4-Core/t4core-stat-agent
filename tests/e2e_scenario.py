@@ -87,6 +87,19 @@ after = ok(c.post("/api/v1/data/source", json=src))["n_rows"]
 assert before == 0 and after > 0, (before, after)
 print(f"[④] 월간표 연도 좌표: load_view {before}행 → load_record_data {after}행")
 
+# ⑤ [NEW] catalog.csv 선택 밖 표(DT_1B83A35) · catalog/메타 둘 다 없는 raw CSV(DT_1B81A01) 도 View 생성
+from backend.rag.ingestion.build_view import build_view  # noqa: E402
+from backend.rag.ingestion.normalize import load_targets  # noqa: E402
+
+for tid, unit in (("DT_1B83A35", "건"), ("DT_1B81A01", "명")):
+    row = next(load_targets([tid]).itertuples())
+    assert row.category == "인구동향조사" and row.org_id == "101", row
+    rec, vnotes = build_view(tid, {"지역": ["대전광역시"], "기간": {"years": [2025]}}, "t-1")
+    vals = rec["table"]["rows"]
+    assert vals and not vnotes and "대전" in str(vals), (tid, rec, vnotes)
+    assert unit in str(rec["table"]) or unit in str(rec["metadata"]), rec
+    print(f"[⑤] {tid} ({row.tbl_nm}) → {rec['id']} rows={len(vals)} notes={vnotes}")
+
 # legacy: kosis_views(view_builder) → records.jsonl → 하이브리드 인덱스 → 검색·답변
 import argparse  # noqa: E402
 

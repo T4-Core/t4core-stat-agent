@@ -37,6 +37,8 @@ class AnswerResult(BaseModel):
     chart: ChartData | None = None
     sources: list[str] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list, description="View 생성 때 못 맞춘 조건 (notes)")
+    calculations: list[dict] = Field(default_factory=list,
+                                     description="[NEW] 코드 계산 결과 C1… (개인 파이프라인 stat_rag 의 v2 계산 도구). 기본 파이프라인은 빈 목록")
 
 
 class AnswerRequest(BaseModel):
@@ -60,6 +62,7 @@ class ChatRequest(BaseModel):
     use_rewrite: bool = Field(True, description="false 면 재작성(HCX) 없이 원 질문으로 바로 검색")
     max_rows: int = Field(40, ge=1, le=500)
     save: bool = Field(False, description="true 면 ANSWERS_DIR 에 결과 JSON 저장")
+    pipeline: str = Field("default", description="[NEW] default | 개인 폴더 파이프라인 이름 (GET /api/v1/system/pipelines)")
 
 
 class ChatResponse(BaseModel):
@@ -72,6 +75,7 @@ class ChatResponse(BaseModel):
     notes: list[str] = Field(default_factory=list, description="단계 사이 변환 메모")
     timings: dict[str, float] = Field(default_factory=dict, description="단계별 소요 시간(초)")
     saved: str | None = None
+    trace: list[dict] | None = Field(None, description="[NEW] 개인 파이프라인 단계 기록 (있으면)")
 
 
 class LegacyChatRequest(BaseModel):

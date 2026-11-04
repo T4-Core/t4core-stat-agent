@@ -61,9 +61,16 @@ def _env_path(*keys):
     return None
 
 
-def _pick(env_keys, candidates, default, marker=None):
-    """환경변수 → 후보 중 marker(파일/폴더)가 있는 첫 위치 → default"""
+CONFIG_WARNINGS = []   # [NEW] 무시한 환경변수 등 (paths() · python -m backend.core.config 에 표시)
+
+
+def _pick(env_keys, candidates, default, marker=None, env_must_exist=False):
+    """환경변수 → 후보 중 marker(파일/폴더)가 있는 첫 위치 → default
+    env_must_exist=True: 환경변수 경로에 marker 가 없으면 무시하고 후보로 (예: .env 에 남은 예전 KOSIS_DATA=kosis_data)"""
     p = _env_path(*env_keys)
+    if p and env_must_exist and marker and not (p / marker).exists():
+        CONFIG_WARNINGS.append(f"{'/'.join(env_keys)}={p} 에 {marker} 가 없어 무시하고 자동 탐색")
+        p = None
     if p:
         return p
     for c in candidates:
@@ -80,7 +87,7 @@ KOSIS_DATA_DIR = _pick(
     ("KOSIS_DATA_DIR", "KOSIS_DATA"),               # KOSIS_DATA = 예전 kosis_rag_qa.py 가 쓰던 이름 (호환)
     [STORAGE_DIR / "kosis_data", STORAGE_DIR / "raw_csv", ROOT / "kosis_data", ROOT.parent / "kosis_data",
      Path.cwd() / "kosis_data"],
-    STORAGE_DIR / "kosis_data", marker="catalog.csv")
+    STORAGE_DIR / "kosis_data", marker="catalog.csv", env_must_exist=True)   # [CHANGED] 없는 경로의 환경변수는 무시
 
 # ── 2) kosis_views(view_builder) 결과 — 하이브리드 검색(legacy) 레코드와 processed parquet ──
 RAG_VIEWS_DIR = _pick(("RAG_VIEWS_DIR",), [KOSIS_DATA_DIR / "rag_views", STORAGE_DIR / "rag_views"],
@@ -103,9 +110,15 @@ REWRITE_EVAL_DIR = EVAL_DIR / "query_rewrite"
 # ── 5) 평가 질문·검수 결과 [NEW] ──────────────────────────────────
 # 평가 질문 CSV (kosis_rag_eval_80_queries.csv, …_answers_references.csv) — storage/test_data 를 우선
 TEST_DATA_DIR = _pick(("TEST_DATA_DIR",), [STORAGE_DIR / "test_data", ROOT / "test_data", REWRITE_EVAL_DIR / "data"],
-                      STORAGE_DIR / "test_data", marker="kosis_rag_eval_80_queries.csv")
+                      STORAGE_DIR / "test_data", marker="kosis_rag_eval_80_queries.csv", env_must_exist=True)
 # 80문항 파이프라인 검수 결과 (auto_results.json, json/, cards/, human_final.csv) — eval/pipeline_review
 EVAL_RUNS_DIR = _env_path("EVAL_RUNS_DIR") or STORAGE_DIR / "eval_runs"
+
+# ── 6) 개인 작업 폴더 (git 제외) [NEW] ──────────────────────────────────
+# private/pipelines/<이름>.py 의 run_chat 을 파이프라인 플러그인으로 등록 (backend/core/plugins.py)
+# 찾는 순서: 환경변수 PRIVATE_DIR → <저장소>/private → <저장소 상위>/private → <저장소 상위>/<저장소이름>_private
+PRIVATE_DIR = _pick(("PRIVATE_DIR",), [ROOT / "private", ROOT.parent / "private", ROOT.parent / f"{ROOT.name}_private"],
+                    None, marker="pipelines")
 
 # ── 예전 이름 (View 모듈 코드가 그대로 쓰도록 남김) ──────────────
 DATA = KOSIS_DATA_DIR      # [CHANGED] 이전: DATA = ROOT / "kosis_data"
@@ -137,8 +150,12 @@ def paths():
     named = {"ROOT": ROOT, "ENV_PATH": ENV_PATH, "STORAGE_DIR": STORAGE_DIR, "KOSIS_DATA_DIR": KOSIS_DATA_DIR,
              "RAG_VIEWS_DIR": RAG_VIEWS_DIR, "RAG_INDEX_DIR": RAG_INDEX_DIR, "ANSWERS_DIR": ANSWERS_DIR,
              "VIEW_OUT_DIR": VIEW_OUT_DIR, "TABLE_INDEX_DIR": TABLE_INDEX_DIR, "VIEW_EMBED_CACHE": VIEW_EMBED_CACHE,
-             "REWRITE_EVAL_DIR": REWRITE_EVAL_DIR, "TEST_DATA_DIR": TEST_DATA_DIR, "EVAL_RUNS_DIR": EVAL_RUNS_DIR}
-    return {k: {"path": str(v) if v else None, "exists": bool(v) and Path(v).exists()} for k, v in named.items()}
+             "REWRITE_EVAL_DIR": REWRITE_EVAL_DIR, "TEST_DATA_DIR": TEST_DATA_DIR, "EVAL_RUNS_DIR": EVAL_RUNS_DIR,
+             "PRIVATE_DIR": PRIVATE_DIR}
+    out = {k: {"path": str(v) if v else None, "exists": bool(v) and Path(v).exists()} for k, v in named.items()}
+    if CONFIG_WARNINGS:
+        out["WARNINGS"] = {"path": " / ".join(CONFIG_WARNINGS), "exists": False}
+    return out
 
 
 if __name__ == "__main__":

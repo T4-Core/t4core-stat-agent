@@ -241,6 +241,24 @@ def load_meta(row):
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
+def raw_code_dict(con, src, cols, lv, obj_names):
+    """[NEW] 메타가 없을 때: 원본 CSV → parse_meta 와 같은 모양의 (분류 목록, 항목 목록). 순서 = 원본 첫 등장 순"""
+    levels = []
+    for i in lv:
+        nm = f"C{i}_NM" if f"C{i}_NM" in cols else f"C{i}"
+        codes = con.execute(f"SELECT C{i}, any_value({nm}), min(rn) FROM (SELECT *, row_number() OVER () rn FROM {src}) "
+                            f"GROUP BY 1 ORDER BY 3").fetchall()
+        levels.append({"obj_id": f"C{i}", "obj_nm": obj_names.get(i) or f"분류{i}", "sn": i,
+                       "codes": [{"code": str(c), "name": norm_space(n), "parent": ""} for c, n, _ in codes]})
+    if "ITM_ID" not in cols:
+        return levels, []
+    unit = "any_value(UNIT_NM)" if "UNIT_NM" in cols else "''"
+    items = [{"itm_id": str(a), "name": norm_space(b), "unit": norm_space(u), "parent": ""} for a, b, u, _ in con.execute(
+        f"SELECT ITM_ID, any_value(ITM_NM), {unit}, min(rn) FROM (SELECT *, row_number() OVER () rn FROM {src}) "
+        f"GROUP BY 1 ORDER BY 4").fetchall()]
+    return levels, items
+
+
 def raw_obj_names(con, raw, cols, lv):
     # 원본의 C{i}_OBJ_NM (분류 이름) 을 읽어 {i: 이름}
     q = [f"any_value(C{i}_OBJ_NM)" if f"C{i}_OBJ_NM" in cols else "NULL" for i in lv]
@@ -406,6 +424,9 @@ def normalize_table(con, row, force=False):
     # 1) 코드 사전
     levels_meta, items_meta = parse_meta(meta)
     obj_names = raw_obj_names(con, raw, cols, lv)
+    if not levels_meta and not items_meta:
+        # [NEW] 메타 JSON 이 없는 표: 원본 CSV 의 코드·이름으로 코드 사전을 대신 만듦 (합계 판별·순서가 동작하도록)
+        levels_meta, items_meta = raw_code_dict(con, src, cols, lv, obj_names)
     matched = match_levels(levels_meta, lv, obj_names)
     level_info, dim_rows = [], []
     for i in lv:
@@ -618,18 +639,50 @@ def export_dicts():
 
 
 def load_targets(tables):
-    catalog = pd.read_csv(DATA / "catalog.csv", dtype=str)
-    catalog = catalog[catalog["selected"] == "True"]
-    missing = [t for t in tables if t not in set(catalog["tbl_id"])]
-    if missing:
-        raise ValueError(f"catalog.csv(selected) 에 없는 표: {missing}")
-    return catalog.set_index("tbl_id").loc[tables].reset_index()
+    # [CHANGED] 이전: catalog.csv(selected) 에 없으면 바로 ValueError
+    # 이후: selected → catalog.csv 전체(선택 안 된 행) → raw 폴더(<조사>/<기관>_<표>.csv) 순으로 찾음
+    #       → catalog 에 없어도 raw CSV 가 있으면 정규화·View 생성 가능 (개인 파이프라인의 전체 CSV 카탈로그용)
+    full = pd.read_csv(DATA / "catalog.csv", dtype=str)
+    sel = full[full["selected"] == "True"]
+    rows = []
+    for t in tables:
+        hit = sel[sel["tbl_id"] == t]
+        if hit.empty:
+            hit = full[full["tbl_id"] == t]
+            if not hit.empty:      # 선택 안 된 행: 원본이 실제로 있는 폴더의 행을 우선
+                hit = hit[[raw_path(r).exists() for r in hit.itertuples()]] if any(
+                    raw_path(r).exists() for r in hit.itertuples()) else hit
+        if hit.empty:
+            hit = raw_row(t)
+        if hit is None or hit.empty:
+            raise ValueError(f"catalog.csv 와 raw 폴더 어디에도 없는 표: {t}")
+        rows.append(hit.head(1))
+    return pd.concat(rows, ignore_index=True)
+
+
+def raw_row(tbl_id):
+    """[NEW] catalog.csv 에 없는 표: raw/<조사>/<기관>_<표>.csv 에서 카탈로그 행 하나를 만듦"""
+    f = next(iter(sorted((DATA / "raw").glob(f"*/*_{tbl_id}.csv"))), None) if (DATA / "raw").exists() else None
+    if f is None:
+        return None
+    head = pd.read_csv(f, dtype=str, nrows=1, encoding="utf-8-sig")
+    tbl_nm = head["TBL_NM"].iloc[0] if "TBL_NM" in head and len(head) else tbl_id
+    return pd.DataFrame([{"category": f.parent.name, "section": "", "path": "", "org_id": f.stem[:-len(tbl_id) - 1],
+                          "tbl_id": tbl_id, "tbl_nm": tbl_nm, "survey_type": "", "selected": "False",
+                          "send_de": "", "also_in": "", "stat_id": ""}])
+
+
+_norm_locks, _norm_guard = {}, __import__("threading").Lock()
 
 
 def ensure_normalized(con, tbl_id, force=False):
     # 지연 정규화: resolve 가 고른 표만 이 시점에 정규화. 캐시(원본보다 새 parquet)가 있으면 프로필만 읽음
+    # [CHANGED] 표마다 잠금: 여러 질문을 병렬로 돌릴 때 같은 표를 동시에 정규화(같은 parquet 에 동시 쓰기)하지 않게
     row = next(load_targets([tbl_id]).itertuples())
-    return normalize_table(con, row, force=force)
+    with _norm_guard:
+        lock = _norm_locks.setdefault(tbl_id, __import__("threading").Lock())
+    with lock:
+        return normalize_table(con, row, force=force)
 
 
 def main():

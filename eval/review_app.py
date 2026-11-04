@@ -36,8 +36,10 @@ def run_label(p):
         rows = json.loads(p.read_text(encoding="utf-8"))
         done = sum(bool(r["human_review"].get("reviewed")) for r in rows)
         meta = p.parent / "run_meta.json"
-        src = Path(json.loads(meta.read_text(encoding="utf-8"))["queries_file"]).name if meta.exists() else p.name
-        return f"{p.parent.name if p.name == 'auto_results.json' else p.stem}  ·  {len(rows)}문항 · 검수 {done}  ·  {src}"
+        m = json.loads(meta.read_text(encoding="utf-8")) if meta.exists() else {}
+        src = Path(m["queries_file"]).name if m.get("queries_file") else p.name
+        pipe = f" · 파이프라인 {m.get('pipeline', 'default')}" if m else ""
+        return f"{p.parent.name if p.name == 'auto_results.json' else p.stem}  ·  {len(rows)}문항 · 검수 {done}{pipe}  ·  {src}"
     except Exception:  # noqa: BLE001
         return str(p)
 
@@ -389,3 +391,8 @@ else:
                     expanded=False)
             st.markdown("**② 검색 후보** (● = View 생성)")
             st.dataframe(pd.DataFrame(p.get("candidates") or []), hide_index=True)
+            if p.get("trace"):   # [NEW] 개인 파이프라인 단계 기록
+                st.markdown(f"**🧭 단계 기록** · 파이프라인 `{p.get('name')}`")
+                st.dataframe(pd.DataFrame([{"단계": t.get("step"), "내용": t.get("title"),
+                                            "세부": json.dumps(t.get("detail"), ensure_ascii=False)[:300]}
+                                           for t in p["trace"]]), hide_index=True)
