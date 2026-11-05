@@ -12,12 +12,15 @@ TODAY = date(2026, 11, 2)
 
 # ---- 2-1 용어 사전 ----
 def test_terms():
-    assert lookup_terms("2025년 전국에서 혼자 사는 가구는 몇 가구로 집계됐지?") == [("혼자 사는", ["1인가구"])]
+    assert lookup_terms("2025년 전국에서 혼자 사는 가구는 몇 가구로 집계됐지?") == [("혼자 사는 가구", ["1인가구"])]   # 긴 표현부터
     assert lookup_terms("2024년 서울에 사는 베트남 여자 결혼이민자 몇 명이야?") == []      # '결혼이민자' 안의 '결혼' 안 잡음
     assert lookup_terms("합계출산율 꼴찌 지역") == []                                        # 대표 용어 그대로
     assert lookup_terms("혼자사는 노인 비율") == [("혼자 사는", ["1인가구"]), ("노인 비율", ["고령인구비율"])]
     assert to_canonical("가구 수") == ("가구수", True)
     assert to_canonical("인구수") == ("인구수", False)
+    assert to_canonical("노인") == ("고령자", True)                                          # v3 사전: 노인·65세 이상 → 고령자
+    assert lookup_terms("15세 이상 인구") == []                                              # '15세' 안의 '5세'(영유아)를 잡지 않음
+    assert lookup_terms("우리나라 남중생 몇명이야?") == [("남중생", ["남자", "중학생"])]       # 두 뜻이 합쳐진 말
 
 
 # ---- 2-2 코드 추출 ----
@@ -61,10 +64,19 @@ def test_validate():
                            "hcx_slots": None, "error": "HTTP 500"})["slots"]["시점"] == ["2025년"]   # HCX 실패 → 코드 값만
 
 
-def test_noin_moves_to_age():
+def test_noin_to_goryeongja():
+    # v3 사전: '노인'의 대표 용어는 '고령자' (v2 는 '65세 이상' → 연령 슬롯으로 옮김)
     v = validate_slots({"question": "x", "input_question": "2025년 서울 노인 몇 명", "rule_found": {"시점": ["2025년"], "지역": ["서울특별시"]},
-                        "term_hits": [("노인", ["65세 이상"])], "hcx_subs": [],
+                        "term_hits": [("노인", ["고령자"])], "hcx_subs": [],
                         "hcx_slots": {"시점": ["2025"], "지역": ["서울"], "대상": ["노인"], "지표": ["인구수"], "의도": "값 조회"}})
+    assert v["slots"]["대상"] == ["고령자"] and v["slots"]["연령"] == []
+
+
+def test_age_term_splits():
+    # 연령이 붙은 용어는 연령 + 대상으로 나눔 ('65세 이상 인구' → 연령 65세 이상, 대상 인구)
+    v = validate_slots({"question": "x", "input_question": "2025년 서울 65세 이상 인구",
+                        "rule_found": {"시점": ["2025년"], "지역": ["서울특별시"], "연령": ["65세 이상"]}, "term_hits": [], "hcx_subs": [],
+                        "hcx_slots": {"시점": ["2025년"], "지역": ["서울특별시"], "대상": ["65세 이상 인구"], "지표": ["인구수"], "의도": "값 조회"}})
     assert v["slots"]["대상"] == ["인구"] and v["slots"]["연령"] == ["65세 이상"]
 
 

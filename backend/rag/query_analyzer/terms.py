@@ -1,7 +1,7 @@
 """2-1. KOSIS 통계 용어 사전 (HCX 호출 없음)
-추후 내용 추가할 예정
-노트북 user_question_rewrite_v2.ipynb '2-1' 셀의 코드를 그대로 옮김 (확인용 출력 부분은 뺌)"""
-
+노트북 user_question_rewrite_v3.ipynb '2-1' 셀의 코드를 그대로 옮김 (확인용 출력 부분은 뺌)
+사전 파일: dictionary/term_dict.json (dictionary/build_dicts.py 가 만듦). 경로는 config.TERM_PATH"""
+from .config import TERM_PATH
 
 # ============= 2-1. KOSIS 통계 용어 사전 ================
 # 형식: {"대표 KOSIS 용어": ["일상어 표현", ...]}
@@ -12,47 +12,11 @@ import json
 import re
 from pathlib import Path
 
-TERM_DICT = {
-    # ---- 인구·연령 ----
-    "65세 이상":      ["노인", "어르신", "늙은이", "노년층", "고령자"],
-    "고령인구비율":        ["노인 비율", "고령자 비율", "늙은이 비율", "고령화율", "고령화"],
-    "유소년인구":          ["어린이 인구", "아이 인구"],
-    "생산연령인구":        ["일하는 나이 인구", "생산가능인구"],
-    "평균연령":            ["평균 나이"],
-    "성비":                ["남녀 비율", "여초", "남초"],
-    "인구밀도":            ["사람 밀도"],
-    "지방소멸위험지수":    ["지방소멸", "소멸위험"],
-    "기대수명":            ["평균 수명", "오래 사는", "수명"],
-    # ---- 출생·사망 ----
-    "출생아수":            ["애 낳는 사람", "애 낳는", "아기 태어", "애기 태어", "태어난 아이", "신생아 수", "출생 수"],
-    "합계출산율":          ["출산율", "애 낳는 비율"],
-    "사망자수":            ["죽은 사람", "사망 수"],
-    "자연증가건수":        ["자연감소", "자연증가"],
-    # ---- 혼인·이혼 ----
-    "혼인건수":            ["결혼", "시집", "장가", "결혼 건수"],
-    "조혼인율":            ["결혼율", "혼인율"],
-    "평균초혼연령":        ["결혼 나이", "결혼 연령", "초혼 나이"],
-    "이혼건수":            ["이혼", "갈라서", "갈라선"],
-    "조이혼율":            ["이혼율"],
-    "외국인과의 혼인건수": ["국제결혼"],
-    # ---- 가구 ----
-    "가구수":              ["세대 수", "집 몇 채"],
-    "1인가구":             ["혼자 사는", "나홀로 가구", "독신 가구", "싱글 가구"],
-    "다문화가구":          ["다문화 가정"],
-    "평균가구원수":        ["평균 가구원", "한 집에 몇 명"],
-    # ---- 인구 이동 ----
-    "전출":                ["빠져나가", "빠져나간", "이사 가", "이사가", "떠난 사람", "유출"],
-    "전입":                ["이사 온", "이사온", "들어온 사람", "유입"],
-    "순이동":              ["순유입", "순유출"],
-    "인구이동":            ["이사", "이주"],
-    # ---- 외국인 ----
-    "외국인근로자":        ["외노자", "외국인 노동자", "이주노동자"],
-    "결혼이민자":          ["결혼 이민자", "결혼이주여성", "결혼 이주민"],
-    "체류외국인":          ["머무는 외국인", "사는 외국인"],
-    # ---- 미래 시점 ----
-    "장래인구추계":        ["인구 전망", "미래 인구", "인구 예측", "앞으로 인구"],
-    "장래가구추계":        ["가구 전망", "미래 가구", "가구 예측"],
-}
+# 일상어를 kosis 통계 용어로. HCX가 슬롯을 뽑을 때 힌트로 참고함
+# 사전 파일은 dictionary/build_dicts.py 가 원본 사전(dictionary/test2/results/dictionary_표명.json)에서 만듦
+#   term_dict.json : 일상어 → 통계어 {"대표 용어": ["일상어", ...]}  (여기 2-1)
+#   rule_dict.json : 확실한 표기 대응표 (2-2 코드 추출, 2-4 검증)
+TERM_DICT = json.loads(TERM_PATH.read_text(encoding="utf-8"))
 
 MIN_ALIAS_LEN = 2      # 한 글자 표현은 다른 단어 안에서 잘못 잡히므로 뺌 (test1 p2_dictionary 와 같은 기준)
 
@@ -61,9 +25,17 @@ def _nospace(s):
     return re.sub(r"\s+", "", str(s))
 
 
+def _glued_number(s, pos, a):
+    """s[pos:] 에서 찾은 표현 a 가 앞 숫자에 붙은 일부인지. '15세' 안의 '5세', '삼십대' 안의 '십대' → True"""
+    if pos == 0:
+        return False
+    prev = s[pos - 1]
+    return (a[0].isdigit() and prev.isdigit()) or (a[0] == "십" and prev in "이삼사오육칠팔구")
+
+
 def load_term_dict(path=None, fmt="alias"):
     """사전을 {일상어: [대표 용어, ...]} 색인으로 만듦
-    path=None : 노트북의 TERM_DICT ({대표 용어: [일상어]}) 사용
+    path=None : TERM_DICT (term_dict.json, {대표 용어: [일상어]}) 사용
     path 지정 : JSON 파일. fmt="alias"  → {"일상어": ["대표 용어"]}  (test1 alias_dict.json 형식)
                              fmt="term"   → {"대표 용어": ["일상어"]}  (TERM_DICT 형식)"""
     if path is None:
@@ -93,7 +65,7 @@ def load_term_dict(path=None, fmt="alias"):
     return index
 
 
-TERM_INDEX = load_term_dict()                 # 파일로 바꿀 때: TERM_INDEX = load_term_dict("…/alias_dict.json")
+TERM_INDEX = load_term_dict()                 # TERM_DICT(term_dict.json) → {일상어: [대표 용어]} 색인
 
 
 def lookup_terms(q, index=None):
@@ -103,10 +75,13 @@ def lookup_terms(q, index=None):
     s, hits = _nospace(q), []
     for alias in sorted(index, key=lambda a: -len(_nospace(a))):      # 긴 표현부터
         a = _nospace(alias)
-        pos = s.find(a)
-        if pos < 0:
+        # 앞 숫자에 붙은 표현은 건너뜀 → '15세' 안의 '5세', '삼십대' 안의 '십대'를 잡지 않음
+        found = [m.start() for m in re.finditer(re.escape(a), s) if not _glued_number(s, m.start(), a)]
+        if not found:
             continue
-        s = s.replace(a, "|" * len(a))                                 # 찾은 부분 지우기 (길이는 유지)
+        pos = found[0]
+        for p in found:                                                 # 찾은 부분 지우기 (길이는 유지)
+            s = s[:p] + "|" * len(a) + s[p + len(a):]
         terms = [t for t in index[alias] if _nospace(t) != a]
         if terms:
             hits.append((pos, alias, terms))

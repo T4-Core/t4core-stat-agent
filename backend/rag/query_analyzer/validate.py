@@ -1,6 +1,6 @@
 """2-4. 슬롯 검증 (코드, HCX 호출 없음)
-노트북 user_question_rewrite_v2.ipynb '2-4' 셀의 코드를 그대로 옮김 (실행·예시 출력 부분은 뺌)"""
-from .extract import AGE_WORDS, COUNTRIES, norm_age, norm_sido         # 2-2
+노트북 user_question_rewrite_v3.ipynb '2-4' 셀의 코드를 그대로 옮김 (실행·예시 출력 부분은 뺌)"""
+from .extract import AGE_WORDS, SEX, SIDO_GROUPS, norm_age, norm_country, norm_sido   # 2-2
 from .slots import INTENTS, SLOT_KEYS                                  # 2-3
 from .terms import to_canonical                                        # 2-1
 
@@ -12,6 +12,7 @@ import re
 
 REGION_KEYS = ["지역", "전출지", "전입지"]
 MOVE_VALUES = ["전입", "전출", "순이동", "입국", "출국", "국제순이동"]
+MAX_SUBS = 10            # 하위 질문 최대 개수 (2-3 프롬프트 하위 질문 규칙 2와 같음)
 AGE_WORD_MAP = {"노인": "65세 이상", "고령자": "65세 이상", "고령": "65세 이상", "어르신": "65세 이상"}
 AGE_FORMAT = re.compile(r"\d+~\d+세|\d+세 (?:이상|이하|미만|초과)|\d+세")
 TERM_AGE = re.compile(r"^(\d+~\d+세|\d+세 (?:이상|이하|미만|초과))\s*(.+)$")   # '65세 이상 인구' → 연령 + 대상
@@ -28,16 +29,31 @@ def _as_list(v):
 
 
 # ---- 1) 형식 통일 ----
-def clean_slots(slots):
-    """모든 슬롯 키를 list[str]로, 의도는 정해진 6개 값 중 하나로. 반환: (슬롯, 내역)"""
+def _as_intents(v):
+    """의도 값 → 목록. 문자열은 쉼표·슬래시로 나눠 받음 ('비교, 증감률' → ['비교', '증감률'])"""
+    if isinstance(v, str):
+        v = re.split(r"[,/]", v)
+    return [str(x).strip() for x in (v if isinstance(v, list) else []) if str(x).strip()]
+
+
+def clean_slots(slots, main=True):
+    """모든 슬롯 키를 list[str]로. 의도는 정해진 9개 값만:
+    main=True(원 질문)면 목록(여러 개 가능), main=False(하위 질문)면 하나. 반환: (슬롯, 내역)"""
     slots = slots if isinstance(slots, dict) else {}
     s = {k: _as_list(slots.get(k)) for k in SLOT_KEYS}
     log = [f"모르는 키 무시: {k}" for k in slots if k not in SLOT_KEYS + ["의도"]]
-    intent = str(slots.get("의도") or "").strip()
-    if intent not in INTENTS:
-        log.append(f"의도 기본값: {intent!r} → '값 조회'")
-        intent = "값 조회"
-    s["의도"] = intent
+    raw = _as_intents(slots.get("의도"))
+    intents = list(dict.fromkeys(x for x in raw if x in INTENTS))
+    if bad := [x for x in raw if x not in INTENTS]:
+        log.append(f"의도 삭제(정해진 값 아님): {bad}")
+    if not intents:
+        log.append("의도 기본값: '값 조회'")
+        intents = ["값 조회"]
+    if len(intents) > 1 and "범위 밖" in intents:              # 범위 밖은 다른 의도와 같이 쓰지 않음 (프롬프트 규칙)
+        intents.remove("범위 밖"); log.append("의도 삭제: '범위 밖'은 다른 의도와 같이 쓰지 않음")
+    if not main and len(intents) > 1:
+        log.append(f"하위 질문 의도는 하나만: {intents} → {intents[0]!r}")
+    s["의도"] = intents if main else intents[0]
     return s, log
 
 
@@ -106,7 +122,11 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
         out = []
         for v in s[k]:
             full = norm_sido(v)
-            if full and full in rule_found.get("지역", []):
+            if v in SIDO_GROUPS:                                   # 권역('수도권') → 코드가 찾은 시도 정식 이름으로 풀기
+                members = [f for f in SIDO_GROUPS[v] if f in rule_found.get("지역", [])]
+                out += members
+                log.append(f"{tag}{k} 권역 풀기: {v} → {members}" if members else f"{tag}{k} 삭제(질문에 없음): {v}")
+            elif full and (full in rule_found.get("지역", []) or (full == "전국" and not rule_found.get("지역"))):   # 지역 없는 질문의 "전국"은 프롬프트 규칙
                 out.append(full)
                 if full != v:
                     log.append(f"{tag}{k} 정식 이름: {v} → {full}")
@@ -118,26 +138,33 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
     if main:
         used = set(s["지역"] + s["전출지"] + s["전입지"])
         for full in rule_found.get("지역", []):
-            if full not in used:
+            if full not in used and not any(u.startswith(full + " ") for u in used):   # '제주특별자치도 제주시 구좌읍'에 이미 있으면 안 넣음
                 s["지역"].append(full); log.append(f"지역 채움(코드가 찾음): {full}")
+        if not used and not s["지역"] and (s["대상"] or s["지표"]):                    # 프롬프트: 질문에 지역이 없으면 "전국" (찾을 대상·지표가 있을 때만)
+            s["지역"] = ["전국"]; log.append("지역 채움(질문에 지역 없음): 전국")
 
     # 국적: 질문에 있는 국가만
     nat = []
     for v in s["국적"]:
-        if v in q or any(c in v and c in q for c in COUNTRIES):
+        c = norm_country(v)                                      # 표기 통일 ('타이완' → '대만'). 표에 없는 국가는 None
+        if c and c in rule_found.get("국적", []):
+            nat.append(c)
+            if c != v:
+                log.append(f"{tag}국적 표기 통일: {v} → {c}")
+        elif not c and v in q:                                   # 표에 없는 국가는 질문에 그대로 있을 때만
             nat.append(v)
         else:
             log.append(f"{tag}국적 삭제(질문에 없음): {v}")
-    s["국적"] = nat
+    s["국적"] = list(dict.fromkeys(nat))
     if main:
         for c in rule_found.get("국적", []):
-            if not any(c in v for v in s["국적"]):
+            if c not in s["국적"]:
                 s["국적"].append(c); log.append(f"국적 채움(코드가 찾음): {c}")
 
     # 성별: 남자/여자로 통일, 코드가 찾은 것만
     sex = []
     for v in s["성별"]:
-        k = "남자" if v in ("남", "남자", "남성") else "여자" if v in ("여", "여자", "여성") else None
+        k = next((k for k, names in SEX.items() if v in (k, k[0], *names)), None)   # '남'·'남성'·'남학생' → '남자'
         if k and k in rule_found.get("성별", []):
             sex.append(k)
         else:
@@ -174,14 +201,43 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
         log.append(f"{tag}이동 삭제(정해진 값 아님): {v}")
     s["이동"] = [v for v in s["이동"] if v in MOVE_VALUES]
     s["비교축"] = list(dict.fromkeys(re.sub(r"별$", "", v) for v in s["비교축"]))
+
+    # 의도: '연도별'로 연도가 2개 이상이면 추이 (프롬프트 의도 규칙)
+    if len(s["시점"]) >= 2 and ("연도" in s["비교축"] or "연도별" in q):
+        if isinstance(s["의도"], list) and "추이" not in s["의도"]:              # 원 질문: 값 조회만 있으면 바꾸고, 다른 의도가 있으면 추가
+            new = ["추이"] if s["의도"] == ["값 조회"] else s["의도"] + ["추이"]
+            log.append(f"의도: 연도별로 연도 {len(s['시점'])}개 → {s['의도']} → {new}"); s["의도"] = new
+        elif s["의도"] == "값 조회":                                               # 하위 질문: 값 조회 → 추이
+            log.append(f"{tag}의도: 연도별로 연도 {len(s['시점'])}개 → '값 조회' → '추이'"); s["의도"] = "추이"
     return s, log
 
+
+
+SPLIT_KEYS = ("시점", "지역", "성별")   # 같은 통계표에서 바꿔 가져올 수 있는 축 (프롬프트 하위 질문 규칙 2)
+
+
+def _is_cross_split(subs):
+    """하위 질문이 시점·지역·성별만 다르고(지표·대상·의도 등은 모두 같음) 모든 조합으로 나뉘었는지
+    모든 조합: 같은 지역이 여러 시점과, 또는 같은 시점이 여러 지역과 짝지어 나옴 → 나누지 않아야 함
+    '2020년 광주', '2023년 울산'처럼 지역마다 시점이 하나면 짝지어 다른 것 → 나눔 (False)"""
+    if len(subs) < 2:
+        return False
+    rest = {tuple((k, tuple(v) if isinstance(v, list) else v) for k, v in sorted(s.items()) if k not in SPLIT_KEYS)
+            for s in subs}
+    if len(rest) > 1:                                    # 지표·대상·연령·의도 등이 다르면 다른 질문
+        return False
+    by_region, by_time = {}, {}
+    for s in subs:
+        t, r = tuple(s["시점"]), tuple(s["지역"])
+        by_region.setdefault(r, set()).add(t)
+        by_time.setdefault(t, set()).add(r)
+    return any(len(v) > 1 for v in by_region.values()) or any(len(v) > 1 for v in by_time.values())
 
 
 def _slots_from_code(rule_found):
     """HCX 응답을 못 읽었을 때: 코드가 찾은 값만으로 슬롯"""
     s = {k: list(rule_found.get(k, [])) for k in SLOT_KEYS}
-    s["의도"] = "값 조회"
+    s["의도"] = ["값 조회"]
     return s
 
 
@@ -195,14 +251,18 @@ def validate_slots(r):
         return {"slots": _slots_from_code(found), "sub_slots": [], "log": log}
 
     s, l1 = clean_slots(r["hcx_slots"])
+    if s["의도"] == ["범위 밖"]:                                 # 프롬프트: 범위 밖이면 다른 슬롯은 모두 []
+        cleared = [k for k in SLOT_KEYS if s[k]]
+        log += l1 + ([f"범위 밖이라 슬롯 비움: {cleared}"] if cleared else [])
+        return {"slots": {**{k: [] for k in SLOT_KEYS}, "의도": ["범위 밖"]}, "sub_slots": [], "log": log}
     s, l2 = apply_terms(s)
     s, l3 = fix_slots(s, q, found, hits, main=True)
     log += l1 + l2 + l3
 
     subs = []
     one_time = found.get("시점", []) if len(found.get("시점", [])) == 1 else []   # 질문 전체 시점이 하나뿐일 때만
-    for i, raw in enumerate(r.get("hcx_subs", [])[:3]):
-        ss, a = clean_slots(raw)
+    for i, raw in enumerate(r.get("hcx_subs", [])[:MAX_SUBS]):
+        ss, a = clean_slots(raw, main=False)                   # 하위 질문 의도는 하나
         ss, b = apply_terms(ss)
         ss, c = fix_slots(ss, q, found, hits, main=False)
         log += [f"(하위 {i}) {x}" for x in a + b] + [x.replace("(하위) ", f"(하위 {i}) ") for x in c]
@@ -212,9 +272,15 @@ def validate_slots(r):
             log.append(f"(하위 {i}) 삭제: 대상·지표가 없음")
             continue
         subs.append(ss)
+    if _is_cross_split(subs):                            # 프롬프트 규칙 2: 모든 연도 × 모든 지역은 나누지 않음
+        log.append(f"하위 질문 {len(subs)}개 삭제: 시점·지역·성별만 다른 모든 조합 (한 통계표에서 가져옴)")
+        subs = []
     if len(subs) == 1:                                   # 하위 질문이 하나면 메인과 같으므로 뺌
         log.append("하위 질문이 1개뿐이라 뺌")
         subs = []
+    for ss in subs:                                      # 원 질문 의도에 하위 질문 의도가 모두 들어가게 (프롬프트 규칙 4)
+        if ss["의도"] not in s["의도"]:
+            s["의도"].append(ss["의도"]); log.append(f"의도 채움(하위 질문): {ss['의도']}")
     return {"slots": s, "sub_slots": subs, "log": log}
 
 
