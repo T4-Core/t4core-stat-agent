@@ -66,17 +66,54 @@ ViewResult (질의 + 단위별 후보 + View Record·데이터) ──▶ 판단
 
 ## 2. Record (doc_type = "view")
 
-| 필드 | 내용 | 예 (12번, `DT_1B040A3`) |
-|---|---|---|
-| `id` | `질의ID::단위ID::표ID` | `12::main::DT_1B040A3` |
-| `lexical_text` | 조사·표 이름·조건·항목·단위를 단어로 | 주민등록인구현황 행정구역(시군구)별, 성별 인구수 시점 2021~2025, … 총인구수 명 |
-| `dense_text` | View 를 문장으로 | 주민등록인구현황의 「행정구역(시군구)별, 성별 인구수」 통계표에서 시점 2021~2025, 행정구역(시군구)별 대전광역시 조건으로 총인구수(명) 값을 가져온 View입니다. |
-| `doc_type` | 항상 `view` | `view` |
-| `parent_id` | View 를 만든 표 | `["table::101_DT_1B040A3"]` |
-| `metadata` | 질의(`query_id`, `unit_id`, `query`, `filters`), 검색(`rank`, `score`, `dense`, `bm25_rank`), 표(`tbl_id`, `tbl_nm`, `survey_nm`), View(`prd_se`, `year_from/to`, `units`, `applied`, `n_rows`, `notes`) | `applied = {시점: 2021~2025, 행정구역(시군구)별: [대전광역시], 항목: [총인구수]}` |
-| `source` | 다시 조회하는 좌표: 정제 parquet 경로 + `prd_se`, `years`, `itm_id`, `dims{c1: [코드]}` | `{file: processed/101_DT_1B040A3.parquet, dims: {c1: ["25"]}, …}` |
+판단 모듈로 넘기는 단위. API 형식은 `backend/schemas/record.py` (`Record`, `Note`, `Match`). (2026-11-03 기준으로 다시 씀)
 
-View 데이터(`data`)는 Record 옆에 따로: `columns`, `rows`(앞 200행), `n_rows`, `file`(전체 CSV).
+| 필드 | 내용 | 예 (11-1번 3위, `DT_1BPA402`) |
+|---|---|---|
+| `id` | `view::표key::주기::질문ID-순위::종류` | `view::101_DT_1BPA402::Y::11-1-3::trend` |
+| `lexical_text` | 표 이름·조사명·적용 조건·항목·단위를 한 줄로 | 시나리오별 추계인구(…) 장래인구추계 시점 2022~2072 시나리오별 높은 출산율 … |
+| `table` | 자른 데이터 전체 행 `{columns, rows}` | `columns: [시점, 시나리오별, 성별, 연령별, 항목, 값]` |
+| `doc_type` | 항상 `view` | `view` |
+| `parent_id` | View 를 만든 표 | `table::101_DT_1BPA402` |
+| `metadata` | `survey_nm, category, survey_type, view_type, prd_se, prd_from, prd_to, is_latest, unit, geo_level, n_points, items, dims` | `{survey_nm: 장래인구추계, view_type: trend, prd_from: 2022, prd_to: 2072, …}` |
+| `source` | 다시 조회하는 좌표: `table_key, file, org_id, tbl_id, prd_se, itm_id, dims{c1:{codes}}, period, kosis_url` | `{file: processed/101_DT_1BPA402.parquet, …}` |
+| **`notes`** [NEW 11-03] | **View 를 만들 때** 못 맞춘 조건 (dict 목록, 빈 목록 = 다 맞춤) | 아래 |
+| **`match`** [NEW 11-03] | **표를 고를 때**의 결과 `{rank, cover, unmet}` | 아래 |
+
+### notes · match.unmet 의 한 항목 (같은 모양)
+
+```json
+{"slot": "시나리오", "dim": "시나리오별", "type": "default",
+ "requested": "중위", "applied": ["높은 출산율"],
+ "text": "시나리오별: 중위(기본) 시나리오가 없어 '높은 출산율'(첫 코드) 사용"}
+```
+
+| 칸 | 값 |
+|---|---|
+| `slot` | `시점` · `지역` · `성별` · `연령` · `지표` · `시나리오` · `행수` |
+| `dim` | 표의 어느 분류에서 생겼는지 (`시나리오별`, `항목` …). 없으면 `null` |
+| `type` | `missing` 요청 값이 표에 없음 · `default` 못 맞춰 기본값 사용 · `partial` 일부만 맞춤 · `latest_shift` 최신 연도에 값이 없어 앞 연도 · `truncated` 행이 많아 잘라냄 · `empty` 빈 View |
+| `requested` | 요청한 값 (`[2025]`, `["부산광역시"]`, `{"from": 20, "to": 29}`, `"최신"` …) |
+| `applied` | 실제로 쓴 값 (`[2024]`, `["전국"]` …). 없으면 `null` |
+| `text` | 사람이 읽는 문장 |
+
+### match
+
+```json
+{"rank": 2, "cover": 1.0,
+ "unmet": [{"slot": "지표", "dim": null, "type": "missing", "requested": ["고령인구비율"],
+            "applied": null, "text": "지표 ['고령인구비율'] 없음"}]}
+```
+
+| 칸 | 값 |
+|---|---|
+| `rank` | 검색 순위 (1부터) |
+| `cover` | 요청 연도 중 표 기간 안에 든 비율 (0~1, 연도를 안 물었으면 1) |
+| `unmet` | 표 메타데이터 기준으로 못 맞춘 조건 (notes 와 같은 모양) |
+
+판단 모듈에서 쓰는 예: `type` 이 `default`·`empty` 인 notes 가 있으면 조건을 못 맞춘 View / `cover < 1` 이면 요청 기간 일부만 / `slot=시점, type=latest_shift` 면 "2025 대신 2024 값" 이라고 밝힘.
+
+호환: 상세 결과(`/views/detail`)의 `views[].notes` 는 예전처럼 **문장 목록**(= 각 note 의 `text`). 답변 모듈(`light_agent`)이 문장 목록으로 받기 때문. 답변 모듈이 `Record.notes` 로 옮기면 없애도 됨.
 
 ## 3. 묶음 (`views.py`)
 
@@ -136,11 +173,33 @@ View 데이터(`data`)는 Record 옆에 따로: `columns`, `rows`(앞 200행), `
 5. **성별 코드 `남자(A)`·`여자(B)`**: 괄호 표기 때문에 '남자' 와 불일치 → 끝 괄호를 떼고 비교 (`sex_name`)
 6. **항목이 하나뿐인 표**: "맞는 항목 없음 → 항목 전체" notes 가 37개 View 에 붙어 잡음 → 항목이 하나면 notes 없음 (37 → 17)
 
+## 4-2. 고령인구비율 — 표는 맞게 찾았는데 엉뚱한 줄이 나가던 문제 (2026-11-03)
+
+`DT_1BPA003`·`DT_1BPB003`(주요 연령계층별 추계인구) 의 인구종류별 분류:
+
+```
+고령인구(천명): 65세+
+- 구성비(%): 65세+        ← 고령인구비율. '-' = 바로 위 줄의 하위 항목 (이 줄엔 '고령인구' 글자가 없음)
+```
+
+질의 7·11-2 는 지표 `고령인구비율` 이 어느 줄과도 안 맞아 **첫 줄 `생산연령인구(천명): 계(15~64세)`** 가 나갔고, 11-2 는 notes 도 비어 판단 모듈이 알 수 없었다.
+
+| # | 고친 것 | 코드 |
+|---|---|---|
+| 7 | `-` 로 시작하는 줄은 바로 위 일반 줄의 앞부분을 이어받아 맞춤 (`- 구성비(%): 65세+` → `고령인구 구성비(%): 65세+`, `-조선족` → `중국 조선족`). 부모 코드가 비어 있어 줄 순서로 판단. 해당 표 6개 | `full_names` (resolve 의 지표 확인도 같은 함수) |
+| 8 | 연령 숫자가 하나도 안 읽히는 `ages` 분류는 지표 분류로 처리 (normalize 알려진 문제 ⑥) | `match_level` |
+| 9 | 성별·연령 분류에서 합계 없이 기본값을 고르면 notes (이전: notes 없이 첫 코드) | `match_level` |
+
+결과: 예시 12개 중 고령인구 View 5개에 "맞는 코드 없음 → 첫 코드" notes. 다른 View 는 그대로. pytest 92 passed.
+**지표 단어 변환(`고령인구비율` → `고령인구 구성비`)은 동의어 사전 담당 몫** — 사전이 그렇게 넘겨주면 `- 구성비(%): 65세+` 줄을 찾음 (시험: 1960년 2.9%).
+
 ---
 
 ## 5. 변경 기록
 
 | 날짜 | 내용 |
 |---|---|
+| 2026-11-03 | Record 에 `notes`(못 맞춘 조건 dict 목록)·`match`(rank·cover·unmet) 추가, `schemas/record.py` 에 `Note`·`Match`, 검색 후보 형식에 `unmet`·`cover`·`cost`. 상세 결과 `views[].notes` 는 문장 목록 유지. `dense.py` 임베딩 진행률 0초 나누기 오류 수정 (e2e 테스트가 가끔 실패하던 원인). 위 2절을 현재 형식으로 다시 씀 |
+| 2026-11-03 | `-` 하위 줄 이름 이어받기, 연령 숫자 없는 ages 분류는 지표로, 기본값 선택 시 항상 notes (위 4-2의 7~9) |
 | 2026-11-02 | 예시 12개 전체 실행 (View 48). 위 4~6 수정 |
 | 2026-11-02 | 작성. 표 하나 확정(resolve) 설계를 버리고, 검색 상위 3개마다 View + Record(doc_type=view). 위 1~3 수정 |
