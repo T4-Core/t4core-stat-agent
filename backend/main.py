@@ -16,7 +16,8 @@ Swagger 화면 순서 = 파이프라인 순서
 """
 from fastapi import FastAPI
 
-from backend.api import v1_chat, v1_ingest, v1_query, v1_search
+from backend.api import v1_chat, v1_ingest, v1_judge, v1_query, v1_search
+# [CHANGED] 이전: from backend.api import v1_chat, v1_ingest, v1_query, v1_search   (v1_judge = 판단 모듈 API 추가)
 from backend.core.config import OUT, TABLE_INDEX_DIR, paths
 
 TAGS = [
@@ -24,6 +25,7 @@ TAGS = [
     {"name": "⓪ Ingest 준비 (메타·정규화·색인)", "description": "수집 결과(kosis_data) → 메타 프로필·표 색인·정규화 parquet"},
     {"name": "① Query 질의 분석", "description": "질문 → 재작성 QueryBundle → View 모듈 입력 (backend/rag/query_analyzer)"},
     {"name": "② Retrieval 검색·View 생성", "description": "QueryBundle → 표 검색 → View 카드(Record) (backend/rag/retrieval, ingestion)"},
+    {"name": v1_judge.TAG, "description": "View 가 질문 조건(슬롯)을 실제로 담았는가 → pass/partial/fail + 사유 코드 (backend/rag/judge)"},  # [NEW]
     {"name": "③ Agent 통합 (전체 파이프라인)", "description": "Record → HCX 답변 + 차트 + 출처 (backend/agent)"},
     {"name": "④ Data 좌표 조회·차트", "description": "Record.source → DuckDB 재조회 (backend/data_engine)"},
 ]
@@ -41,8 +43,11 @@ app = FastAPI(
     openapi_tags=TAGS,
 )
 # [CHANGED] 이전: for r in (meta, normalize, query, search, views): app.include_router(r.router)   (View 모듈만)
-for r in (v1_ingest.prep, v1_ingest.router, v1_query.router, v1_search.router, v1_chat.router, v1_search.data):
+for r in (v1_ingest.prep, v1_ingest.router, v1_query.router, v1_search.router, v1_judge.router, v1_chat.router,
+          v1_search.data):
     app.include_router(r)
+# [CHANGED] 이전: for r in (v1_ingest.prep, v1_ingest.router, v1_query.router, v1_search.router, v1_chat.router, v1_search.data):
+#   (v1_judge.router 를 ② 검색과 ③ 답변 사이에 등록 — 파이프라인 순서 = Swagger 순서)
 
 
 @app.get("/health", tags=["system"], summary="상태 확인")
