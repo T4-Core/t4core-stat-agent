@@ -140,7 +140,7 @@ def embed_many(texts, workers=4, progress=print):
             done[0] += 1
             n = done[0]
         if n % 100 == 0 or n == len(todo):
-            el = time.time() - t0
+            el = max(time.time() - t0, 1e-6)    # [CHANGED 11-03] 너무 빨리 끝나면(테스트용 가짜 임베딩) 0초 → 0 으로 나누기 오류
             progress(f"  {n}/{len(todo)}  {n / el:.2f}건/초  남은 시간 약 {el / n * (len(todo) - n) / 60:.0f}분"
                      + (f"  실패 {len(failed)}" if failed else ""))
 

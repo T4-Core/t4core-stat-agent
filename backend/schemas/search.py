@@ -5,6 +5,8 @@
 """
 from pydantic import BaseModel, Field
 
+from backend.schemas.record import Note
+
 # ─── 구 view_model/schemas.py 125~136 행 (내용 그대로) ───
 class Candidate(BaseModel):
     """검색 후보 (메타데이터 하나 = 표 하나). BM25 로 10개 → bge-m3 로 다시 줄 세운 순서"""
@@ -17,6 +19,10 @@ class Candidate(BaseModel):
     bm25_rank: int | None = Field(None, description="1단계 BM25 순위 (1부터)")
     bm25: float | None = Field(None, description="1단계 BM25 점수")
     has_view: bool = Field(..., description="View 카드를 만들었는지 (재정렬 상위 N개만)")
+    # [NEW 11-03] 슬롯을 넘겨 검색했을 때만 (resolve.py)
+    unmet: list[Note] | None = Field(None, description="표 메타데이터 기준으로 못 맞춘 조건")
+    cover: float | None = Field(None, description="요청 연도 중 표 기간 안에 든 비율 (0~1)")
+    cost: float | None = Field(None, description="정렬 점수 = 시점 외 못 맞춘 조건 수 + (1 - cover). 작을수록 앞")
 
 
 

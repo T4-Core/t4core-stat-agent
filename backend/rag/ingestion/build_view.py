@@ -5,6 +5,7 @@
   2) 슬롯 → 그 표의 실제 코드 조건 (시점·지역·성별·연령·지표/대상)
   3) parquet 에서 조건대로 잘라 View 데이터 → output/views/<id>.csv
   4) 카드: id · lexical_text · table{columns, rows} · doc_type=view · parent_id · metadata · source
+           · notes(못 맞춘 조건 dict 목록) · match(검색·표 고르기 결과, views.py 에서 붙임)  [NEW 11-03]
      (판단·RAG 모듈이 받기로 한 예시 모양. dense_vectors 는 넣지 않음)
 
 원칙
@@ -55,6 +56,48 @@ def match_name(name, stems):
     return any(s in n for s in stems)
 
 
+# ── notes (못 맞춘 조건) — 판단 모듈이 규칙으로 읽을 수 있게 dict 로 (2026-11-03) ──
+#   {slot, dim, type, requested, applied, text}
+#   slot : 시점 · 지역 · 성별 · 연령 · 지표 · 시나리오 · 행수
+#   type : missing(요청 값이 표에 없음) · default(못 맞춰 기본값 사용) · partial(일부만 맞춤)
+#          · latest_shift(최신 연도에 값이 없어 앞 연도) · truncated(행 잘라냄) · empty(빈 View)
+SLOT_OF_KIND = {"regions": "지역", "sex": "성별", "ages": "연령", "scenario": "시나리오"}
+
+
+def note(notes, slot, type_, text, dim=None, requested=None, applied=None):
+    notes.append({"slot": slot, "dim": dim, "type": type_, "requested": requested, "applied": applied, "text": text})
+
+
+def requested_of(slot, f):
+    # 슬롯 이름 → 슬롯 dict 에서 요청한 값 (notes.requested 용)
+    if slot == "지표":
+        return (f.get("지표") or []) + (f.get("대상") or []) or None
+    if slot == "지역":
+        return f.get("지역") or f.get("비교축")
+    if slot == "시나리오":
+        return "중위"
+    return f.get(slot)
+
+
+DASH_RE = re.compile(r"^\s*[-－–]\s*")
+
+
+def full_names(names):
+    # '-' 로 시작하는 줄은 바로 위 일반 줄의 하위 항목 (KOSIS 표기) → 윗줄 앞부분을 이어붙임
+    #   '고령인구(천명): 65세+', '- 구성비(%): 65세+' → …, '고령인구 구성비(%): 65세+'
+    #   '중국', '-조선족' → …, '중국 조선족'
+    # 부모 코드(parent)가 비어 있는 표가 있어 줄 순서로 판단 (메타 코드 순서 = KOSIS 화면 순서)
+    head, out = "", []
+    for n in names:
+        n = str(n or "")
+        if DASH_RE.match(n) and head:
+            out.append(f"{head} {DASH_RE.sub('', n)}")
+        else:
+            head = re.split(r"[(:（]", n)[0].strip() or head
+            out.append(n)
+    return out
+
+
 # ── 시점 ────────────────────────────────────────────────────────
 def match_period(prof, f, notes):
     se = next((s for s in SE_PREF if s in prof["periods"]), next(iter(prof["periods"])))
@@ -64,10 +107,10 @@ def match_period(prof, f, notes):
         use = [y for y in want if y in avail]
         miss = [y for y in want if y not in avail]
         if miss:
-            notes.append(f"시점 {miss} 은 이 표에 없음 (수록 {avail[0]}~{avail[-1]})")
+            note(notes, "시점", "missing", f"시점 {miss} 은 이 표에 없음 (수록 {avail[0]}~{avail[-1]})", requested=miss)
         if not use:
             use = [avail[-1]]
-            notes.append(f"요청 시점이 모두 없어 최신 {avail[-1]} 사용")
+            note(notes, "시점", "default", f"요청 시점이 모두 없어 최신 {avail[-1]} 사용", requested=want, applied=use)
     elif f.get("의도") == "추이":
         use = avail
     else:
@@ -98,19 +141,25 @@ def age_codes(codes, rng, notes, what):
     if hi is not None and cur <= hi:
         ok = False
     if not ok:
-        notes.append(f"{what}: 연령 {lo}~{hi if hi is not None else ''} 을 정확히 덮는 코드 없음"
-                     + (f" (가까운 코드 {len(sel)}개 사용)" if sel else ""))
+        note(notes, "연령", "partial" if sel else "missing",
+             f"{what}: 연령 {lo}~{hi if hi is not None else ''} 을 정확히 덮는 코드 없음"
+             + (f" (가까운 코드 {len(sel)}개 사용)" if sel else ""),
+             dim=what, requested=rng, applied=[c.get("std") or c.get("name") for c in sel] or None)
     return sel
 
 
 def match_level(l, f, stems, notes):
     kind, codes = l["kind"], l["codes"]
+    if kind == "ages" and not any(c.get("age_from") is not None for c in codes):
+        kind = "other"      # [CHANGED 11-03] 연령 숫자가 하나도 안 읽히는 '연령' 분류('고령인구(천명): 65세+' …)는 지표 분류로
     default = [c for c in codes if c["code"] == l["default_code"]]
     name = l["obj_nm"]
 
     def fallback(why):
         if default:
-            notes.append(f"{name}: {why} → 기본값 '{default[0]['std']}'({l['default_reason']})")
+            slot = SLOT_OF_KIND.get(kind, "지표")
+            note(notes, slot, "default", f"{name}: {why} → 기본값 '{default[0]['std']}'({l['default_reason']})",
+                 dim=name, requested=requested_of(slot, f), applied=[default[0]["std"]])
         return default
 
     if kind == "regions":
@@ -123,7 +172,7 @@ def match_level(l, f, stems, notes):
                         sel[c["std"]] = c
             miss = [r for r in regions if r not in sel]
             if miss:
-                notes.append(f"{name}: 지역 {miss} 없음")
+                note(notes, "지역", "missing", f"{name}: 지역 {miss} 없음", dim=name, requested=miss)
             return list(sel.values()) or fallback("요청 지역 없음")
         if axis in ("시도", "지역", "시군구"):
             gt = "시군구" if axis == "시군구" else "시도"
@@ -138,18 +187,23 @@ def match_level(l, f, stems, notes):
         if want:
             sel = [c for c in codes if sex_name(c["name"]) in want]
             return sel or fallback(f"성별 {sorted(want)} 코드 없음")
-        return [c for c in codes if c["is_total"]] or default
+        return [c for c in codes if c["is_total"]] or fallback("합계 코드 없음")
+        # [CHANGED 11-03] 이전: … or default  (기본값을 notes 없이 골라 판단 모듈이 알 수 없었음)
     if kind == "ages":
         if f.get("연령"):
             return age_codes(codes, f["연령"], notes, name) or fallback("연령 범위 코드 없음")
-        return [c for c in codes if c["is_total"]] or default
+        return [c for c in codes if c["is_total"]] or fallback("합계 코드 없음")
+        # [CHANGED 11-03] 이전: … or default
     if kind == "scenario":
         # 시나리오는 지표 단어로 고르지 않는다: 이름이 '높은 출산율 추계(… 기대수명-중위 …)' 처럼 길어서
         # 지표 '기대수명' 이 모든 시나리오에 걸림. 슬롯에 시나리오가 없으므로 기본값(중위) 하나
         if default and l["default_reason"] != "기본 추계(중위)":
-            notes.append(f"{name}: 중위(기본) 시나리오가 없어 '{default[0]['std']}'({l['default_reason']}) 사용")
+            note(notes, "시나리오", "default",
+                 f"{name}: 중위(기본) 시나리오가 없어 '{default[0]['std']}'({l['default_reason']}) 사용",
+                 dim=name, requested="중위", applied=[default[0]["std"]])
         return default
-    sel = [c for c in codes if not c["is_total"] and match_name(c["name"], stems)]    # 지표·대상 단어로
+    full = full_names([c["name"] for c in codes])                                     # '-' 줄은 윗줄 이름 이어받기
+    sel = [c for c, n in zip(codes, full) if not c["is_total"] and match_name(n, stems)]   # 지표·대상 단어로
     if sel:
         return sel
     return [c for c in codes if c["is_total"]] or fallback("지표·대상과 맞는 코드 없음")
@@ -182,7 +236,8 @@ def match_items(prof, f, stems, sex_done, notes):
         if by_sex:
             sel = by_sex
         else:
-            notes.append(f"성별 {sorted(sexes)}: 이 표에 성별 구분 없음")
+            note(notes, "성별", "missing", f"성별 {sorted(sexes)}: 이 표에 성별 구분 없음",
+                 dim="항목", requested=sorted(sexes))
     elif not sexes and sel:
         sel = pick_sex(sel, None)
     if f.get("연령") and any(i.get("kind") == "ages" for i in items):
@@ -194,17 +249,19 @@ def match_items(prof, f, stems, sex_done, notes):
     if len(items) == 1:                                     # 고를 것이 없음 (notes 를 남기면 잡음)
         return items
     if len(items) <= 12:
-        notes.append("항목: 지표·대상과 맞는 항목 없음 → 항목 전체")
+        note(notes, "지표", "default", "항목: 지표·대상과 맞는 항목 없음 → 항목 전체",
+             dim="항목", requested=requested_of("지표", f), applied=[i["name"] for i in items])
         return items
     tot = [i for i in items if i["is_total"]] or items[:1]
-    notes.append(f"항목: 지표·대상과 맞는 항목 없음 → '{tot[0]['name']}'")
+    note(notes, "지표", "default", f"항목: 지표·대상과 맞는 항목 없음 → '{tot[0]['name']}'",
+         dim="항목", requested=requested_of("지표", f), applied=[tot[0]["name"]])
     return tot
 
 
 # ── View 만들기 ─────────────────────────────────────────────────
 def build_view(tbl_id, f, num, con=None):
     # f = 슬롯 dict (연령은 {"from","to"}), num = id 번호 자리 ('질문ID-순위', 예: '12-1')
-    # 반환: (record dict = 카드, notes = 못 맞춘 조건 메모)
+    # 반환: (record dict = 카드, notes = 못 맞춘 조건 메모 dict 목록 — record["notes"] 와 같은 것)
     # id = view::표key::주기::번호::종류 (예: view::101_DT_1B040A3::Y::12-1::trend)
     own = con is None
     con = con or connect()
@@ -223,7 +280,9 @@ def build_view(tbl_id, f, num, con=None):
         #       → 답변이 전국 값을 요청 지역 값처럼 말함). 메모가 있으면 답변 문맥 정렬에서 뒤로 가고, LLM 에도 경고로 전달됨
         want_geo = [r for r in (f.get("지역") or []) if r not in ("전국", "전체")]
         if want_geo and not any(l["kind"] == "regions" for l in prof["levels"]):
-            notes.append(f"지역 {want_geo}: 이 표에는 지역 구분이 없음 → 전국 값")
+            note(notes, "지역", "default", f"지역 {want_geo}: 이 표에는 지역 구분이 없음 → 전국 값",
+                 requested=want_geo, applied=["전국"])
+            # [CHANGED 11-05] notes 가 dict 목록이 되어 (위 note()) 문장 대신 같은 모양으로
         # 성별 분류가 없는 표: 성별이 다른 분류의 코드 이름 끝에 있을 수 있음 ('기대수명 - 남')
         sexes = {SEX_ALIAS.get(s, s) for s in (f.get("성별") or [])}
         sex_done = any(l["kind"] == "sex" for l in prof["levels"])
@@ -246,7 +305,8 @@ def build_view(tbl_id, f, num, con=None):
             y = con.execute(f"SELECT max(year) FROM read_parquet({sql_str(pq)}) "
                             f"WHERE {' AND '.join(where)} AND value IS NOT NULL").fetchone()[0]
             if y is not None and y != years[-1]:
-                notes.append(f"최신 {years[-1]} 은 값이 없어 값이 있는 최신 {y} 사용")
+                note(notes, "시점", "latest_shift", f"최신 {years[-1]} 은 값이 없어 값이 있는 최신 {y} 사용",
+                     requested=[years[-1]], applied=[int(y)])
                 years = [int(y)]
         where.append(f"year IN ({', '.join(map(str, years))})")
         label_cols = [f"c{i}_label AS \"{l['obj_nm']}\"" for i, (l, _) in dims.items()]
@@ -261,9 +321,9 @@ def build_view(tbl_id, f, num, con=None):
             con.close()
     if len(df) > MAX_ROWS:
         df = df.head(MAX_ROWS)
-        notes.append(f"행이 {MAX_ROWS}개를 넘어 앞부분만 사용")
+        note(notes, "행수", "truncated", f"행이 {MAX_ROWS}개를 넘어 앞부분만 사용", applied=MAX_ROWS)
     if df.empty:
-        notes.append("조건에 맞는 값이 없음 (빈 View)")
+        note(notes, "행수", "empty", "조건에 맞는 값이 없음 (빈 View)", applied=0)
 
     view_id = f"view::{prof['table_key']}::{se}::{num}::{view_type_of(f)}"
     vdir = OUT / "views"
@@ -300,6 +360,7 @@ def build_view(tbl_id, f, num, con=None):
                    "dims": {f"c{i}": {"codes": [c["code"] for c in sel]} for i, (l, sel) in dims.items()},
                    "period": {} if f.get("의도") == "추이" and not f.get("시점") else {"in": [str(y) for y in years]},
                    "kosis_url": KOSIS_URL.format(org=prof["org_id"], tbl=prof["tbl_id"])},
+        "notes": notes,                                         # [NEW 11-03] 못 맞춘 조건 (dict 목록, 위 note() 형식)
     }
     return record, notes
 

@@ -2,11 +2,12 @@
 [엔드포인트 5] views — 질의(자연어 + 슬롯 dict, 서브쿼리 포함) → 검색 단위별 View 카드 → 카드 목록
 
   검색 단위 = 상위 질의(main) + 서브쿼리 각각
-  단위마다:  자연어로 검색 (search: BM25 상위 top_k=10 → bge-m3 재정렬)
+  단위마다:  자연어로 검색 (resolve.search_query 로 다듬은 문장 → search: BM25 50개 → 조건 확인 → 상위 top_k=10 → bge-m3 재정렬)
              → 상위 n_views=3 개 표로 View 카드 생성 (build_view, 슬롯 dict 조건)
   출력
     카드 목록   : [Record, …]  (판단·RAG 모듈로 넘기는 것. 질문 12개 → 한 목록)
     상세 결과   : {query_id, original, filters, units: [{unit_id, query, filters, candidates, views, notes}]}  (확인용)
+    Record 의 notes(못 맞춘 조건 dict 목록)·match(rank, cover, unmet) 는 docs/view_model/build_view.md 2. Record 참고
 
   카드 id = view::표key::주기::질문ID-순위::종류  (서브쿼리는 질문ID 자리에 서브 ID, 예: 6-1-2)
 
@@ -22,6 +23,7 @@ import uuid
 from backend.core.config import OUT
 from backend.data_engine.duckdb_client import connect
 from backend.rag.ingestion.build_view import build_view
+from backend.rag.ingestion.resolve import search_query
 from backend.rag.query_analyzer.query_bundle import example_queries, parse_slots
 from backend.rag.retrieval.table_search import search
 # [CHANGED] 이전: from config import OUT, connect
@@ -60,7 +62,9 @@ def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None):
         for uid, text, f in units_of(b, sub_ids):
             label = b["query_id"] if uid == "main" else uid
             notes = []
-            cands = search(text, top_k)
+            sq = search_query(text, f)                    # 지역·시점 단어 빼고 지표·대상 단어 더함 (resolve.py)
+            cands = search(sq, top_k, filters=f)          # BM25 50개 → 조건 확인 → 상위 top_k 만 dense
+            # [CHANGED] 이전: cands = search(text, top_k)
             views = []
             for c in cands[:n_views]:
                 t0 = time.time()
@@ -69,13 +73,16 @@ def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None):
                 except Exception as e:  # noqa: BLE001  (View 하나 실패해도 나머지는 계속)
                     notes.append(f"{c['tbl_id']} View 생성 실패: {e.__class__.__name__}: {str(e)[:150]}")
                     continue
-                views.append({"record": rec, "notes": vnotes, "rank": c["rank"], "tbl_id": c["tbl_id"]})
+                rec["match"] = {"rank": c["rank"], "cover": c.get("cover"), "unmet": c.get("unmet") or []}   # [NEW 11-03]
+                views.append({"record": rec, "notes": [n["text"] for n in vnotes], "rank": c["rank"], "tbl_id": c["tbl_id"]})
+                # [CHANGED 11-03] 이전: "notes": vnotes  — notes 가 dict 목록이 됨. 답변 모듈(light_agent)은 문장 목록을
+                #   받으므로 여기는 text 만 (구조화된 notes 는 record["notes"])
                 if progress:
                     progress(f"  [{label}] #{c['rank']} {c['tbl_id']} → {len(rec['table']['rows'])}행 ({time.time() - t0:.1f}초)")
             done = {v["tbl_id"] for v in views}
             for c in cands:
                 c["has_view"] = c["tbl_id"] in done
-            out_units.append({"unit_id": uid, "query": text, "filters": f, "candidates": cands,
+            out_units.append({"unit_id": uid, "query": text, "search_query": sq, "filters": f, "candidates": cands,
                               "views": views, "notes": notes})
     finally:
         con.close()
