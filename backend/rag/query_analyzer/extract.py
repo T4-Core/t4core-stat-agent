@@ -1,5 +1,10 @@
 """2-2. 코드 추출 (HCX 호출 전): 상대 시점·연도 범위 변환, 시도·성별·연령·국적·출생연도 추출
-노트북 user_question_rewrite_v2.ipynb '2-2' 셀의 코드를 그대로 옮김 (확인용 출력 부분은 뺌)"""
+노트북 user_question_rewrite_v3.ipynb '2-2' 셀의 코드를 그대로 옮김 (확인용 출력 부분은 뺌)
+대응표 파일: dictionary/rule_dict.json (dictionary/build_dicts.py 가 만듦). 경로는 config.RULE_PATH"""
+import json
+
+from .config import RULE_PATH
+from .terms import TERM_INDEX, _glued_number, _nospace                # 2-1 (일상어 사전 단어 가리기)
 
 # ============= 2-2. 코드 추출 (HCX 호출 전) ================
 # HCX 없이 정규식 + 대응표로 확실한 값만 뽑음: 시점, 지역(시도), 성별, 연령, 국적, 조건(출생연도)
@@ -15,7 +20,7 @@ YEAR = r"(?:19|20)\d{2}"
 # ---- 1) 상대 시점 → 연도 ----
 def resolve_relative_time(question, today=None):
     """'작년', '최근 5년', '2010년대', '지난달' 등을 기준일 기준 연도로 바꿈.
-    '요즘', '코로나 전후'처럼 기준이 애매한 표현은 그대로 둠. '최근 N년'은 올해 자료가 아직 없을 수 있어 작년까지.
+    '요즘', '코로나 전후'처럼 기준이 애매한 표현은 질문을 바꾸지 않음 (rule_extract 가 시점 값만 넣음). '최근 N년'은 올해 자료가 아직 없을 수 있어 작년까지.
     반환: (바뀐 질문, 바꾼 내역)"""
     today = today or date.today()
     Y, M = today.year, today.month
@@ -80,29 +85,49 @@ def expand_month_ranges(text, max_months=MAX_RANGE_MONTHS):
     return MONTH_RANGE_RE.sub(_r, text), notes
 
 
+
 # ---- 3) 대응표: 시도, 성별, 연령, 국가 ----
-SIDO_ALIASES = {
-    "서울": ["서울특별시", "서울"], "부산": ["부산광역시", "부산"], "대구": ["대구광역시", "대구"],
-    "인천": ["인천광역시", "인천"], "광주": ["광주광역시", "광주"], "대전": ["대전광역시", "대전"],
-    "울산": ["울산광역시", "울산"], "세종": ["세종특별자치시", "세종"], "경기": ["경기도", "경기"],
-    "강원": ["강원특별자치도", "강원도", "강원"], "충북": ["충청북도", "충북"], "충남": ["충청남도", "충남"],
-    "전북": ["전북특별자치도", "전라북도", "전북"], "전남": ["전라남도", "전남"], "경북": ["경상북도", "경북"],
-    "경남": ["경상남도", "경남"], "제주": ["제주특별자치도", "제주도", "제주"],
-}
-# 'OO시' 표기 추가. '광주시'(경기도 광주시), '제주시'(시군구)는 시도가 아니므로 넣지 않음
-SIDO_EXTRA = {"서울특별시": ["서울시"], "부산광역시": ["부산시"], "대구광역시": ["대구시"], "인천광역시": ["인천시"],
-              "대전광역시": ["대전시"], "울산광역시": ["울산시"], "세종특별자치시": ["세종시"]}
-SIDO = {names[0]: list(dict.fromkeys(names + SIDO_EXTRA.get(names[0], []))) for names in SIDO_ALIASES.values()}
-SIDO["전국"] = ["전국"]
+# 표현 통일. HCX 호출 전에 코드가 질문에서 슬롯값을 직접 찾아서 쓸 때 사용 (2-4 검증에서도 같은 표를 씀)
+# 찾는 규칙(공통): 긴 표기부터 찾고, 찾은 부분은 지워서 두 번 세지 않음 → '인도네시아' 안의 '인도', '충청북도' 안의 '충청'은 따로 안 잡힘
 
-SEX = {"남자": ["남자", "남성"], "여자": ["여자", "여성"]}
-SEX_BOTH = ["남녀", "남·여", "남/여"]                    # 남자·여자 둘 다
-AGE_WORDS = ["노인", "고령", "어린이", "아동", "청소년", "청년", "중년", "유소년", "생산연령", "영유아", "신생아"]
-KOR_TENS = {"구십": 90, "팔십": 80, "칠십": 70, "육십": 60, "오십": 50, "사십": 40, "삼십": 30, "이십": 20, "십": 10}
+# 대응표는 dictionary/rule_dict.json 에서 읽음 (dictionary/build_dicts.py 가 만듦. 고칠 때는 build_dicts.py 를 고치고 다시 실행)
+RULE_DICT = json.loads(RULE_PATH.read_text(encoding="utf-8"))
 
-COUNTRIES = ["베트남", "중국", "일본", "미국", "필리핀", "태국", "우즈베키스탄", "캄보디아", "몽골", "네팔",
-             "인도네시아", "러시아", "대만", "캐나다", "호주", "카자흐스탄", "미얀마", "스리랑카", "방글라데시",
-             "파키스탄", "인도", "키르기스스탄", "영국", "프랑스", "독일"]
+# (1) 시도: {정식 이름(슬롯에 넣는 값): [정식 이름, 다른 표기 ...]}. '전국' 포함
+#     옛 이름도 같이 둠: 강원도(→ 2023.6 강원특별자치도), 전라북도(→ 2024.1 전북특별자치도)
+SIDO = RULE_DICT["지역"]
+SIDO_ALIASES = {full: names[1:] for full, names in SIDO.items() if full != "전국"}   # 시도 17개 (정식 이름 제외한 표기)
+
+# (2) 권역: 여러 시도를 묶어 부르는 말 → 시도 정식 이름 여러 개로 풀어서 지역 슬롯에 넣음 {표기: [시도]}
+SIDO_GROUPS = {n: g["값"] for g in RULE_DICT["지역_묶음"].values() for n in g["표기"]}
+
+# (3) 시도 이름 뒤에 이런 말이 오면 지역이 아님 (정규식 lookahead) — '경기 침체'
+SIDO_BLOCK = {k: r"(?!\s*(?:" + "|".join(map(re.escape, words)) + "))" for k, words in RULE_DICT["지역_제외"].items()}
+
+# (4) 성별: {슬롯 값: [질문 표기]}. '남중생'처럼 다른 뜻이 붙은 말은 일상어 사전(2-1)에 있음 → HCX 가 채움
+SEX = RULE_DICT["성별"]
+SEX_BOTH = RULE_DICT["성별_묶음"]["남녀"]["표기"]                # 남자·여자 둘 다
+# '성별로', '성별 비교'는 값이 아니라 나눠 보는 축(비교축: 성별)이라 여기 넣지 않음
+
+# (5) 연령 단어: 질문에 연령을 뜻하는 말이 있는지만 봄 (2-4 에서 HCX 연령 값을 남길지 판단)
+#     숫자 연령('30대', '65세 이상', '삼십대')은 아래 AGE_RES 정규식이 따로 찾음
+AGE_WORDS = [
+    "노인", "어르신", "고령", "노년", "노령", "실버",                  # 65세 이상
+    "신생아", "영아", "유아", "영유아", "미취학",                      # 0~6세
+    "어린이", "아동", "유소년", "초등학생", "학령",                    # 0~14세 · 학령인구(6~21세)
+    "청소년", "미성년", "중학생", "고등학생",                          # 9~24세 · 19세 미만
+    "청년", "젊은층", "청장년",                                         # 19~34세 (청년기본법)
+    "중년", "장년", "중장년", "베이비붐", "베이비부머",                # 40~64세 등
+    "생산연령", "생산가능",                                             # 15~64세
+]
+# 한글 숫자 연령 ('삼십대'): {한글: 숫자}. 긴 것부터 ('구십'을 '십'보다 먼저)
+KOR_TENS = dict(sorted(((n, int(v)) for v, names in RULE_DICT["연령_한글숫자"].items() for n in names if n != v),
+                       key=lambda x: -len(x[0])))
+
+# (6) 국적: {슬롯 값(대표 이름): [대표 이름, 질문 표기 ...]}
+COUNTRY_ALIASES = RULE_DICT["국적"]
+COUNTRIES = list(COUNTRY_ALIASES)                           # 대표 이름 목록
+COUNTRY_NAMES = sorted(((n, c) for c, names in COUNTRY_ALIASES.items() for n in names), key=lambda x: -len(x[0]))
 
 
 def _mask(text, span):
@@ -111,21 +136,52 @@ def _mask(text, span):
     return text[:a] + "|" * (b - a) + text[b:]
 
 
+# 규칙 사전 표기 전체 (띄어쓰기 없앤 것). 일상어 사전 단어 중 이것과 같은 것은 가리지 않음
+RULE_WORDS = {_nospace(n) for slot, d in RULE_DICT.items() if slot != "지역_제외"
+              for v, names in d.items() for n in [v, *(names["표기"] if isinstance(names, dict) else names)]}
+
+
+def mask_terms(text, index=None):
+    """2-1 일상어 사전 단어 자리를 '|'로 가린 사본. 규칙 대응표가 단어 안의 글자를 잡지 않게 함
+    ('세대구성' 안의 '대구', '평균초혼연령' 안의 '초혼'). 긴 단어부터, 띄어쓰기는 무시
+    가리지 않는 것: 규칙 사전 표기와 같은 단어, 숫자가 든 단어('65세 이상', '1인가구'), 앞 숫자에 붙은 단어('삼십대'의 '십대')
+                    → 코드가 그 값을 찾아야 함"""
+    index = TERM_INDEX if index is None else index
+    for alias in sorted(index, key=lambda a: -len(_nospace(a))):
+        a = _nospace(alias)
+        if a in RULE_WORDS or re.search(r"\d", _kor_tens_to_digit(a)):    # 숫자·한글 숫자 연령('십대')은 코드가 찾음
+            continue
+        text = re.sub(r"\s*".join(map(re.escape, a)),
+                      lambda m: m.group(0) if _glued_number(m.string, m.start(), a) else "|" * len(m.group(0)), text)
+    return text
+
+
 def norm_sido(text):
-    """'서울', '서울시' → '서울특별시'. 시도가 아니면 None (2-4 검증에서도 사용)"""
+    """'서울', '서울시' → '서울특별시'. 시도가 아니면 None (권역 이름도 None) (2-4 검증에서도 사용)"""
     t = str(text).strip()
     return next((full for full, names in SIDO.items() if t in names), None)
 
 
+def norm_country(text):
+    """'타이완' → '대만', '조선족' → '한국계 중국'. 표에 없으면 None (2-4 검증에서 사용)"""
+    t = str(text).strip()
+    return next((c for c, names in COUNTRY_ALIASES.items() if t == c or t in names), None)
+
+
+# 시도 표기 + 권역 이름 → [시도 정식 이름]. 긴 표기부터 ('비수도권'을 '수도권'보다 먼저)
+SIDO_LOOKUP = sorted([(n, [full]) for full, names in SIDO.items() for n in names] + list(SIDO_GROUPS.items()),
+                     key=lambda x: -len(x[0]))
+
+
 def find_sido(q):
-    """질문에 나온 시도 (나온 순서). 긴 표기부터 찾고 찾은 부분은 지움.
-    이름 바로 뒤에 시·군·구가 붙으면 시군구 이름이므로 건너뜀 ('제주시', '광주시')"""
+    """질문에 나온 시도 (나온 순서). 권역('수도권')은 시도 여러 개로 풀어 넣음. 긴 표기부터 찾고 찾은 부분은 지움.
+    이름 바로 뒤에 시·군·구가 붙으면 시군구 이름이므로 건너뜀 ('제주시', '광주시'). SIDO_BLOCK 에 걸리면 건너뜀 ('경기 침체')"""
     found = []
-    for n, full in sorted(((n, full) for full, names in SIDO.items() for n in names), key=lambda x: -len(x[0])):
-        for m in list(re.finditer(re.escape(n) + r"(?![시군구])", q)):
-            found.append((m.start(), full))
+    for n, fulls in SIDO_LOOKUP:
+        for m in list(re.finditer(re.escape(n) + r"(?![시군구])" + SIDO_BLOCK.get(n, ""), q)):
+            found += [(m.start(), i, full) for i, full in enumerate(fulls)]
             q = _mask(q, m.span())
-    return list(dict.fromkeys(full for _, full in sorted(found)))
+    return list(dict.fromkeys(full for *_, full in sorted(found)))
 
 
 def _kor_tens_to_digit(text):
@@ -160,6 +216,12 @@ YEAR_RE = re.compile(rf"(?<!\d)({YEAR})(?!\d)(?!\s*(?:만|억|천|원|명|호|�
 MONTH_RE = re.compile(rf"(?<!\d)({YEAR})\s*년\s*(\d{{1,2}})\s*월")
 COHORT_RE = re.compile(rf"(?<!\d)({YEAR})(?:\s*[~\-]\s*({YEAR}))?\s*년?\s*생")
 
+# 기준이 애매한 시점 → 시점 값 (2-3 프롬프트의 시점 규칙과 같음). 질문에 연도가 없을 때만 씀
+FUZZY_TIMES = [
+    (re.compile(r"코로나\s*전후"), lambda Y: ["2019년", "2021년"]),
+    (re.compile(r"가장\s*최근|최근|최신|요즘"), lambda Y: [f"{Y - 1}년"]),   # 기준일의 직전 연도 하나
+]
+
 
 # ---- 4) 모두 적용 ----
 def rule_extract(question, today=None):
@@ -169,7 +231,7 @@ def rule_extract(question, today=None):
     q, n2 = expand_month_ranges(q)
     q, n3 = expand_year_ranges(q)
     notes += n2 + n3
-    found, rest = {}, q                          # rest: 찾은 부분을 지워 가며 쓰는 사본
+    found, rest = {}, mask_terms(q)              # rest: 찾은 부분을 지워 가며 쓰는 사본. 일상어 사전 단어는 먼저 가림
 
     # 조건: 출생연도 ('1983~1995년생') — 시점으로 잡히지 않게 먼저 지움
     cohort = []
@@ -186,6 +248,14 @@ def rule_extract(question, today=None):
             times.append((m.start(), f"{m.group(1)}년 {int(m.group(2))}월"))
             rest = _mask(rest, m.span())
     times += [(m.start(), f"{m.group(1)}년") for m in YEAR_RE.finditer(rest)]
+    if not times:                                # 연도가 없을 때만 '요즘'·'최신'·'코로나 전후'를 시점으로 (질문 문장은 그대로)
+        Y = (today or date.today()).year
+        for rx, to_years in FUZZY_TIMES:
+            for m in list(rx.finditer(rest)):
+                years = to_years(Y)
+                times += [(m.start(), y) for y in years]
+                notes.append(f"{m.group(0)} → {', '.join(years)}")
+                rest = _mask(rest, m.span())
     if times:
         found["시점"] = list(dict.fromkeys(t for _, t in sorted(times)))
 
@@ -206,9 +276,9 @@ def rule_extract(question, today=None):
     if ages:
         found["연령"] = list(dict.fromkeys(a for _, a in sorted(ages)))
 
-    nat, nat_text = [], rest                                     # 긴 이름부터 ('인도네시아' 안의 '인도'는 제외)
-    for c in sorted(COUNTRIES, key=len, reverse=True):
-        for m in list(re.finditer(re.escape(c), nat_text)):
+    nat, nat_text = [], rest                                     # 긴 표기부터 ('인도네시아' 안의 '인도'는 제외)
+    for n, c in COUNTRY_NAMES:                                   # 표기 → 대표 이름 ('타이완' → '대만')
+        for m in list(re.finditer(re.escape(n), nat_text)):
             nat.append((m.start(), c))
             nat_text = _mask(nat_text, m.span())
     if nat:

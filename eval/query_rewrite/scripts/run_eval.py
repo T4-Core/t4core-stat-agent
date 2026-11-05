@@ -8,7 +8,7 @@
     python scripts/run_eval.py --today 2026-11-02 # 상대 시점 기준일 지정
 
 저장
-    outputs/query_bundles.json            QueryBundle 목록
+    outputs/query_bundles_YYYYMMDD_HHMMSS.json   QueryBundle 목록 (실행마다 새 파일)
     dashboard/rewrite_trace.json, .js     대시보드용 중간 결과 → dashboard/rewrite_pipeline_dashboard.html 로 보기
 """
 import argparse
@@ -38,7 +38,7 @@ def main():
     ap.add_argument("--n", type=int, default=None, help="앞에서부터 쓸 질문 수 (기본: 전체)")
     ap.add_argument("--today", default=None, help="상대 시점 기준일 YYYY-MM-DD (기본: 오늘)")
     ap.add_argument("--workers", type=int, default=4, help="동시에 보내는 HCX 호출 수 (429가 많으면 줄임)")
-    ap.add_argument("--bundles", default=None, help="QueryBundle 저장 경로 (기본: outputs/query_bundles.json)")
+    ap.add_argument("--bundles", default=None, help="QueryBundle 저장 경로 (기본: outputs/query_bundles_YYYYMMDD_HHMMSS.json)")
     ap.add_argument("--trace-dir", default=None, help="대시보드용 중간 결과 저장 폴더 (기본: dashboard/)")
     args = ap.parse_args()
 

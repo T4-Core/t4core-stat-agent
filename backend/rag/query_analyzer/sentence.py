@@ -1,12 +1,13 @@
 """3. 슬롯 → 문장 (코드 템플릿, HCX 호출 없음)
-노트북 user_question_rewrite_v2.ipynb '3' 셀의 코드를 그대로 옮김 (실행·예시 출력 부분은 뺌)"""
+노트북 user_question_rewrite_v3.ipynb '3' 셀의 코드를 그대로 옮김 (실행·예시 출력 부분은 뺌)"""
 
 # ============= 3. 슬롯 → 문장 (코드 템플릿, HCX 호출 없음) ================
 # 검증된 슬롯 값을 정해진 순서로 이어 붙여 검색용 명사구를 만듦. 슬롯에 없는 말은 끼어들지 않음
 # 순서: 시점 → 지역 → 전출지→전입지 → 국적 → 성별 → 연령 → 조건 → 대상 → 이동 → 지표 → 비교축 → 의도어
 import re
 
-INTENT_WORD = {"값 조회": "", "구성비": "", "추이": "추이", "비교": "비교", "순위": "순위", "증감": "증감"}
+INTENT_WORD = {"값 조회": "", "구성비": "", "추이": "추이", "비교": "비교", "순위": "순위", "증감": "증감",
+               "증감률": "증감률", "합계": "합계", "범위 밖": ""}
 
 
 def _ranges(nums):
@@ -43,9 +44,11 @@ def _ns(s):
 
 
 def slots_to_sentence(slots, intent=None):
-    """검증된 슬롯 → 검색용 명사구. 슬롯이 모두 비면 빈 문자열"""
+    """검증된 슬롯 → 검색용 명사구. 슬롯이 모두 비면 빈 문자열
+    의도: 원 질문은 목록(의도어를 차례로 붙임), 하위 질문은 하나"""
     s = slots or {}
     intent = intent if intent is not None else s.get("의도", "값 조회")
+    intents = [intent] if isinstance(intent, str) else list(intent or [])
     parts = [format_time(s.get("시점", []))]
     parts += s.get("지역", [])
 
@@ -64,10 +67,8 @@ def slots_to_sentence(slots, intent=None):
     parts += targets + s.get("이동", []) + indicators
     parts += [a if a.endswith("별") else f"{a}별" for a in s.get("비교축", [])]   # '시도' → '시도별', '성별'은 그대로
 
-    word = INTENT_WORD.get(intent, "")
     words = [p for p in parts if p]
-    if word and (not words or words[-1] != word):
-        words.append(word)
+    words += [w for w in (INTENT_WORD.get(i, "") for i in intents) if w]       # 값 조회·구성비·범위 밖은 붙이지 않음
     return " ".join(dict.fromkeys(words))                                   # 같은 말이 두 번 나오지 않게
 
 

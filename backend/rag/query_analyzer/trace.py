@@ -1,5 +1,6 @@
 """5. 대시보드용 중간 결과 저장 (HCX 호출 없음)
-노트북 '5' 셀의 build_trace() 와 같은 내용. 노트북은 전역 변수(SLOT_RESULTS 등)를 썼고, 여기서는 run_pipeline() 결과 목록을 인자로 받음
+노트북 user_question_rewrite_v3.ipynb '5' 셀의 build_trace() 와 같은 내용. 노트북은 전역 변수(SLOT_RESULTS 등)를 썼고,
+여기서는 run_pipeline() 결과 목록을 인자로 받음
   rewrite_trace.json : 중간 결과
   rewrite_trace.js   : 같은 내용 (dashboard/rewrite_pipeline_dashboard.html 이 서버 없이 바로 읽음)"""
 import json
@@ -40,7 +41,7 @@ def build_trace(results, today=None, source=""):
         "created": datetime.now().isoformat(timespec="seconds"),
         "model": chat_model(),
         "today": str(today or date.today()),
-        "source": str(source),
+        "source": str(source),                                                 # 질문 출처 (파일 경로 또는 "직접 입력")
         "n": len(items),
         "slot_keys": SLOT_KEYS,
         "system_prompt": results[0]["slot"]["messages"][0]["content"] if results else "",
@@ -49,7 +50,7 @@ def build_trace(results, today=None, source=""):
 
 
 def save_trace(trace, out_dir=DASHBOARD_DIR):
-    """rewrite_trace.json + rewrite_trace.js 저장. 반환: (json 경로, js 경로)"""
+    """rewrite_trace.json + rewrite_trace.js 저장 (같은 이름이 있으면 덮어씀). 반환: (json 경로, js 경로)"""
     out_dir.mkdir(parents=True, exist_ok=True)
     text = json.dumps(trace, ensure_ascii=False, indent=1)
     pj, pjs = out_dir / "rewrite_trace.json", out_dir / "rewrite_trace.js"

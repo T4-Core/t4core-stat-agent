@@ -12,6 +12,8 @@
   - 슬롯이 하나도 없으면 팀 스펙의 실패 규칙: rewritten = original, sub_questions = [], intent/filters = None
 
 실행  API : POST /query/bundle, GET /query/examples   (routers/query.py)
+
+v2 모듈의 query_bundle.py 와 같은 코드 (노트북 단계와 관계없는 파서. 예시 파일: 이 패키지의 data/slot_queries.json)
 """
 import json
 import re
@@ -22,8 +24,7 @@ from backend.rag.ingestion.normalize import parse_age, std_geo_name
 # [CHANGED] 이전: from config import norm_space
 #                from services.normalize import parse_age, std_geo_name
 
-EXAMPLES = Path(__file__).resolve().parent / "data" / "slot_queries.json"
-# [CHANGED] 이전: EXAMPLES = Path(__file__).resolve().parent.parent / "data" / "slot_queries.json"   (view_model/data → query_analyzer/data)
+EXAMPLES = Path(__file__).resolve().parent / "data" / "slot_queries.json"   # 이 패키지의 data/ (backend 와 같은 파일 복사본)
 
 SLOT_RE = re.compile(r"\[([^\]]+)\]\s*([^\[]*)")
 LIST_SLOTS = {"지역", "대상", "성별", "지표"}           # 쉼표로 여러 값
