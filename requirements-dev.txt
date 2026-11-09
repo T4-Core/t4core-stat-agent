@@ -1,0 +1,20 @@
+# NOTE: keep this file ASCII-only (Windows pip reads it with the cp949 locale)
+# [NEW] Local dev. Not installed in the Docker image.
+-r requirements.txt
+
+# --- ingestion (runs outside the container) ---
+xlrd==2.0.2
+openai>=1.30        # view_builder enrich
+
+# --- test ---
+pytest>=8.0
+httpx>=0.27         # FastAPI TestClient
+
+# --- eval ---
+streamlit>=1.35     # eval/review_app.py
+playwright>=1.40    # then: playwright install chromium
+
+# --- notebook / EDA ---
+ipykernel>=6.0
+matplotlib>=3.8
+seaborn>=0.13
