@@ -91,6 +91,7 @@ def save_bundles(bundles, path=None):
     """QueryBundle 목록 → JSON 파일 (QueryBundle 필드만, 목록 하나)
     path=None 이면 OUTPUT_DIR/query_bundles_YYYYMMDD_HHMMSS.json (실행할 때마다 새 파일)"""
     path = Path(path) if path else OUTPUT_DIR / f"{SAVE_PREFIX}_{datetime.now():%Y%m%d_%H%M%S}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)   # [NEW] config.py 의 import 시점 생성을 옮겨옴
     path.write_text(json.dumps([asdict(b) for b in bundles], ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"저장: {path.resolve()} ({len(bundles)}개)")
     return path

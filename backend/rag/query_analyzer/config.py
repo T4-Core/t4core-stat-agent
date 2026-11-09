@@ -19,9 +19,10 @@ DASHBOARD_DIR = ROOT / "dashboard"                       # 5단계 rewrite_trace
 DICT_DIR = Path(__file__).resolve().parent / "dictionary"   # 사전 (dictionary/build_dicts.py 가 만듦)
 TERM_PATH = DICT_DIR / "term_dict.json"                  # 2-1 일상어 → 통계어
 RULE_PATH = DICT_DIR / "rule_dict.json"                  # 2-2·2-4 확실한 표기 대응표
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
-
+# [CHANGED] 이전: OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+#                DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+#   → import 시점 생성 제거. 쓰기 폴더가 없는 환경(Docker 등)에서 import 만으로 실패했음
+#     폴더는 저장 함수가 쓰기 직전에 만든다 (bundle.save_bundles, trace.save_trace)
 chat = kq.chat                                           # 베이스 코드 chat() (with_retry, _post 포함)
 HcxError = kq.HcxError
 
