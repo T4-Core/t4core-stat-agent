@@ -94,6 +94,7 @@
 | | `POST /api/v1/ingest/table-index/build`, `GET …/table-index/status` | `/search/index/build`, `/search/index/status` |
 | ① 질의 | `POST /api/v1/rag/query-rewrite` → `bundle` + **`view_bundle`** | [NEW] (재작성 모듈 API 없었음) |
 | | `POST /api/v1/rag/query-rewrite/trace`, `POST /api/v1/rag/query-adapt`, `GET /api/v1/rag/hcx-check` | [NEW] |
+| | `GET /api/v1/rag/query-slots` — 재작성 v3 슬롯 12개 · 의도 9종 · 의도 → View 종류 대응표 | [NEW v3] |
 | | `POST /api/v1/rag/query-bundle`, `GET /api/v1/rag/query-examples` | `/query/bundle`, `/query/examples` |
 | ② 검색·View | `POST /api/v1/rag/retrieve` | `POST /search` |
 | | `POST /api/v1/rag/views` (입력 = ①의 `view_bundle`), `…/views/detail`, `…/pipeline/run` | `/views`, `/views/detail`, `/pipeline/run` |
@@ -120,6 +121,10 @@
 | 7 | API 서버 안정성 | `Index()` 가 인덱스 없을 때 `SystemExit` → 서버 요청에서 프로세스 종료 위험 | `fusion.Index` 는 `FileNotFoundError` 로 [CHANGED], 라우터는 `api/deps.guard()` 로 SystemExit·HCX 오류 → HTTP 409/502/503 |
 | 8 | .env | 모듈마다 다른 위치에서 `load_dotenv` (cwd / 상위 폴더 override) | `core/config.py` 에서 한 번. 셸 환경변수 우선(override=False) |
 | 9 | requirements | `rank-bm25` 를 import 하는데 루트 requirements 에 없음 | 추가 |
+| 10 | ①→② 재작성 v3 하위 질문 의도 | v3 는 하위 질문마다 의도를 따로 정함('… 인구랑 시군구별 고령인구비율 순위' → 값 조회 / 순위). `QueryBundle.sub_filters` 에는 의도가 없어 원 질문 의도(첫 번째)가 모든 하위 질문에 들어감 → '순위' 하위 질문이 value View | `adapter.sub_intents_of(res["valid"])` → `to_view_bundle(..., sub_intents)` [NEW v3]. 저장된 bundle 만 있으면 하위 문장 끝 의도어로 되살림 (`resolve_sub_intents`). 응답에 `intents`·`sub_intents` |
+| 11 | ①→②·판단 재작성 v3 '범위 밖' | 범위 밖 질문은 슬롯이 모두 비는 것이 정상인데 '재작성 실패'로 처리 → 원 질문으로 검색, 판단 모듈은 `slot_dropped_upstream` | notes `[의도] 범위 밖 …` (판단 모듈은 무시), `RewriteResponse.out_of_scope`, `/chat` 은 검색·답변 HCX 생략하고 안내 답변 (`ChatResponse.out_of_scope`) |
+| 12 | ①→② 재작성 v3 사전 | v3 사전은 '노인' → 대상 '고령자' (연령 없음). View 모듈은 연령 분류로 표를 자르므로 전 연령 값이 나올 수 있음 | `adapter.AGE_TARGETS`: 고령자·영유아·유소년인구·생산연령인구 → 대상 '인구' + 연령 범위 (연령이 비었을 때만 채움). 검색 문장은 그대로 |
+| 13 | Swagger 재작성 v3 | 의도가 6종으로 적혀 있고, trace·hcx-check 응답 모양이 문서에 없음 | `schemas/query.py` `Intent`(9종, 목록 입력도 받음)·v3 예시·`RewriteTrace`·`HcxCheckResponse`·`SlotSpec` |
 
 ---
 
@@ -142,7 +147,7 @@
 ## 7. 테스트
 
 ```bash
-pytest -q        # 89 passed — 재작성 단위 테스트 86 + 통합 3 (HCX·네트워크 없음)
+pytest -q        # 93 passed (HCX·네트워크 없음) — 재작성 v3 ↔ View 변환: tests/query_analyzer/test_adapter_v3.py
 ```
 `tests/test_pipeline_e2e.py` 는 가짜 KOSIS 데이터(`tests/fake_kosis.py`: 연간·5년 주기·월간 표 3개)와 HCX 대역으로
 경로 해석 → ⓪ → ① → ② → ③ → ★ `/chat` → 좌표 재조회 → legacy 하이브리드 까지 **Swagger 와 같은 HTTP 경로**로 확인합니다.

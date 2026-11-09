@@ -53,6 +53,18 @@ assert vf["지역"] == ["대구광역시"] and vf["의도"] == "값 조회"
 print("[①] bundle.filters:", rw["bundle"]["filters"], "\n    view_bundle.filters:", vf, "\n    search_text:",
       rw["view_bundle"]["search_text"])
 
+# ①-1 [v3] 하위 질문마다 의도 (값 조회 / 순위) → sub_filters 의도, 범위 밖 → out_of_scope
+rw2 = ok(c.post("/api/v1/rag/query-rewrite", json={"question": "2025년 대전 인구랑 구별 인구 순위", "today": "2026-11-02"}))
+assert rw2["intents"] == ["값 조회", "순위"] and rw2["sub_intents"] == ["값 조회", "순위"], rw2
+assert [f["의도"] for f in rw2["view_bundle"]["sub_filters"]] == ["값 조회", "순위"], rw2["view_bundle"]
+assert rw2["view_bundle"]["sub_filters"][1]["비교축"] == "시군구" and not rw2["out_of_scope"]
+oos = ok(c.post("/api/v1/rag/query-rewrite", json={"question": "합계출산율이 무슨 뜻이야?"}))
+assert oos["out_of_scope"] and oos["bundle"]["intent"] == "범위 밖" and oos["view_bundle"]["filters"] is None, oos
+assert not any("재작성 슬롯이 비어" in n for n in oos["notes"]), oos["notes"]   # 판단 모듈이 '재작성 실패'로 읽지 않게
+tr = ok(c.post("/api/v1/rag/query-rewrite/trace", json={"question": "2025년 대전 인구랑 구별 인구 순위"}))
+assert tr["valid_slots"]["의도"] == ["값 조회", "순위"] and [s["의도"] for s in tr["valid_subs"]] == ["값 조회", "순위"], tr
+print("[①-1] sub_intents:", rw2["sub_intents"], "| 범위 밖 notes:", oos["notes"])
+
 # ② view_bundle 그대로 → Record 목록
 recs = ok(c.post("/api/v1/rag/views", json=rw["view_bundle"], params={"top_k": 3, "n_views": 2}))
 assert recs and all(r["doc_type"] == "view" for r in recs)
@@ -73,6 +85,14 @@ assert full["view_bundle"]["filters"]["의도"] == "추이" and full["records"],
 trend = next(r for r in full["records"] if r["source"]["tbl_id"] == "DT_1B040A3")
 assert trend["metadata"]["view_type"] == "trend" and trend["metadata"]["prd_from"] == "2021", trend["metadata"]
 print("[★] chat timings:", full["timings"], "| records:", len(full["records"]), "| chart:", full["result"]["chart"]["type"])
+
+# ★-1 [v3] 범위 밖 → 검색·답변 생략, 하위 질문 '순위' 단위는 순위 의도로 View 생성
+o = ok(c.post("/api/v1/chat", json={"question": "합계출산율이 무슨 뜻이야?"}))
+assert o["out_of_scope"] and o["records"] == [] and o["views"]["units"] == [] and o["result"]["insufficient"], o
+sub = ok(c.post("/api/v1/chat", json={"question": "2025년 대전 인구랑 구별 인구 순위", "today": "2026-11-02"}))
+assert [u["filters"]["의도"] for u in sub["views"]["units"]] == ["값 조회", "값 조회", "순위"], sub["views"]["units"]
+assert ok(c.post("/api/v1/rag/judge/from-chat", json=sub))["units"], "판단 모듈이 v3 chat 응답을 받아야 함"
+print("[★-1] 범위 밖:", o["result"]["answer"][:30], "| 단위 의도:", [u["filters"]["의도"] for u in sub["views"]["units"]])
 
 # ④ 좌표 재조회: 월간표 + 연도 시점 (입출력 보정 확인)
 mv = ok(c.post("/api/v1/chat", json={"question": "2025년 대전 전입 이동자 월별", "today": "2026-11-02", "n_views": 3}))
@@ -121,7 +141,10 @@ print("[legacy] hybrid hits:", [h["title"][:30] for h in hits[:3]], "| answer:",
 # openapi 에 모든 단계가 한 문서로
 spec = ok(c.get("/openapi.json"))
 for p in ("/api/v1/rag/query-rewrite", "/api/v1/rag/views", "/api/v1/agent/answer", "/api/v1/chat",
-          "/api/v1/rag/chunk-and-index", "/api/v1/rag/retrieve", "/api/v1/data/source"):
+          "/api/v1/rag/chunk-and-index", "/api/v1/rag/retrieve", "/api/v1/data/source", "/api/v1/rag/query-slots"):
     assert p in spec["paths"], p
+assert c.get("/docs").status_code == 200 and c.get("/redoc").status_code == 200
+slots = ok(c.get("/api/v1/rag/query-slots"))
+assert len(slots["intents"]) == 9 and set(slots["view_intent_map"]) == set(slots["intents"]), slots
 print("[swagger] paths:", len(spec["paths"]))
 print(json.dumps({"E2E": "PASS"}))

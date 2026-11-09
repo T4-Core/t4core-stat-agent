@@ -547,6 +547,14 @@ def answer_from_records(question, records, notes=None, titles=None, max_rows=40,
             "caveats": list(dict.fromkeys(n for u in used for n in notes.get(u, [])))[:6]}
 
 
+OUT_OF_SCOPE = "범위 밖"                                # 재작성 모듈 v3 의도 (query_analyzer.adapter.OUT_OF_SCOPE)
+OUT_OF_SCOPE_RESULT = {
+    "answer": "이 질문은 통계 수치를 묻는 질문이 아니어서 KOSIS 통계표를 찾지 않았습니다. "
+              "시점·지역·찾을 값을 넣어 물어봐 주세요. (예: '2025년 서울 1인가구 수', '최근 5년 대전 출생아 수 추이')",
+    "summary": "", "key_points": [], "insufficient": True, "unverified_numbers": [], "used_ids": [], "chart_id": None,
+    "chart": None, "sources": [], "caveats": [], "calculations": []}
+
+
 def run_chat(question, today=None, top_k=10, n_views=3, search_with="rewritten", use_rewrite=True,
              max_rows=40, save=False):
     """POST /api/v1/chat — 단일 상태 그래프(현재는 순차 3노드). 각 노드 결과를 모두 돌려줘 Swagger 에서 단계별 확인 가능"""
@@ -554,6 +562,12 @@ def run_chat(question, today=None, top_k=10, n_views=3, search_with="rewritten",
     timings, t0 = {}, time.time()
     rw, vb, notes, _ = tool_rewrite(question, today, None, search_with, use_rewrite)
     timings["1_rewrite"] = round(time.time() - t0, 2)
+    if rw and rw.get("intent") == OUT_OF_SCOPE:        # [NEW v3] 재작성 의도 '범위 밖' → 표 검색·답변(HCX) 생략
+        timings["total"] = round(time.time() - t0, 2)
+        return {"question": question, "rewrite": rw, "view_bundle": vb,
+                "views": {"query_id": vb["query_id"], "original": vb["original"], "filters": None, "units": []},
+                "records": [], "result": {**OUT_OF_SCOPE_RESULT}, "notes": notes, "timings": timings,
+                "saved": None, "out_of_scope": True}
     t1 = time.time()
     views, records = tool_views(vb, top_k, n_views)
     timings["2_views"] = round(time.time() - t1, 2)
@@ -568,7 +582,7 @@ def run_chat(question, today=None, top_k=10, n_views=3, search_with="rewritten",
     timings["3_answer"] = round(time.time() - t2, 2)
     timings["total"] = round(time.time() - t0, 2)
     out = {"question": question, "rewrite": rw, "view_bundle": vb, "views": views, "records": records,
-           "result": result, "notes": notes, "timings": timings, "saved": None}
+           "result": result, "notes": notes, "timings": timings, "saved": None, "out_of_scope": False}
     if save:
         ANSWERS_DIR.mkdir(parents=True, exist_ok=True)
         p = ANSWERS_DIR / (datetime.now().strftime("%Y%m%d_%H%M%S") + "_chat.json")
