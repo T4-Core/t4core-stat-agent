@@ -1,0 +1,8 @@
+# BM25 50 → 조건 확인 30 → cross-encoder (bge-reranker-v2-m3) 로 (cost, -점수) 순
+# 한국어 특화 대안: dragonkue/bge-reranker-v2-m3-ko, Dongjin-kr/ko-reranker
+requires: [sentence_transformers]
+description: BM25(kiwi) 50 → 조건 30 → cross-encoder BAAI/bge-reranker-v2-m3
+extends: baseline
+rerank:
+  - {type: condition, top_n: 30}
+  - {type: cross_encoder, model: BAAI/bge-reranker-v2-m3, max_length: 512, batch_size: 16, device: auto, respect_cost: true, top_n: top_k}

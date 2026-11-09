@@ -1,0 +1,6 @@
+# Kiwi 에 CSV 값 사전 항목·분류 이름 + term_dict 통계어를 사용자 단어로 등록 ('출생아수' 를 한 덩어리로)
+# + hybrid 변형(복합어 분해·지역명·'율' 축약형). 먼저 CSV 값 사전을 만들어야 함: python -m backend.rag.csv_index build
+description: Kiwi + CSV 값 사전 사용자 단어 + 복합어 분해 → 조건 → HCX bge-m3
+extends: baseline
+retrievers:
+  - {name: bm25, type: bm25, k: 50, tokenizer: {type: kiwi, variant: hybrid, user_dict: lexicon}}

@@ -100,3 +100,34 @@ class Index:
                          "dense_sim": round(best.get(i, float("nan")), 4)})
         return hits
 
+
+
+# ─── [NEW v4] 여러 검색기 결과 합치기 (retrieval/pipeline.py 가 씀. 위 Index 클래스는 그대로) ───
+def fuse_rrf(ranked: dict, k=RRF_K, weights=None):
+    """ranked = {검색기 이름: [(문서 번호, 점수), …] (순위 순)} → [(문서 번호, RRF 점수)] (높은 순)
+    점수 = Σ weight / (k + 순위)   (순위는 1부터)"""
+    weights = weights or {}
+    acc = {}
+    for name, hits in ranked.items():
+        w = float(weights.get(name, 1.0))
+        for r, (i, _) in enumerate(hits, 1):
+            acc[i] = acc.get(i, 0.0) + w / (k + r)
+    return sorted(acc.items(), key=lambda x: (-x[1], x[0]))
+
+
+def fuse_weighted(ranked: dict, weights=None, norm="minmax"):
+    """점수 가중합. norm: minmax(검색기마다 0~1) | zscore | none. 한 검색기 후보에 없는 문서는 그 검색기 0점"""
+    weights = weights or {}
+    acc = {}
+    for name, hits in ranked.items():
+        if not hits:
+            continue
+        s = np.array([x[1] for x in hits], dtype=float)
+        if norm == "minmax":
+            s = (s - s.min()) / (s.max() - s.min()) if s.max() > s.min() else np.ones_like(s)
+        elif norm == "zscore":
+            s = (s - s.mean()) / (s.std() or 1.0)
+        w = float(weights.get(name, 1.0))
+        for (i, _), v in zip(hits, s):
+            acc[i] = acc.get(i, 0.0) + w * float(v)
+    return sorted(acc.items(), key=lambda x: (-x[1], x[0]))

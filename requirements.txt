@@ -19,6 +19,7 @@ rank-bm25>=0.2.2
 # --- external API / config ---
 requests>=2.31
 python-dotenv>=1.0
+pyyaml>=6.0          # [NEW v4] configs/query_v4.yaml
 
 # --- answer charts ---
 plotly>=5.18

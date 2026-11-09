@@ -1,0 +1,14 @@
+# multilingual-e5 는 질의·문서 앞머리가 필요 ('query: ' / 'passage: ')
+requires: [sentence_transformers]
+description: BM25(kiwi) + 로컬 multilingual-e5-large 전체 → RRF → 조건
+corpus: {type: table_text}
+retrievers:
+  - {name: bm25, type: bm25, k: 50, tokenizer: {type: kiwi, variant: table}}
+  - name: dense
+    type: dense
+    k: 50
+    embedder: {type: sentence_transformers, model: intfloat/multilingual-e5-large, query_prefix: "query: ", doc_prefix: "passage: ", device: auto}
+fusion: {type: rrf, k: 60, pool: 50}
+rerank:
+  - {type: condition, top_n: top_k}
+top_k: 10

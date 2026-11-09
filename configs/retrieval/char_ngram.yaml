@@ -1,0 +1,5 @@
+# 형태소 분석기 없이 글자 2·3-gram BM25 — 띄어쓰기·붙여쓰기 차이('출생아 수' / '출생아수')에 강함
+description: 글자 2·3-gram BM25 → 조건 → HCX bge-m3
+extends: baseline
+retrievers:
+  - {name: bm25, type: bm25, k: 50, tokenizer: {type: char_ngram, n: [2, 3]}}

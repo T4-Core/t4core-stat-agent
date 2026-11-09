@@ -13,9 +13,7 @@
 .venv/Scripts/python.exe -m uvicorn main:app --reload --reload-dir view_model --app-dir view_model --port 8002
 ```
 
-Swagger: `http://localhost:8002/docs` — 데스크톱 앱에서는 브라우저 패널의 `view-api`(`.claude/launch.json`)로도 띄울 수 있다.
-패키지 설치(최초 1회, 이 `.venv` 는 uv 로 만들어 pip 가 없음):
-
+Swagger: `http://localhost:8002/docs` —
 ```bash
 uv pip install --python .venv/Scripts/python.exe -r view_model/requirements.txt
 ```

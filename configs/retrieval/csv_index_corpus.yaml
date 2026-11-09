@@ -1,0 +1,5 @@
+# 코퍼스만 바꿈: 표 메타 대신 실제 CSV 에서 뽑은 설명문 (열 머리·분류 값·항목·단위·연도·주석)
+# scope: all 로 바꾸면 catalog.csv 에서 고르지 않은 raw 표까지 (그 표는 메타 프로필이 없어 조건 확인에서 '메타 프로필 없음')
+description: CSV 값 사전 설명문 코퍼스 + BM25(kiwi) → 조건 → HCX bge-m3
+extends: baseline
+corpus: {type: csv_index, scope: selected}

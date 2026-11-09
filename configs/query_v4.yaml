@@ -1,0 +1,42 @@
+# 쿼리 모듈 v4 설정 (backend/core/settings_v4.py 가 읽음). 다른 파일을 쓰려면 환경변수 QUERY_V4_CONFIG=<경로>
+# 값을 바꾼 실행은 trace 의 params 에 그대로 남아 평가 때 비교할 수 있음
+
+# ── 1-4 필수 슬롯·시점 규칙 ──
+required_slots: [시점, 지역, 대상]       # 대상 = 대상 또는 지표 값이 CSV 의 행(항목·분류 값)에 있으면 충족
+base_year: 2026                          # '최근·요즘' 이 가리키는 해
+trend_years: 5                           # '추이·변화' 의 기간 (base_year 포함 5개 해: 2022~2026)
+recent_words: [최근, 요즘, 현재, 지금, 근래, 요새]
+trend_words: [추이, 변화, 흐름, 추세, 동향, 변동]
+trend_intents: [추이]                    # 이 의도면 시점이 없을 때 trend 규칙 적용
+n_options: 20                            # 되묻기 후보 수 (지역은 시도 전부가 들어가도록 넉넉히)
+
+# ── 1-2 동의어·CSV 값 사전 ──
+csv_scope: selected                      # selected = catalog.csv selected 표만 (지금 검색 대상과 같음) / all = raw 폴더 전체
+min_alias_len: 2                         # 한 글자 표현은 다른 단어 안에서 잘못 잡혀 제외
+fuzzy_cutoff: 0.72                       # 비슷한 이름 후보(되묻기 제안)의 최소 유사도 (difflib ratio)
+contain_min_len: 2                       # 포함 매칭(인구 ⊂ 총인구수)에 쓰는 최소 길이
+
+# ── 1-1 검색 문장 ──
+search_text_mode: v3                     # v3 = 재작성 모듈 문장 + CSV 표준 이름 보강 (추가 HCX 없음) / llm = 검색용 문장을 HCX 로 한 번 더
+
+# ── 1-5 서브쿼리 ──
+split_when_no_common_table: true         # 지표들을 함께 가진 표가 없으면 지표별 서브쿼리로
+max_sub_queries: 4
+
+# ── [Step 4] View 묶음 · Point 충돌 · 선택 (backend/rag/view) ──
+view_top_k: 10                           # 검색 단위마다 후보 표 수
+view_n_views: 3                          # 그중 View 를 만들어 비교할 표 수 (위에서부터)
+view_retrieval_config: null              # null = 기존 검색 / configs/retrieval/<이름> (Step 3 실험실 구성)
+view_keep_unusable: true                 # 필수 메타를 못 쓴 View 도 records 로 넘김 (기존 /rag/views 와 같음, notes 와 함께)
+                                         #   false = 다 맞은 View 가 하나라도 있으면 못 쓴 View 는 records 에서 뺌
+view_main_with_subs: false               # 서브쿼리가 있을 때 본 질의(합친 문장) 단위도 검색·비교할지
+                                         #   false = 서브쿼리 단위만 (본 질의는 서브쿼리와 겹쳐 불필요한 선택을 만들던 문제)
+conflict_rel_tol: 0.0                    # 같은 교차점 값이 '다르다' 의 기준: |a-b| > max(abs_tol, rel_tol*max(|a|,|b|))
+conflict_abs_tol: 1.0e-9                 #   (단위가 명·천명처럼 배수만 다르면 맞춰서 비교)
+conflict_allow_partial: [시점]           # 이 슬롯은 '대체 적용'(2026 → 최신 2025 등)이어도 비교에 넣음. 나머지 슬롯은 다 맞은 View 만 비교
+conflict_preview_points: 6               # 선택지마다 보여 줄 다른 값 교차점 수
+conflict_max_footnotes: 8                # 선택지마다 붙일 주석 수 (메타 CMMT: 통계표·항목·분류)
+selection_ttl_hours: 168                 # 선택 토큰 유효 시간
+
+# ── 기록 ──
+save_runs: false                         # true 면 storage/runs/<run_id>/ 에 단계별 기록 저장

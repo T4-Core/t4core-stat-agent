@@ -36,7 +36,6 @@
 | `routers/query.py` | ② 슬롯 문자열 → dict (보조), 예시 12개 |
 | `routers/search.py` | ③ 자연어 검색, 표 색인 만들기·상태 |
 | `routers/views.py` | ④⑤ View 생성 (질의 하나 / 일괄) |
-| `.claude/launch.json` | 데스크톱 앱 브라우저 패널에서 서버를 띄우는 설정 (`view-api`, 포트 8002) |
 
 ---
 

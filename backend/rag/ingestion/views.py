@@ -52,18 +52,25 @@ def units_of(b, sub_ids=None):
     return units
 
 
-def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None):
+def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None, search_fn=None, skip_main=False):
     # 질의 하나 → 상세 결과 (카드는 units[].views[].record)
+    # [CHANGED v4] search_fn: 검색 함수 교체 (search(query, top_k, filters=f) 모양). None 이면 예전과 같은 table_search.search
+    #   검색 실험 구성으로 View 까지 보려면 retrieval.factory.get_pipeline(<구성>).search_compat
+    search_fn = search_fn or search
+    # [CHANGED v4] skip_main: 서브쿼리가 있으면 본 질의 단위를 건너뜀 (기본 False = 예전과 같음)
     b = dict(b)
     b["query_id"] = b.get("query_id") or uuid.uuid4().hex[:8]
     con = connect()
     out_units = []
     try:
-        for uid, text, f in units_of(b, sub_ids):
+        units = units_of(b, sub_ids)
+        for uid, text, f in units:
+            if skip_main and uid == "main" and len(units) > 1:
+                continue
             label = b["query_id"] if uid == "main" else uid
             notes = []
             sq = search_query(text, f)                    # 지역·시점 단어 빼고 지표·대상 단어 더함 (resolve.py)
-            cands = search(sq, top_k, filters=f)          # BM25 50개 → 조건 확인 → 상위 top_k 만 dense
+            cands = search_fn(sq, top_k, filters=f)       # BM25 50개 → 조건 확인 → 상위 top_k 만 dense  [CHANGED v4] search → search_fn
             # [CHANGED] 이전: cands = search(text, top_k)
             views = []
             for c in cands[:n_views]:

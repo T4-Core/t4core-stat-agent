@@ -638,34 +638,83 @@ color:#000;font-size:14px;line-height:1.5;background:#fff;text-align:left}} .car
 </div></body></html>"""
 
 
-def _png_playwright(html_text, out_png):
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as pw:
-        b = pw.chromium.launch()
-        pg = b.new_page(viewport={"width": 1010, "height": 600}, device_scale_factor=1.5)
-        pg.set_content(html_text)
-        pg.locator(".card").screenshot(path=str(out_png))   # 카드 전체 높이 그대로
-        b.close()
-    return out_png
+# [CHANGED v4] PNG 는 별도 파이썬 프로세스에서 만든다.
+#   이전: Jupyter 안에서 스레드로 playwright 실행 → Windows Jupyter 는 하위 프로세스를 못 띄우는 이벤트 루프(Selector)라
+#         NotImplementedError + 'Future exception was never retrieved' 로그가 카드마다 나옴 (PNG 는 html2image 로 넘어가거나 실패)
+#   지금: 새 프로세스(Windows 기본 Proactor 루프)에서 여러 장을 한 번에. 브라우저는 playwright chromium → 설치된 Chrome → Edge 순
+_PNG_SCRIPT = r"""
+import json, sys
+from playwright.sync_api import sync_playwright
+width = int(sys.argv[1])
+pairs = json.loads(sys.stdin.read())
+with sync_playwright() as pw:
+    b, err = None, []
+    for ch in (None, "chrome", "msedge"):
+        try:
+            b = pw.chromium.launch(channel=ch) if ch else pw.chromium.launch()
+            break
+        except Exception as e:
+            err.append(f"{ch or 'chromium'}: {str(e).splitlines()[0][:160]}")
+    if b is None:
+        print("NOBROWSER " + " | ".join(err)); sys.exit(2)
+    pg = b.new_page(viewport={"width": width, "height": 600}, device_scale_factor=1.5)
+    for h, out in pairs:
+        try:
+            pg.set_content(open(h, encoding="utf-8").read())
+            pg.locator(".card").screenshot(path=out)          # 카드 전체 높이 그대로
+            print("OK " + out)
+        except Exception as e:
+            print("ERR " + out + " " + str(e).splitlines()[0][:200])
+    b.close()
+"""
+_PNG_STATE = {"warned": False}
 
 
-def _png(html_text, out_png):
-    """playwright → html2image 순으로 시도. 둘 다 없으면 None
-    playwright 동기 API 는 Jupyter(이벤트 루프 실행 중)에서 바로 못 써서 별도 스레드에서 실행"""
+def _png_warn(msg, log=print):
+    if not _PNG_STATE["warned"]:                       # 같은 경고를 카드마다 찍지 않음
+        _PNG_STATE["warned"] = True
+        log(f"  (PNG) {msg}")
+
+
+def png_many(pairs, width=1010, log=print):
+    """[(카드 html 경로, png 경로)] → 만든 png 경로 목록 (실패한 것은 빠짐). playwright → html2image 순"""
+    import subprocess
+    pairs = [(str(h), str(p)) for h, p in pairs]
+    if not pairs:
+        return []
+    done = []
     try:
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(1) as ex:
-            return ex.submit(_png_playwright, html_text, out_png).result(timeout=60)
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        from html2image import Html2Image
-        h = max(900, 26 * html_text.count("<tr>") + 120 * html_text.count("class='box'") + 600)
-        hti = Html2Image(output_path=str(out_png.parent), size=(1010, h))
-        hti.screenshot(html_str=html_text, save_as=out_png.name)
-        return out_png
-    except Exception:  # noqa: BLE001
-        return None
+        r = subprocess.run([sys.executable, "-c", _PNG_SCRIPT, str(width)], input=json.dumps(pairs), capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=60 + 15 * len(pairs))
+        done = [ln[3:].strip() for ln in r.stdout.splitlines() if ln.startswith("OK ")]
+        if r.returncode != 0 or len(done) < len(pairs):
+            why = next((ln for ln in r.stdout.splitlines() if ln.startswith(("NOBROWSER", "ERR"))), "") or \
+                (r.stderr.strip().splitlines() or ["?"])[-1]
+            _png_warn(f"playwright 로 {len(pairs) - len(done)}장 못 만듦: {why[:240]}  "
+                      f"→ 'pip install playwright && playwright install chromium' 또는 Chrome/Edge 설치", log)
+    except Exception as e:  # noqa: BLE001  (playwright 미설치·시간 초과)
+        _png_warn(f"playwright 실행 실패: {e.__class__.__name__}: {str(e)[:160]}", log)
+    left = [(h, p) for h, p in pairs if p not in set(done)]
+    if left:
+        try:
+            from html2image import Html2Image
+            for h, p in left:
+                text = Path(h).read_text(encoding="utf-8")
+                ht = max(900, 26 * text.count("<tr>") + 120 * text.count("class='box'") + 600)
+                Html2Image(output_path=str(Path(p).parent), size=(width, ht)).screenshot(html_str=text, save_as=Path(p).name)
+                done.append(p)
+        except Exception:  # noqa: BLE001
+            pass
+    return done
+
+
+def _png(html_text, out_png, width=1010):
+    """카드 한 장 → png (없으면 None). 이전과 같은 호출 모양"""
+    out_png = Path(out_png)
+    hp = out_png.with_suffix(".html")
+    if not hp.exists() or hp.read_text(encoding="utf-8") != html_text:
+        hp.write_text(html_text, encoding="utf-8")
+    return out_png if png_many([(hp, out_png)], width) else None
 
 
 def write_card(run, rec, png=True):

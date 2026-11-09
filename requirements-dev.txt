@@ -18,3 +18,9 @@ playwright>=1.40    # then: playwright install chromium
 ipykernel>=6.0
 matplotlib>=3.8
 seaborn>=0.13
+
+# --- retrieval lab (optional, v4) ---
+# Local embedders / cross-encoder rerankers (configs/retrieval/st_*.yaml, rerank_*.yaml).
+# Install torch for your CPU/GPU first (https://pytorch.org), then:
+# sentence-transformers>=3.0
+# konlpy>=0.6        # okt / mecab tokenizers

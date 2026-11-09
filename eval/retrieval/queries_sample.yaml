@@ -1,0 +1,26 @@
+# 검색 비교용 질의 예시 — 형식: id, question, (선택) search_text, filters(View 슬롯), gold(정답 표 id)
+# filters 가 있으면 views.run_query 와 같이 resolve.search_query 로 다듬어 검색 (prep: false 로 끄기)
+# filters 가 없으면 원문으로 검색 (조건 확인 생략). --analyze v4 를 주면 v4 쿼리 모듈로 슬롯을 만듦 (HCX)
+- id: S01
+  question: 2025년 전국 1인 가구는 몇 가구야?
+  search_text: 2025년 전국 1인가구 가구수
+  filters: {시점: [2025], 지역: [전국], 대상: [1인가구], 지표: [가구수], 의도: 값 조회}
+- id: S02
+  question: 최근 5년간 대전 인구 변화
+  search_text: 2022~2026년 대전광역시 인구수 추이
+  filters: {시점: [2022, 2023, 2024, 2025, 2026], 지역: [대전광역시], 지표: [인구수], 의도: 추이}
+- id: S03
+  question: 작년 서울 출생아 수랑 사망자 수
+  search_text: 2025년 서울특별시 출생아수
+  filters: {시점: [2025], 지역: [서울특별시], 지표: [출생아수], 의도: 값 조회}
+- id: S04
+  question: 시도별 합계출산율 순위
+  search_text: 시도별 합계출산율
+  filters: {지표: [합계출산율], 비교축: 시도, 의도: 순위}
+- id: S05
+  question: 대구 20대 남자 인구
+  search_text: 2025년 대구광역시 남자 20~29세 인구수
+  filters: {시점: [2025], 지역: [대구광역시], 성별: [남자], 연령: {from: 20, to: 29}, 지표: [인구수], 의도: 값 조회}
+- id: S06
+  question: 경기도로 전입한 사람 수 추이
+  filters: {시점: [2021, 2022, 2023, 2024, 2025], 지역: [경기도], 이동: [전입], 지표: [전입자수], 의도: 추이}

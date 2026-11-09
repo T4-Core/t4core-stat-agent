@@ -1,0 +1,11 @@
+# 네트워크·모델 없이 구조 확인용 (품질 비교 대상 아님): BM25 + 글자 해시 벡터
+description: (구조 확인용) BM25(kiwi) + 해시 벡터 → RRF → 조건 → 해시 재정렬
+corpus: {type: table_text}
+retrievers:
+  - {name: bm25, type: bm25, k: 50, tokenizer: {type: kiwi, variant: table}}
+  - {name: dense, type: dense, k: 50, embedder: {type: hash, dim: 256}}
+fusion: {type: rrf, k: 60}
+rerank:
+  - {type: condition, top_n: top_k}
+  - {type: embed, embedder: {type: hash, dim: 256}, respect_cost: true}
+top_k: 10

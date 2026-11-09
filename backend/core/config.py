@@ -101,6 +101,11 @@ VIEW_OUT_DIR = _pick(("VIEW_OUT_DIR",), [STORAGE_DIR / "parquet", ROOT / "view_m
                      STORAGE_DIR / "parquet", marker="meta_profiles.jsonl")
 TABLE_INDEX_DIR = _pick(("TABLE_INDEX_DIR",), [STORAGE_DIR / "indices" / "table_index", VIEW_OUT_DIR / "table_index"],
                         STORAGE_DIR / "indices" / "table_index", marker="tokens.json")
+# [NEW v4] 원본 CSV 값 사전 (csv_index: 표별 열·분류·코드값·항목·단위·기간·주석 + 값 → 표 역색인) · 단계별 실행 기록
+CSV_INDEX_DIR = _env_path("CSV_INDEX_DIR") or STORAGE_DIR / "csv_index"
+RUNS_DIR = _env_path("RUNS_DIR") or STORAGE_DIR / "runs"
+CONFIGS_DIR = ROOT / "configs"
+
 _vec = [STORAGE_DIR / "indices" / "embed_cache_view.sqlite", VIEW_OUT_DIR / "embed_cache.sqlite"]
 VIEW_EMBED_CACHE = _env_path("VIEW_EMBED_CACHE") or next((p for p in _vec if p.exists()), _vec[0])
 
@@ -151,7 +156,7 @@ def paths():
              "RAG_VIEWS_DIR": RAG_VIEWS_DIR, "RAG_INDEX_DIR": RAG_INDEX_DIR, "ANSWERS_DIR": ANSWERS_DIR,
              "VIEW_OUT_DIR": VIEW_OUT_DIR, "TABLE_INDEX_DIR": TABLE_INDEX_DIR, "VIEW_EMBED_CACHE": VIEW_EMBED_CACHE,
              "REWRITE_EVAL_DIR": REWRITE_EVAL_DIR, "TEST_DATA_DIR": TEST_DATA_DIR, "EVAL_RUNS_DIR": EVAL_RUNS_DIR,
-             "PRIVATE_DIR": PRIVATE_DIR}
+             "PRIVATE_DIR": PRIVATE_DIR, "CSV_INDEX_DIR": CSV_INDEX_DIR, "RUNS_DIR": RUNS_DIR}
     out = {k: {"path": str(v) if v else None, "exists": bool(v) and Path(v).exists()} for k, v in named.items()}
     if CONFIG_WARNINGS:
         out["WARNINGS"] = {"path": " / ".join(CONFIG_WARNINGS), "exists": False}

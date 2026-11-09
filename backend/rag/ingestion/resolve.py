@@ -31,6 +31,12 @@ POOL = 50                # BM25 1단계 후보 수 (이 안에서 조건 확인 
 # 검색 문장에서 뺄 시점 표현 ('작년', '최근 5년간', '2023년', '연도별' …)
 TIME_RE = re.compile(r"(최근\s*\d+\s*(년간|년|개월)?|\d{4}\s*년(도)?(\s*(부터|까지|이후|이전|~))?|\d{4}|작년|올해|금년|전년|내년|"
                      r"지난\s*해|연도별|년도별|월별|분기별|연간|최근)")
+# [NEW v4] 기간·월 표현 ('2022~2026년', '1983~1995년생', '7~9월', '9월') — TIME_RE 가 연도만 지워 '~'·'생' 이 남던 문제
+RANGE_RE = re.compile(r"\d{4}\s*(?:년도?)?\s*[~\-–]\s*\d{4}\s*(?:년도|년간|년생|년)?")
+MONTH_RE = re.compile(r"\d{1,2}\s*[~\-–]\s*\d{1,2}\s*월|(?<!\d)\d{1,2}\s*월(?!\s*\d)")
+# [NEW v4] 지역·시점을 지운 뒤 홀로 남은 조사·기호 토큰 ('로 전입한', ', 한부모가구', '~ 인구수')
+LONE_TOKENS = {"의", "에", "에서", "로", "으로", "은", "는", "이", "가", "과", "와", "및", "을", "를", "까지", "부터", "도", "생"}
+EDGE_SYMBOLS = "~-–·,.;:/"
 # 슬롯에 연령이 있을 때 뺄 연령 표현 ('20대', '65세 이상', '20~29세'). '노인'·'고령' 처럼 숫자 없는 말은 남김
 AGE_RE = re.compile(r"\d+\s*(?:대|세)?\s*[~\-]\s*\d+\s*세?|\d+\s*세\s*(?:이상|이하|미만|초과)?|\d+\s*대")
 SHORT_OF = {canon: [canon, *aliases] for _, canon, aliases in SIDO}
@@ -51,14 +57,26 @@ def search_query(text, f):
     # 자연어 + 슬롯 dict → BM25·dense 에 넣을 검색 문장
     f = f or {}
     q = AGE_RE.sub(" ", text) if f.get("연령") else text      # 연령은 슬롯 {from, to} 가 맡음 → 검색어에서 뺌
+    q = MONTH_RE.sub(" ", RANGE_RE.sub(" ", q))           # [NEW v4] 기간·월 먼저 (연도만 지우면 '~' 가 남음)
     q = TIME_RE.sub(" ", q)
     names = sorted({n for r in (f.get("지역") or []) for n in SHORT_OF.get(r, [r])} | {"전국"}, key=len, reverse=True)
     for n in names:                                      # 긴 이름부터 ('대구광역시' 를 '대구' 보다 먼저)
-        q = re.sub(re.escape(n) + r"(의|에서|에|은|는|이|가)?", " ", q)
-    q = " ".join(q.split())
+        q = re.sub(re.escape(n) + r"(에서의|에서|에게|으로|로|까지|부터|의|에|은|는|이|가)?", " ", q)
+        # [CHANGED v4] 이전: (의|에서|에|은|는|이|가)? — '경기도로' 의 '로' 가 남던 문제
+    q = " ".join(clean_tokens(q.split()))                 # [CHANGED v4] 이전: " ".join(q.split())
     have = squash(q)
     extra = [t for t in (f.get("지표") or []) + (f.get("대상") or []) if squash(t) not in have]
     return " ".join([q, *dict.fromkeys(extra)]).strip() or text
+
+
+def clean_tokens(toks):
+    # [NEW v4] 앞뒤 기호를 떼고, 기호만·조사만 남은 토큰은 버림 ('70~79세' 처럼 안쪽 기호는 그대로)
+    out = []
+    for t in toks:
+        t = t.strip(EDGE_SYMBOLS)
+        if t and t not in LONE_TOKENS and re.search(r"\w", t):
+            out.append(t)
+    return out
 
 
 # ── 2) 조건 확인 ────────────────────────────────────────────────

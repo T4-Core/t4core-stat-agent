@@ -28,6 +28,16 @@ data = APIRouter(prefix="/api/v1/data", tags=["④ Data 좌표 조회·차트"])
 
 TOPK_Q = Query(TOP_K, ge=1, le=50, description="1단계 BM25 후보 수")
 NV_Q = Query(N_VIEWS, ge=0, le=10, description="2단계 bge-m3 재정렬 후 View 를 만들 수 (상위부터)")
+RC_Q = Query(None, description="[v4] 검색 구성 이름 (configs/retrieval/*.yaml, GET /api/v1/retrieval-lab/configs). "
+                               "비우면 기존 검색 (= baseline)")
+
+
+def _search_fn(name):
+    # [NEW v4] 검색 구성으로 검색 함수 교체 (None → 기존 table_search.search)
+    if not name:
+        return None
+    from backend.rag.retrieval.factory import get_pipeline
+    return get_pipeline(name).search_compat
 
 
 @router.post("/retrieve", response_model=SearchResult, summary="자연어 → 메타데이터 상위 top_k (BM25 → bge-m3) — 구 POST /search")
@@ -38,20 +48,22 @@ def retrieve(body: SearchRequest):
 
 
 @router.post("/views", response_model=list[Record], summary="② QueryBundle → View 카드 목록 — 구 POST /views")
-def views(body: QueryBundle, top_k: int = TOPK_Q, n_views: int = NV_Q):
+def views(body: QueryBundle, top_k: int = TOPK_Q, n_views: int = NV_Q, retrieval_config: str | None = RC_Q):
     """검색 단위 = 상위 질의 + 서브쿼리 각각. 단위마다 BM25 상위 top_k → bge-m3 재정렬 → 상위 n_views 개 표를 슬롯대로 잘라 카드.
     큰 표가 처음 골리면 정규화에 1분 이상 걸릴 수 있다 (이후 캐시).
 
     입력은 `POST /api/v1/rag/query-rewrite` 응답의 **view_bundle** 을 그대로 붙여 넣으면 된다.
     응답(Record 목록)은 `POST /api/v1/agent/answer` 의 records 로 그대로 넣는다."""
     with guard("View: "):
-        return records_of(run_query(body.model_dump(by_alias=True), top_k, n_views))
+        return records_of(run_query(body.model_dump(by_alias=True), top_k, n_views, search_fn=_search_fn(retrieval_config)))
+        # [CHANGED v4] 이전: run_query(body.model_dump(by_alias=True), top_k, n_views)  (retrieval_config 없으면 같음)
 
 
 @router.post("/views/detail", response_model=ViewResult, summary="질의 하나 → 상세 (검색 후보, 카드, 못 맞춘 조건) — 구 POST /views/detail")
-def views_detail(body: QueryBundle, top_k: int = TOPK_Q, n_views: int = NV_Q):
+def views_detail(body: QueryBundle, top_k: int = TOPK_Q, n_views: int = NV_Q, retrieval_config: str | None = RC_Q):
     with guard("View: "):
-        return run_query(body.model_dump(by_alias=True), top_k, n_views)
+        return run_query(body.model_dump(by_alias=True), top_k, n_views, search_fn=_search_fn(retrieval_config))
+        # [CHANGED v4] 이전: run_query(body.model_dump(by_alias=True), top_k, n_views)
 
 
 @router.post("/pipeline/run", response_model=PipelineResult, summary="질의 묶음 → 카드 목록 하나 (기본: 예시 12개) — 구 POST /pipeline/run")
