@@ -56,6 +56,24 @@ def match_name(name, stems):
     return any(s in n for s in stems)
 
 
+def specific_stems(names, stems):
+    """[NEW v4] 이 값들 중 맞는 것이 있는 단어만, 그중 다른 맞는 단어에 포함되는 넓은 단어는 뺌
+    예) 단어 {'가구', '1인가구'}, 값에 '1인가구' 가 있음 → {'1인가구'} ('가구' 는 더 구체적인 '1인가구' 에 포함)
+        값에 '1인가구' 가 없으면 → {'가구'} (예전과 같음)"""
+    hit = {s for s in stems if s and any(s in squash(n) for n in names)}
+    return {s for s in hit if not any(s != t and s in t for t in hit)} or set(stems)
+
+
+def match_name_ctx(name, stems, context=""):
+    """[NEW v4] 분류 값 + 분류 이름으로 맞추기: 값이 질문 단어의 앞부분이고 나머지가 분류 이름에 있으면 같은 것
+    예) 질문 '1인가구', 분류 '가구원수별' 의 값 '1인' → '1인' + '가구'(분류 이름에 있음) = '1인가구'
+    값이 한 글자(남·여·1 …)면 쓰지 않음. 직접 일치(match_name)가 없을 때만 부른다"""
+    n, ctx = squash(name), squash(context)
+    if len(n) < 2 or not ctx:
+        return False
+    return any(s.startswith(n) and len(s) > len(n) and s[len(n):] in ctx for s in stems)
+
+
 # ── notes (못 맞춘 조건) — 판단 모듈이 규칙으로 읽을 수 있게 dict 로 (2026-11-03) ──
 #   {slot, dim, type, requested, applied, text}
 #   slot : 시점 · 지역 · 성별 · 연령 · 지표 · 시나리오 · 행수
@@ -203,7 +221,13 @@ def match_level(l, f, stems, notes):
                  dim=name, requested="중위", applied=[default[0]["std"]])
         return default
     full = full_names([c["name"] for c in codes])                                     # '-' 줄은 윗줄 이름 이어받기
-    sel = [c for c, n in zip(codes, full) if not c["is_total"] and match_name(n, stems)]   # 지표·대상 단어로
+    sel = [c for c, n in zip(codes, full) if not c["is_total"] and match_name(n, specific_stems(full, stems))]
+    # [CHANGED v4] 이전: match_name(n, stems) — 지표 '가구' 가 '1세대가구·2세대가구·1인가구 …' 를 다 골라
+    #   대상 '1인가구' 를 물어도 세대구성 전체가 들어감. 같은 분류 안에서 더 구체적인 단어가 맞으면 그것만
+    if sel:
+        return sel
+    # [NEW v4] 값 + 분류 이름 ('가구원수별' 의 '1인' = '1인가구'). 이전엔 못 맞춰 합계 코드로 넘어감
+    sel = [c for c, n in zip(codes, full) if not c["is_total"] and match_name_ctx(n, stems, name)]
     if sel:
         return sel
     return [c for c in codes if c["is_total"]] or fallback("지표·대상과 맞는 코드 없음")

@@ -97,7 +97,9 @@ class KosisRawCsvSource:
         return [r for r in refs if scope == "all" or r.selected]
 
     def signature(self, ref):
-        return _sig(ref.raw_path, ref.meta_path)
+        # [CHANGED v4] 분류 판정 규칙 버전을 서명에 넣음 → 규칙이 바뀌면 다음 build 때 다시 스캔 (이전: 원본·메타만)
+        from backend.rag.ingestion.normalize import KIND_RULES_VERSION
+        return f"{_sig(ref.raw_path, ref.meta_path)}|kind{KIND_RULES_VERSION}"
 
     def scan(self, ref, con):
         from backend.rag.csv_index.scanner import scan_kosis_csv

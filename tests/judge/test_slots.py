@@ -95,10 +95,10 @@ def test_sex_from_item_name():
 
 
 def test_sex_fake_column_is_missing():
-    # '특성별' 은 sex 로 분류되지만 라벨이 성별이 아님 → 성별 없음으로 판정 (2단계 대응 ①)
+    # '특성별' 은 성별 분류가 아님 → 성별 없음 [CHANGED v4] 이전엔 sex 로 분류돼 근거에 '특성별' 이 나왔음
     rows = [["2023", "1인가구", "가구수", 10], ["2023", "2인가구", "가구수", 20]]
     chk = judge({"성별": ["남자"]}, ["시점", "특성별", "항목", "값"], rows)["성별"]
-    assert chk.status == S.missing and "특성별" in chk.evidence
+    assert chk.status == S.missing
 
 
 # ═════════════ 연령 ═════════════

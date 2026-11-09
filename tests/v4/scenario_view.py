@@ -9,6 +9,7 @@
 import base64
 import json
 import time
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -36,7 +37,7 @@ for _ in range(200):
     if not s["running"]:
         break
     time.sleep(0.2)
-assert s["error"] is None and s["result"]["index"]["n_tables"] == 5, s
+assert s["error"] is None and s["result"]["index"]["n_tables"] == 6, s
 ok(c.post("/api/v1/csv-index/build", json={"scope": "all", "workers": 2}))
 
 VB = {"query_id": "q1", "original": "2025년 대전 인구 수", "search_text": "2025년 대전광역시 인구수",
@@ -71,6 +72,30 @@ for t, ch in checks.items():                                                    
     if t == "DT_1B26001":
         assert not ch["usable"] and ch["used"]["지표"] is False
 assert vs["pending"][0]["selection_token"] == cf["selection_token"] and len(vs["pending"][0]["options"]) == len(opts)
+# '세대구성별' 은 성별이 아님 → 대상 '1인가구' 코드를 골라 자름 (이전: 성별로 판정돼 합계 '계' 만 → 전체 가구 수)
+HH = {"query_id": "hh", "original": "2025년 전국 1인 가구 수", "search_text": "2025년 전국 1인가구 가구수",
+      "filters": {"시점": [2025], "대상": ["1인가구"], "지표": ["가구수"], "의도": "값 조회"}}
+hh = ok(c.post(V, json={"view_bundle": HH, "n_views": 3}))
+hv = next(v for v in hh["units"][0]["views"] if v["tbl_id"] == "DT_1JC1516")
+assert hv["record"]["source"]["dims"]["c2"]["codes"] == ["05"], hv["record"]["source"]          # 1인가구만 (1세대가구 등 아님)
+assert {r[2] for r in hv["record"]["table"]["rows"]} == {"1인가구"}, hv["record"]["table"]
+hc = next(v for v in hh["units"][0]["conflict"]["views"] if v["tbl_id"] == "DT_1JC1516")
+assert hc["usable"] and hc["used"]["대상"] and hc["checks"]["대상"]["status"] == "match", hc
+# 예전 규칙으로 만든 캐시 프로필(세대구성별=sex) → 읽을 때 다시 판정해 다시 정규화
+from backend.core.config import OUT  # noqa: E402
+from backend.data_engine.duckdb_client import connect  # noqa: E402
+from backend.rag.ingestion.normalize import ensure_normalized  # noqa: E402
+pf = Path(OUT) / "profiles" / "101_DT_1JC1516.json"
+pj = json.loads(pf.read_text(encoding="utf-8"))
+for lv in pj["levels"]:
+    if lv["obj_nm"] == "세대구성별":
+        lv["kind"] = "sex"
+pj.pop("kind_rules", None)
+pf.write_text(json.dumps(pj, ensure_ascii=False), encoding="utf-8")
+con = connect()
+p2 = ensure_normalized(con, "DT_1JC1516")
+con.close()
+assert next(lv["kind"] for lv in p2["levels"] if lv["obj_nm"] == "세대구성별") == "other" and p2["kind_rules"] >= 2
 print("[①] 충돌:", KEY, {t: v[0] for t, v in vals.items()}, "| 선택지:", [o["tbl_ids"] for o in cf["options"]])
 
 # ② 선택 왕복 — previous 와 함께

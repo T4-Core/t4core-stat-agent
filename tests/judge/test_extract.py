@@ -100,14 +100,15 @@ def test_none_values_not_counted():
     assert c.years == {2022, 2023}
 
 
-# ---- 10. [현재 동작 고정] '특성별' 열은 라벨과 관계없이 sex 로 분류됨 (normalize.level_kind 의 한계) ----
-#   이 테스트가 실패하면 = normalize 가 고쳐졌다는 뜻 → slots.py 의 '성별 라벨 재확인' 이 아직 필요한지 다시 볼 것
+# ---- 10. '특성별' 열은 성별이 아님 ----
+#   [CHANGED v4] 이전: normalize.level_kind 가 '성별' 로 끝나는 이름을 라벨과 관계없이 sex 로 분류하던 한계를 고정한 테스트.
+#   v4 에서 고침 ('성별' 앞이 단어 경계일 때만 + 값에 남·여가 있어야) → other
 def test_known_misclassified_sex_column():
     rec = make_record(["시점", "특성별", "항목", "값"],
                       [["2023", "1인가구", "가구수", 10], ["2023", "2인가구", "가구수", 20]])
     dim = extract_contents(rec).dims[0]
-    assert dim.kind == "sex"                        # 실제로는 성별이 아님
-    assert dim.labels == ["1인가구", "2인가구"]      # 라벨은 그대로 남아 있어 slots.py 가 다시 확인할 수 있다
+    assert dim.kind == "other"                      # 이전: "sex"
+    assert dim.labels == ["1인가구", "2인가구"]
 
 
 # ---- 11. 라벨별 값 개수: 라벨은 있지만 값이 비어 있는 연령 구간 ----

@@ -9,7 +9,7 @@
 
   매칭 규칙은 View 를 만든 build_view.py / normalize.py 의 함수를 그대로 쓴다
 """
-from backend.rag.ingestion.build_view import SEX_ALIAS, has_sex, match_name, sex_name, term_stems
+from backend.rag.ingestion.build_view import SEX_ALIAS, has_sex, match_name, match_name_ctx, sex_name, term_stems
 from backend.rag.ingestion.normalize import parse_age, std_geo_name
 from backend.rag.judge.extract import ViewContents, is_total, region_std
 from backend.schemas.judge import JudgeConfig, ReasonCode, SlotCheck
@@ -90,6 +90,10 @@ def check_region(req, c: ViewContents, config: JudgeConfig) -> SlotCheck:
         return _not_requested()
     want = [std_geo_name(r) for r in req]       
     dims = c.dims_of("regions")
+    if all(w in ("전국", "전체") for w in want):          # [NEW v4] 전국만 물음 = 합계 행 또는 지역 분류 없는 표면 맞음
+        if not dims or any(d.has_total for d in dims):
+            return SlotCheck(status=S.match, requested=want, found=["전국"],
+                             evidence="지역 분류 없음 (전국 값)" if not dims else "합계(전국) 있음")
 
     points: dict[str, int | None] = {}
     for d in dims:
@@ -251,7 +255,9 @@ def check_terms(req, c: ViewContents, config: JudgeConfig) -> SlotCheck:
     in_items = [it for it in c.items if match_name(it, stems)]
     if in_items:
         return SlotCheck(status=S.match, requested=want, found=in_items[:10], evidence="항목에 있음")
-    in_labels = [lb for d in c.dims for lb in d.labels if match_name(lb, stems)]
+    in_labels = [lb for d in c.dims for lb in d.labels if match_name(lb, stems)] or \
+        [f"{d.column}={lb}" for d in c.dims for lb in d.labels if match_name_ctx(lb, stems, d.column)]
+    # [CHANGED v4] 값 + 분류 이름 ('가구원수별' 의 '1인' = '1인가구') — build_view 가 고른 것과 같은 규칙
     if in_labels:
         return SlotCheck(status=S.match, requested=want, found=in_labels[:10], evidence="분류 라벨에 있음")
     if match_name(c.title, stems):

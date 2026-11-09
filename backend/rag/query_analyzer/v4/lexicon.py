@@ -96,7 +96,9 @@ class Lexicon:
         tables = sorted({r["tbl_id"] for r in rows})
         if value is None:                      # 표준 값: 가장 많은 표에 있는 CSV 이름 (지역은 표준명)
             cnt = {}
-            for r in rows:
+            exact = [r for r in rows if r.get("match") == "exact"]
+            # [CHANGED] 정확히 일치한 이름이 있으면 그중에서 (이전: 표기 변형까지 섞어 세어 '가구수' → '가구' 로 넓어짐)
+            for r in exact or rows:
                 k = (r.get("std") if r["slot"] == "지역" and r.get("std") else r["name"])
                 cnt.setdefault(k, set()).add(r["tbl_id"])
             value = max(cnt, key=lambda k: (len(cnt[k]), -len(k))) if cnt else surface

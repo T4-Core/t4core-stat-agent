@@ -102,7 +102,11 @@ WEAK_TOTAL = {"총인구", "총수"}
 
 # 분류 종류 = 쿼리 모듈 conditions 의 조건 이름 (regions, sex, ages, nationality, scenario, cohort) + other
 GEO_RE = re.compile(r"행정구역|시도|시군구|읍면동|지역|시·도|시군|권역")
-SEX_RE = re.compile(r"^성별?$|^성$|^성별|성별$")
+SEX_RE = re.compile(r"^성별?$|^성$|^성별|(?:^|[\s·/(의])성별$")
+# [CHANGED v4] 이전: r"^성별?$|^성$|^성별|성별$" — '성별$' 이 '세대구성별'·'다문화가구 구성별'·'특성별' 까지 성별로 판정
+#   → 질문에 성별이 없으면 합계 '계' 만 골라 '1인가구' 같은 값을 못 고르던 문제 (검수 카드 Q001)
+#   지금: '성별' 앞이 단어 경계(처음·공백··/(·의)일 때만 + 값에 남·여가 있어야 (아래 level_kind)
+KIND_RULES_VERSION = 2                                    # [NEW v4] 분류 판정 규칙이 바뀌면 올림 → 캐시된 프로필·CSV 값 사전 다시 판정
 AGE_RE = re.compile(r"연령|나이|세별")
 NOT_AGE_RE = re.compile(r"연령차")                       # 부부 연령차(남자연상 …)는 연령이 아님
 AGE_NAME_RE = re.compile(r"\d+\s*[~\-]\s*\d+\s*세|\d+\s*세\s*(이상|미만|이하)|^\d+\s*세$")
@@ -176,8 +180,9 @@ def level_kind(obj_nm, names):
         return "scenario"
     if COHORT_RE.search(nm):
         return "cohort"
-    if SEX_RE.search(nm) or (s and s <= SEX_CODES):
-        return "sex"
+    sexy = {re.sub(r"\s*\(.*\)\s*$", "", n) for n in s} & SEX_CODES        # '남자(A)' 도 남자
+    if (SEX_RE.search(nm) and (not s or sexy)) or (s and s <= SEX_CODES):
+        return "sex"                                      # [CHANGED v4] 이름으로 성별이어도 값에 남·여가 하나는 있어야
     if not NOT_AGE_RE.search(nm) and (AGE_RE.search(nm) or (
             len(s) >= 3 and sum(bool(AGE_NAME_RE.search(n)) for n in s) / len(s) >= 0.6)):
         return "ages"
@@ -404,6 +409,16 @@ def build_item_dims(items):
 
 
 # ── 5. 표 하나 정규화 ───────────────────────────────────────────
+def stale_kinds(prof):
+    """[NEW v4] 캐시 프로필의 분류 종류 중 지금 규칙(level_kind)과 다른 것 → [(분류 이름, 예전, 지금)]"""
+    out = []
+    for lv in prof.get("levels") or []:
+        now = level_kind(lv.get("obj_nm"), [c.get("name") for c in lv.get("codes") or []])
+        if lv.get("kind") not in (now, None):
+            out.append((lv.get("obj_nm"), lv.get("kind"), now))
+    return out
+
+
 def normalize_table(con, row, force=False):
     key = f"{row.org_id}_{row.tbl_id}"
     raw = raw_path(row)
@@ -414,7 +429,11 @@ def normalize_table(con, row, force=False):
         return None
     # 원본보다 새 결과가 있으면 재사용 (증분 처리)
     if pq.exists() and prof_p.exists() and not force and pq.stat().st_mtime >= raw.stat().st_mtime:
-        return json.loads(prof_p.read_text(encoding="utf-8"))
+        prof = json.loads(prof_p.read_text(encoding="utf-8"))
+        stale = [] if prof.get("kind_rules") == KIND_RULES_VERSION else stale_kinds(prof)
+        if not stale:
+            return prof
+        print(f"  (분류 판정 규칙 변경 → 다시 정규화) {key}: {stale}")   # [NEW v4] 예전 규칙 프로필 중 판정이 달라진 표만
 
     meta = load_meta(row)
     src = f"read_csv({sql_str(raw.as_posix())}, all_varchar=true, header=true)"
@@ -503,6 +522,7 @@ def normalize_table(con, row, force=False):
     as_int = lambda x: None if x is None or pd.isna(x) else int(x)   # noqa: E731  (NaN 은 JSON 표준이 아니므로 None 으로)
     item_extra = {r.itm_id: {"age_from": as_int(r.age_from), "age_to": as_int(r.age_to)} for r in items.itertuples()}
     prof = build_profile(con, row, key, pq, raw, lv, level_info, meta, extra, item_extra)
+    prof["kind_rules"] = KIND_RULES_VERSION                # [NEW v4] 이 규칙으로 판정한 프로필 (다시 확인하지 않음)
     prof_p.parent.mkdir(parents=True, exist_ok=True)
     prof_p.write_text(json.dumps(prof, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     return prof

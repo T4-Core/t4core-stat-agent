@@ -18,7 +18,6 @@ from backend.rag.judge.slots import check_slots
 from backend.rag.view.points import key_str, record_points
 
 USED, MISSING = {"match", "not_requested"}, {"missing", "unsupported"}
-TARGET_SLOTS = ("지표", "대상")
 
 
 def _status(x):
@@ -47,11 +46,12 @@ def view_usage(record, filters, allow_partial=("시점",)):
             notes.append(f"{slot} 확인 불가: {ev}")
         else:
             used[slot] = False
-    # 대상 = 지표 또는 대상 중 하나 (Step 2 결정과 같음)
-    tg = {s: used[s] for s in TARGET_SLOTS if s in used}
-    if len(tg) == 2 and any(tg.values()):
-        for s in TARGET_SLOTS:
-            used[s] = True
+    # 대상·지표를 둘 다 물었으면 둘 다 적용돼야 함. 대상이 지표와 같은 말('인구'·'인구수')일 때만 지표로 갈음
+    # [CHANGED] 이전: 둘 중 하나만 맞으면 둘 다 썼다고 봄 → '1인가구 가구수' 에 전체 가구 수 View 가 '비교에 넣음' 이 되던 문제
+    #   (Step 2 의 '대상 또는 지표' 규칙은 질문에 대상이 있는지 확인하는 것이고, View 가 대상을 담았는지와는 다름)
+    if used.get("지표") and used.get("대상") is False and target_redundant(f.get("대상"), f.get("지표")):
+        used["대상"] = True
+        notes.append("대상이 지표와 같은 말 → 지표로 확인")
     rec = record if isinstance(record, dict) else record.model_dump(mode="json")
     n_points = int((rec.get("metadata") or {}).get("n_points") or 0)
     rows = (rec.get("table") or {}).get("rows") or []
@@ -59,6 +59,13 @@ def view_usage(record, filters, allow_partial=("시점",)):
     if empty:
         notes.append("값이 없는 View")
     return {"usable": all(used.values()) and not empty, "used": used, "checks": info, "notes": notes}
+
+
+def target_redundant(targets, indicators):
+    """대상이 지표와 같은 말인가: 대상 == 지표 또는 지표에서 끝 '수' 를 뗀 것 ('인구' · '인구수')"""
+    from backend.rag.ingestion.build_view import squash, term_stems
+    stems = term_stems(indicators or [])
+    return bool(targets) and all(squash(t) in stems for t in targets)
 
 
 def _differ(a, b, rel, abs_):
