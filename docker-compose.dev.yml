@@ -1,0 +1,27 @@
+# Dev override. Always layer on top of the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+name: t4core-dev            # separate project -> its own container/network; prod keeps running
+services:
+  backend:
+    build:
+      target: dev
+      args:
+        INSTALL_PLAYWRIGHT: "false"
+    # distinct tag so the dev build never shadows the prod image
+    image: t4core-backend:dev
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000",
+              "--reload", "--reload-dir", "backend"]
+    ports: !override        # ports append on merge; replace instead of adding to 8000
+      - "127.0.0.1:8001:8000"
+    environment:
+      # Windows bind mounts don't forward inotify events into WSL2
+      WATCHFILES_FORCE_POLLING: "true"
+      ANSWERS_DIR: /app/storage/answers_dev   # keep dev output apart from prod
+    volumes:
+      - ./backend:/app/backend
+      - ./tests:/app/tests
+      - ./eval:/app/eval
+      - ./pytest.ini:/app/pytest.ini
+      # uncomment to run the collector in-container (overrides the :ro mount, same target path)
+      # - ./storage/kosis_data:/app/storage/kosis_data
+    restart: "no"

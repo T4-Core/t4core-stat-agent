@@ -1,0 +1,18 @@
+services:
+  backend:
+    build:
+      context: .
+      target: runtime
+    image: t4core-backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    environment:
+      STORAGE_DIR: /app/storage
+      KOSIS_DATA_DIR: /app/storage/kosis_data
+      ANSWERS_DIR: /app/storage/answers
+    volumes:
+      - ./storage:/app/storage
+      - ./storage/kosis_data:/app/storage/kosis_data:ro
+    restart: unless-stopped

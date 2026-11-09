@@ -1,0 +1,54 @@
+# Build context excludes. Data (storage/) is bind-mounted at runtime, secrets via env_file.
+
+# secrets
+.env
+.env.*
+
+# data — 57GB, mounted via compose
+storage/
+kosis_data/
+data/
+output/
+**/*.parquet
+**/*.duckdb
+**/*.duckdb.wal
+
+# python
+.venv/
+venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# not imported by backend/
+.git/
+notebooks/
+eval/
+profiling/
+why/
+rag/
+tests/
+docs/
+private/
+**/.ipynb_checkpoints/
+
+# frontend gets its own image
+frontend/
+**/node_modules/
+
+# misc
+.vscode/
+.idea/
+*.log
+logs/
+*.tmp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# keep docker files out so editing them doesn't bust the COPY cache
+Dockerfile
+docker-compose*.yml
+.dockerignore
