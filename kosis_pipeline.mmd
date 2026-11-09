@@ -1,0 +1,103 @@
+%% KOSIS 국가통계 AI 챗봇 - 전체 파이프라인 (러프)
+%% 사용자 입력 1건이 들어왔을 때의 흐름
+flowchart TD
+
+    %% ───────── 0. 사전 준비 (오프라인) ─────────
+    subgraph PREP["0. 데이터 재정의·인덱싱 (사전 준비 / 오프라인)"]
+        direction LR
+        CAT[("KOSIS 카탈로그<br/>메타데이터")]
+        DL1["무거운 표<br/>→ 사전 직접 다운로드"]
+        DL2["가벼운 표<br/>→ 메타데이터 URL 참조"]
+        DESC["데이터 구조 설명 작성<br/>(시점·지역·대상 축 정의)"]
+        IDX[("검색 인덱스<br/>BM25 + Dense 벡터")]
+        CAT --> DL1 & DL2 --> DESC --> IDX
+    end
+
+    %% ───────── 사용자 ─────────
+    U(["👤 사용자 질문<br/>예: 2025년 대구의 출생수와 사망자 수"])
+
+    %% ───────── 1. 자연어 질의 재작성 모듈 ─────────
+    subgraph M1["1. 자연어 질의 재작성 모듈 (RAG Retriever)"]
+        R1["1-1 쿼리 재작성<br/>LLM(HCX) 프롬프트로 일관된 형식 변환"]
+        R2["단어 사전 정규화 (2차 필터)<br/>대구→대구광역시, 출생수→출생아수<br/>띄어쓰기·애매한 시점어 처리"]
+        R3["슬롯 추출 (원본 질의 별도 보관)<br/>시점 | 지역 | 대상"]
+        C1{"1-2 되묻기 판단<br/>Core Filter<br/>시점·지역·대상<br/>모두 채워졌나?"}
+        CQ["되묻기 메시지 생성<br/>예: 어느 시점의 데이터를 찾으시나요?"]
+        SQ["1-3 서브 쿼리 분리<br/>LLM + 데이터 형태 정보<br/>→ 표 1개 검색 단위로 분리 (슬롯 형식 유지)"]
+        DICT[("단어 사전<br/>서울·서울시→서울특별시<br/>요즘·최신→기준 연도<br/>추이→N년 기본값")]
+        UA(["👤 사용자 추가 답변"])
+        R1 --> R2 --> R3 --> C1
+        DICT -.-> R2
+        CQ --> UA
+        UA -- "슬롯 보완 후 재검증" --> R3
+        C1 -- "누락 있음" --> CQ
+        C1 -- "모두 충족" --> SQ
+    end
+
+    %% ───────── 2. 검색 모듈 ─────────
+    subgraph M2["2. 검색 모듈 (RAG Retriever)"]
+        S1["2-1 원본 표 검색 (서브 쿼리별)<br/>BM25(kiwi 형태소) + Dense(bge-m3 등)"]
+        S2["하이브리드 점수 + 리랭커<br/>→ Top 2 원본 표"]
+        V1["2-2 View 생성<br/>메타데이터로 슬롯 조건 존재 확인<br/>→ 조건에 맞게 필터링한 View"]
+        D1{"2-3 판단<br/>두 View 모두 조건 100% 충족<br/>AND 값이 서로 다른가?"}
+        SEL["USER_SELECT_REQUIRED<br/>기준이 다른 표 2개 제시"]
+        AG["SEND_TO_AGENT<br/>조건 충족 View만 전달"]
+        S1 --> S2 --> V1 --> D1
+        D1 -- "예 (Case A)" --> SEL
+        D1 -- "아니오 (Case B)" --> AG
+    end
+
+    %% ───────── Retriever → Generator 인터페이스 ─────────
+    BUNDLE[["Generator INPUT<br/>QueryBundle (재작성 질의·슬롯)<br/>ViewResult (후보 View)<br/>JudgeResult (관련도 점수)<br/>notes (조건 누락 경고)"]]
+
+    %% ───────── 3. Generator (Agent, LangGraph) ─────────
+    subgraph GEN["3. Generator (Agent · LangGraph)"]
+        G1["① View 선정<br/>비교·하위 질문이면 여러 개"]
+        G2["② 차트 유형 판단<br/>막대 / 꺾은선 / 원형 / None"]
+        G3["③ 계산 + 차트 content 구성<br/>x·y축, scale, 수치"]
+        T1(("calculate<br/>Tool"))
+        G4{"④ Decision<br/>차트 필요?<br/>(수치 1개면 no)"}
+        G5["⑤ 차트 그리기"]
+        T2(("Draw Tool<br/>Seaborn·Plotly"))
+        G6["⑥ 답변 + 표 생성<br/>자연어 답변·근거 표"]
+        QA["⑦ QA · 단계별 출력 검증<br/>실패 시 해당 단계 재처리"]
+        G1 --> G2 --> G3 --> G4
+        G3 <--> T1
+        G4 -- "chart" --> G5
+        G5 <--> T2
+        G4 --> G6
+        QA -.-> G1 & G2 & G3 & G4 & G5 & G6
+    end
+
+    OUT[["OUTPUT<br/>자연어 문장 + 표 + (차트)"]]
+    FE(["🖥️ Front / Backend<br/>답변·표·차트 화면 표시"])
+
+    %% ───────── 메인 흐름 연결 ─────────
+    U --> R1
+    IDX -. "검색 대상" .-> S1
+    SQ --> S1
+    SEL -- "사용자가 View 선택" --> BUNDLE
+    AG --> BUNDLE
+    BUNDLE --> G1
+    G5 --> OUT
+    G6 --> OUT
+    OUT --> FE
+
+    %% ───────── 스타일 ─────────
+    classDef user fill:#fff4e5,stroke:#f08c00,stroke-width:2px,color:#000
+    classDef rag fill:#e7f0ff,stroke:#3b6fd8,color:#000
+    classDef gen fill:#eafaf1,stroke:#2f9e44,color:#000
+    classDef tool fill:#fff0e6,stroke:#e8590c,color:#000
+    classDef decision fill:#fff9db,stroke:#f59f00,color:#000
+    classDef store fill:#f1f3f5,stroke:#868e96,color:#000
+    classDef io fill:#f3f0ff,stroke:#7048e8,stroke-width:2px,color:#000
+    classDef qa fill:#f8f9fa,stroke:#495057,stroke-dasharray:4 3,color:#000
+
+    class U,FE,UA user
+    class R1,R2,R3,CQ,SQ,S1,S2,V1,SEL,AG rag
+    class G1,G2,G3,G5,G6 gen
+    class T1,T2 tool
+    class C1,D1,G4 decision
+    class CAT,IDX,DICT,DL1,DL2,DESC store
+    class BUNDLE,OUT io
+    class QA qa

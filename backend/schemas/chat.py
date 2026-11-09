@@ -53,7 +53,8 @@ class AnswerRequest(BaseModel):
 class ChatRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"examples": [
         {"question": "작년 대구의 남자 20대 인구 수", "today": "2026-11-02"},
-        {"question": "최근 5년간 대전의 인구 변화 추이", "top_k": 10, "n_views": 3}]})
+        {"question": "최근 5년간 대전의 인구 변화 추이", "top_k": 10, "n_views": 3},
+        {"question": "2023년 충남 인구랑 시군구별 고령인구비율 순위", "today": "2026-11-02"}]})
     question: str
     today: str | None = Field(None, description="상대 시점 기준일 YYYY-MM-DD (비우면 오늘)")
     top_k: int = Field(10, ge=1, le=50, description="BM25 1단계 후보 수")
@@ -76,6 +77,8 @@ class ChatResponse(BaseModel):
     timings: dict[str, float] = Field(default_factory=dict, description="단계별 소요 시간(초)")
     saved: str | None = None
     trace: list[dict] | None = Field(None, description="[NEW] 개인 파이프라인 단계 기록 (있으면)")
+    out_of_scope: bool = Field(False, description="[NEW v3] 재작성 의도 '범위 밖' (통계 수치를 묻지 않는 질문) → 검색·답변 생략, "
+                                                 "views.units·records 는 비어 있음")
 
 
 class LegacyChatRequest(BaseModel):

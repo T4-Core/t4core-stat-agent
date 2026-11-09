@@ -12,7 +12,7 @@ from datetime import date
 
 from backend.data_engine.duckdb_client import load_record_data
 from backend.rag.ingestion.views import N_VIEWS, TOP_K, records_of, run_query
-from backend.rag.query_analyzer.adapter import to_view_bundle
+from backend.rag.query_analyzer.adapter import sub_intents_of, to_view_bundle
 from backend.rag.query_analyzer.bundle import QueryBundle as RewriterQueryBundle
 
 _INDEX_CACHE = {}
@@ -30,7 +30,8 @@ def tool_rewrite(question, today=None, query_id=None, search_with="rewritten", u
     notes = []
     if not res["slot"].get("parsed"):
         notes.append(f"재작성 HCX 응답 실패 → 코드 추출 값만 사용: {res['slot'].get('error')}")
-    vb, n2 = to_view_bundle(res["bundle"], query_id, search_with)
+    vb, n2 = to_view_bundle(res["bundle"], query_id, search_with, sub_intents_of(res["valid"]))
+    # [CHANGED v3] 이전: to_view_bundle(res["bundle"], query_id, search_with) — 하위 질문마다 다른 의도(v3)를 넘김
     return asdict(res["bundle"]), vb, notes + n2, res
 
 
