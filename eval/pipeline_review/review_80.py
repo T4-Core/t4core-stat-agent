@@ -212,12 +212,17 @@ def run_for(queries=None, test_dir=None, pipeline=None):
     return run_name_for(resolve_test_set(queries, test_dir), pipeline)
 
 
+TBL_COL_RE = re.compile(r"tbl|table_?ids?|표_?id|정답_?표", re.I)
+TBL_ID_RE = re.compile(r"^[A-Z]{2,4}_[A-Za-z0-9_]+$")
+
+
 def expected_tables(ref):
-    """정답 참고 CSV 에 표 ID 열(이름에 'tbl' 포함)이 있으면 그 값들"""
+    """정답 참고 CSV 에 표 ID 열이 있으면 그 값들 (열 이름: tbl · table_id(s) · 표id · 정답표, 값은 'DT_…' 모양만)
+    [CHANGED v4] 이전: 이름에 'tbl' 이 든 열만 → 'gold_table_ids' 열을 못 읽었음"""
     out = set()
     for k, v in (ref or {}).items():
-        if "tbl" in k.lower():
-            out |= {x for x in re.split(r"[\s,;|]+", str(v)) if x}
+        if TBL_COL_RE.search(str(k)):
+            out |= {x for x in re.split(r"[\s,;|/]+", str(v)) if TBL_ID_RE.match(x)}
     return out
 
 

@@ -28,6 +28,10 @@ with (Path(TEST_DATA_DIR) / "kosis_rag_eval_80_queries.csv").open("w", encoding=
     w.writerow(["id", "question", "gold_answer"])
     w.writerows([["Q001", "2025년 대전 인구 수", "정답은 쓰지 않음"], ["Q002", "출생아 수 알려줘", ""],
                  ["Q003", "합계출산율이 무슨 뜻이야?", ""]])
+with (Path(TEST_DATA_DIR) / "kosis_rag_eval_80_answers_references.csv").open("w", encoding="utf-8-sig", newline="") as f:
+    w = csv.writer(f)                                   # 정답 참고 (파이프라인 입력이 아니라 점수 계산에만)
+    w.writerow(["id", "gold_table_ids", "survey"])
+    w.writerows([["Q001", "DT_1B040A3", ""], ["Q002", "", "인구동향조사"]])
 items = rv.load_questions("80")
 assert items == [{"id": "Q001", "question": "2025년 대전 인구 수"}, {"id": "Q002", "question": "출생아 수 알려줘"},
                  {"id": "Q003", "question": "합계출산율이 무슨 뜻이야?"}], items
@@ -71,6 +75,24 @@ assert row["사람_④ 충돌·선택"] == "FAIL" and row["사람_첫_실패_단
 assert "외국인 포함 표와" in (run.card_dir / "Q001.html").read_text(encoding="utf-8")
 _, data2 = rv.run_batch("80", ids=["Q001"], force=True, png=False, log=lambda m: None, overrides={"csv_scope": "all"})
 assert data2["Q001"]["human"]["comment"].startswith("외국인 포함")
+
+# 정답 표 기준 hit (정답 참고 파일 → 카드 ★·review.csv·hit 표). 질문 입력에는 안 들어감
+data3 = rv.load_results(run)
+assert data3["Q001"]["gold_ref"]["tables"] == ["DT_1B040A3"] and data3["Q001"]["question"] == "2025년 대전 인구 수", data3["Q001"].get("gold_ref")
+h1 = rv.hit_of(data3["Q001"])
+ranks = [c["tbl_id"] for c in data3["Q001"]["units"][0]["candidates"]]
+assert h1["기준"] == "정답표" and h1["첫_정답_순위"] == ranks.index("DT_1B040A3") + 1 and h1["View_hit"], h1
+assert h1["hit@10"] and h1["MRR"] == round(1 / h1["첫_정답_순위"], 3)
+assert "정답 기준" in rv.card_html(data3["Q001"]) and "★" in rv.card_html(data3["Q001"])
+assert rv.references("80")["Q002"] == {"survey": "인구동향조사", "tables": []}            # 조사명은 정답 참고 파일에서
+assert rv.r80.expected_tables({"gold_table_ids": "DT_1B040A3, DT_1IN1503", "tbl_nm": "총조사 인구"}) == {"DT_1B040A3", "DT_1IN1503"}
+df, sm = rv.hit_table(data3, rv.references("80"))
+assert set(df[df["기준"] != "-"]["id"]) == {"Q001", "Q002"} and set(sm["기준"]) >= {"전체", "정답표"}
+rv.set_review(run, "Q003", relevant=["DT_X999"], png=False)                       # 범위 밖 → 후보 없음 → 점수 없음
+rv.set_review(run, "Q002", relevant=[ranks[0]], png=False)                         # 사람이 고른 정답 표가 우선
+h2 = rv.hit_of(rv.load_results(run)["Q002"])
+assert h2["기준"] == "사람" and h2["정답"] == ranks[0], h2
+assert "첫_정답_순위" in rv.review_df(rv.load_results(run)).columns
 
 gt, rt = rv.stage_summary(rv.load_results(run))
 assert "④ 충돌·선택" in gt.index and "c.ambiguous" in set(rt["사유 코드"])

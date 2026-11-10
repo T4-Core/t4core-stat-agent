@@ -25,6 +25,7 @@ CLI (저장소 루트에서)
   python eval/pipeline_review/review_v4.py run --queries 80 --ids Q003 --force --answer
   python eval/pipeline_review/review_v4.py cards --queries 80 --png
   python eval/pipeline_review/review_v4.py summary --queries 80             # 단계별 문제 유형 집계
+  python eval/pipeline_review/review_v4.py hits --queries 80                # 정답 표 기준 hit@1·3·5·10 · MRR
 """
 import argparse
 import html
@@ -82,6 +83,80 @@ def list_sets(test_dir=None, log=print):
         run = r80.RunPaths(f"{t['name']}__v4")
         done = len(load_results(run))
         log(f"  [{i}] {t['path'].name}  {t['n']}문항  → {run.dir}  (완료 {done})")
+
+
+# ═════════════════════════════ 정답 기준 · hit 지표 ═════════════════════════════
+# 파이프라인에는 질문 문장만 넣고, 정답 참고는 점수 계산·카드 ★ 표시에만 쓴다.
+# 정답 기준 우선순위: 사람이 카드에서 고른 정답 표 > 정답 참고 파일의 표 ID 열(이름에 'tbl') > 조사명(약한 기준)
+HIT_KS = (1, 3, 5, 10)
+
+
+def _nospace(x):
+    return re.sub(r"\s+", "", str(x or ""))
+
+
+def references(queries=None, test_dir=None):
+    """id → {survey, tables} (질문 파일의 남는 열 + 이름이 짝인 정답 참고 파일, review_80 과 같은 규칙)"""
+    out = {}
+    alias = {r80._key(a) for a in r80.COLUMN_ALIASES["survey"]}
+    for it in r80.load_questions(queries, test_dir):
+        ref = it.get("reference") or {}
+        survey = it.get("survey") or next((str(v) for k, v in ref.items() if r80._key(k) in alias and v), "")
+        out[it["id"]] = {"survey": survey, "tables": sorted(r80.expected_tables(ref))}
+    return out
+
+
+def gold_of(rec, ref=None):
+    """→ {basis: 사람|정답표|조사명|None, tables: [...], survey: str}"""
+    human = (rec.get("human") or {}).get("relevant_tables") or []
+    if human:
+        return {"basis": "사람", "tables": list(human), "survey": ""}
+    ref = ref or rec.get("gold_ref") or {}
+    if ref.get("tables"):
+        return {"basis": "정답표", "tables": list(ref["tables"]), "survey": ""}
+    if ref.get("survey"):
+        return {"basis": "조사명", "tables": [], "survey": ref["survey"]}
+    return {"basis": None, "tables": [], "survey": ""}
+
+
+def is_gold(gold, tbl_id, survey_nm=""):
+    if gold["tables"]:
+        return tbl_id in gold["tables"]
+    if gold["survey"] and "교차" not in gold["survey"]:
+        return _nospace(gold["survey"]) in _nospace(survey_nm)
+    return False
+
+
+def hit_of(rec, ref=None):
+    """문항 하나 → 검색 후보 순위 기준 hit@k·MRR + View·최종 Record 에 정답 표가 있는가"""
+    g = gold_of(rec, ref)
+    row = {"id": rec["id"], "question": rec["question"], "기준": g["basis"] or "-",
+           "정답": ", ".join(g["tables"]) or g["survey"] or ""}
+    if not g["basis"] or not rec.get("units"):
+        return {**row, "첫_정답_순위": None, **{f"hit@{k}": None for k in HIT_KS}, "MRR": None, "View_hit": None,
+                "최종_hit": None}
+    ranks = [c["rank"] for u in rec["units"] for c in u["candidates"] if is_gold(g, c["tbl_id"], c.get("survey_nm"))]
+    first = min(ranks) if ranks else None
+    views = [v for u in rec["units"] for v in u["views"]]
+    final = set((rec.get("final") or {}).get("records") or [])
+    return {**row, "첫_정답_순위": first, **{f"hit@{k}": bool(first and first <= k) for k in HIT_KS},
+            "MRR": round(1 / first, 3) if first else 0.0,
+            "View_hit": any(is_gold(g, v["tbl_id"], v.get("survey_nm")) for v in views),
+            "최종_hit": any(is_gold(g, v["tbl_id"], v.get("survey_nm")) for v in views if v["record_id"] in final)}
+
+
+def hit_table(data, refs=None):
+    """문항별 hit 표 + 기준별 요약 → (문항 표, 요약 표)"""
+    refs = refs or {}
+    df = pd.DataFrame([hit_of(data[k], refs.get(k)) for k in sorted(data)])
+    cols = [f"hit@{k}" for k in HIT_KS] + ["MRR", "View_hit", "최종_hit"]
+    scored = df[df["기준"] != "-"]
+    summ = []
+    for basis, g in [("전체", scored)] + list(scored.groupby("기준")):
+        if len(g):
+            summ.append({"기준": basis, "문항 수": len(g),
+                         **{c: round(pd.to_numeric(g[c].astype(float), errors="coerce").mean(), 3) for c in cols}})
+    return df, pd.DataFrame(summ)
 
 
 # ═════════════════════════════ 원본 CSV 대조 ═════════════════════════════
@@ -431,7 +506,8 @@ def review_df(data):
                      "자동_사유": " / ".join(x["text"] for s in STAGES for x in (a.get(s) or {}).get("reasons", [])),
                      "1위_View_표": f"{v0.get('tbl_nm', '')} ({v0.get('tbl_id', '')})" if v0 else "",
                      "KOSIS": v0.get("kosis_url", ""), "최종_상태": (r.get("final") or {}).get("status", ""),
-                     "검수": "Y" if h.get("reviewed") else "", "초": r.get("elapsed_s")})
+                     "검수": "Y" if h.get("reviewed") else "", "초": r.get("elapsed_s"),
+                     **{k: v for k, v in hit_of(r).items() if k in ("기준", "정답", "첫_정답_순위", "hit@1", "hit@5", "MRR")}})
     return pd.DataFrame(rows)
 
 
@@ -443,6 +519,7 @@ def run_batch(queries=None, ids=None, n=None, force=False, png=True, test_dir=No
     if n:
         items = items[:n]
     data = load_results(run)
+    refs = references(queries, test_dir)                         # 점수·★ 표시용 (파이프라인 입력에는 안 씀)
     run.dir.mkdir(parents=True, exist_ok=True)
     (run.dir / "run_meta.json").write_text(json.dumps({"test_set": str(ts["path"]), "n_questions": len(items),
                                                        "settings": kw, "started": time.strftime("%Y-%m-%d %H:%M:%S")},
@@ -453,6 +530,7 @@ def run_batch(queries=None, ids=None, n=None, force=False, png=True, test_dir=No
     for i, it in enumerate(todo, 1):
         old = data.get(it["id"])
         r = run_one(it, **kw)
+        r["gold_ref"] = refs.get(it["id"]) or {}
         if old and old.get("human", {}).get("reviewed"):
             r["human"] = old["human"]                            # 다시 실행해도 사람 판정 유지
         data[it["id"]] = r
@@ -468,10 +546,13 @@ def run_batch(queries=None, ids=None, n=None, force=False, png=True, test_dir=No
     return run, data
 
 
-def set_review(run, qid, first_fail=None, comment=None, png=True, **stage_grades):
-    """사람 판정: set_review(run, "Q001", query="PASS", search="FAIL", first_fail="search", comment="…")"""
+def set_review(run, qid, first_fail=None, comment=None, png=True, relevant=None, **stage_grades):
+    """사람 판정: set_review(run, "Q001", query="PASS", search="FAIL", first_fail="search", comment="…",
+                            relevant=["DT_1JC1516"])   ← 정답 표 (hit 지표의 기준이 됨, 정답 참고 파일보다 우선)"""
     data = load_results(run)
     h = data[qid]["human"]
+    if relevant is not None:
+        h["relevant_tables"] = list(relevant)
     for s, g in stage_grades.items():
         if s in STAGES and g in GRADES + (None,):
             h[s] = g
@@ -561,6 +642,13 @@ def card_html(rec):
     parts = [f"<h2>[{_e(rec['id'])}] {_e(rec['question'])}</h2>",
              f"<div class='g'>{chips} · 자동 첫 문제 단계 <b>{_e(STAGES.get(ao.get('first_issue'), '-'))}</b> · "
              f"{_e(rec.get('elapsed_s'))}초 · {'✅ 검수완료' if h.get('reviewed') else '⏳ 자동 초안'}</div>"]
+    g = gold_of(rec)
+    if g["basis"] and rec.get("units"):
+        hr = hit_of(rec)
+        parts.append(f"<div class='box hm'><b>정답 기준</b> {_e(g['basis'])}: {_e(', '.join(g['tables']) or g['survey'])} · "
+                     f"첫 정답 순위 <b>{_e(hr['첫_정답_순위'] or '없음')}</b> · "
+                     + " ".join(f"hit@{k} {'○' if hr[f'hit@{k}'] else '✗'}" for k in HIT_KS)
+                     + f" · View {'○' if hr['View_hit'] else '✗'} · 최종 {'○' if hr['최종_hit'] else '✗'} (★ = 정답)</div>")
     if h.get("reviewed") or h.get("comment"):
         parts.append(f"<div class='box hm'><b>사람 판정</b> 첫 실패 단계 <b>{_e(STAGES.get(h.get('first_fail'), h.get('first_fail') or '-'))}</b>"
                      f" · {_e(h.get('comment'))}</div>")
@@ -599,7 +687,8 @@ def card_html(rec):
         if u is rec["units"][0]:
             b.insert(0, _stage_head(rec, "search"))
         b.append(_tbl(["순위", "조사", "표", "ID", "점수", "BM25", "못 맞춘 조건", "View"],
-                      [[c["rank"], c["survey_nm"], c["tbl_nm"], c["tbl_id"], c["score"], c["bm25_rank"],
+                      [[f"★{c['rank']}" if is_gold(g, c["tbl_id"], c.get("survey_nm")) else c["rank"], c["survey_nm"],
+                        c["tbl_nm"], c["tbl_id"], c["score"], c["bm25_rank"],
                         "; ".join(c["unmet"]), "●" if c["has_view"] else ""] for c in u["candidates"]], 10,
                       hl=lambda i, v: bool(v[6])))
         parts.append("<div class='box'>" + "".join(b) + "</div>")
@@ -622,7 +711,8 @@ def card_html(rec):
             ev = "; ".join(f"{k}: {c.get('status')} — {c.get('evidence')}" for k, c in (v.get("checks") or {}).items()
                            if c.get("status") not in ("not_requested",))
             b.append(
-                f"<div class='vb'><div><b>#{_e(v['rank'])} {_e(v['tbl_nm'] or v['tbl_id'])}</b> "
+                f"<div class='vb'><div><b>{'★ ' if is_gold(g, v['tbl_id'], v.get('survey_nm')) else ''}"
+                f"#{_e(v['rank'])} {_e(v['tbl_nm'] or v['tbl_id'])}</b> "
                 f"<span class='g'>{_e(v['survey_nm'])} · {_e(v['tbl_id'])} · {_e(v['period'])} ({_e(v['prd_se'])}) · 단위 {_e(v['unit'] or '-')}"
                 f" · {_e(v['view_type'])} · 값 {_e(v['n_points'])}칸</span></div>"
                 f"<div>🔗 KOSIS {_link(v['kosis_url'])}</div>"
@@ -692,9 +782,15 @@ def write_card(run, rec, png=True):
     return hp, (pp if png and r80.png_many([(hp, pp)], CARD_WIDTH) else None)
 
 
-def write_cards(run, ids=None, png=True, log=print):
-    """카드 여러 장: HTML 을 모두 쓴 뒤 PNG 는 한 번에 (브라우저 한 번만 띄움)"""
+def write_cards(run, ids=None, png=True, log=print, queries=None):
+    """카드 여러 장: HTML 을 모두 쓴 뒤 PNG 는 한 번에 (브라우저 한 번만 띄움).
+    queries 를 주면 정답 참고를 다시 읽어 붙임 (예전 결과에도 ★·hit 표시)"""
     data = load_results(run)
+    if queries is not None:
+        refs = references(queries)
+        for k in data:
+            data[k]["gold_ref"] = refs.get(k) or {}
+        save_results(run, data)
     keys = [k for k in sorted(data) if not ids or k in ids]
     pairs = [(write_card(run, data[k], png=False)[0], run.card_dir / f"{k}.png") for k in keys]
     made = r80.png_many(pairs, CARD_WIDTH, log) if png else []
@@ -725,6 +821,8 @@ def main():
     c.add_argument("--png", action="store_true")
     s = sub.add_parser("summary")
     s.add_argument("--queries", default=None)
+    h = sub.add_parser("hits", help="정답 표 기준 hit@k·MRR (정답 참고 파일 · 사람이 지정한 정답 표 · 조사명)")
+    h.add_argument("--queries", default=None)
     a = ap.parse_args()
     if a.cmd == "list":
         list_sets()
@@ -738,6 +836,11 @@ def main():
         gt, rt = stage_summary(load_results(run))
         print(gt.to_string(), "\n")
         print(rt.to_string(index=False))
+    elif a.cmd == "hits":
+        run = run_for(a.queries)[0]
+        df, sm = hit_table(load_results(run), references(a.queries))
+        print(sm.to_string(index=False), "\n")
+        print(df.to_string(index=False))
 
 
 if __name__ == "__main__":
