@@ -1,0 +1,9 @@
+# 2번 차트 유형 판단 모듈(module/) 실행에 필요한 패키지
+# 확인한 환경: Python 3.12
+# 설치: uv pip install -r requirements.txt   (pip가 있으면 pip install -r requirements.txt)
+requests==2.34.2
+python-dotenv==1.2.4
+langgraph==1.2.20
+
+# LangGraph Studio로 그래프를 볼 때만 필요 (선택)
+# langgraph-cli[inmem]==0.4.42
