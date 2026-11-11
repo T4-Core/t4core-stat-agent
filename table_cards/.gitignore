@@ -7,3 +7,8 @@ full/cards_backup_*.jsonl
 scripts/review/review.html
 scripts/review/review_sample.html
 __pycache__/
+sample_cards/pieces.jsonl
+sample_cards/unmapped.csv
+sample_cards/report.txt
+sample_cards/cards_backup_*.jsonl
+sample_cards/step3_all.log

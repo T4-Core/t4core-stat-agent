@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT))
 
 from backend.core.config import KOSIS_DATA_DIR, VIEW_OUT_DIR                                   # noqa: E402
 from backend.core.utils import norm_space                                        # noqa: E402
-from backend.rag.ingestion.normalize import (SIDO_ALIAS, SIDO_CANON,              # noqa: E402
+from backend.rag.ingestion.normalize import (SIDO, SIDO_ALIAS, SIDO_CANON,        # noqa: E402
                                              build_level_dims, parse_meta, std_geo_name)
 
 PROFILES = VIEW_OUT_DIR / "meta_profiles.jsonl"
@@ -41,7 +41,7 @@ OUT = ROOT / "table_cards" / "full"
 CARD_SET = os.environ.get("CARD_SET", "")
 if CARD_SET == "sample":
     _base = ROOT / "table_cards" / "sample"
-    PROFILES, META_DIR, OUT = _base / "out" / "meta_profiles.jsonl", ROOT / "table_cards" / "sample_meta", _base / "out"
+    PROFILES, META_DIR, OUT = _base / "out" / "meta_profiles.jsonl", ROOT / "table_cards" / "sample_meta", ROOT / "table_cards" / "sample_cards"
 
 # 지역이 아닌 분류의 종류 → 사전의 표준 축 이름
 SEX_CODE_NAMES = {"남자", "여자", "남", "여", "남성", "여성", "계", "합계", "전체", "남녀"}
@@ -163,6 +163,8 @@ def clean_title(t):
     t = TAIL.sub("", t)
     t = YEAR_PAREN.sub("", t)
     t = SIDO_RE.sub("", t)                          # 제목의 지역 이름 → 조건표로 옮김
+    t = re.sub(r"\(\s*[,\s]+", "(", t)              # 지역을 지운 자리의 쉼표 ('(, )', '(,12세이상)')
+    t = re.sub(r"[,\s]+\)", ")", t)
     t = re.sub(r"\(\s*\)", "", t)
     t = re.sub(r"^[\s,·\-–_]+|[\s,·\-–_]+$", "", t)
     t = re.sub(r"\s{2,}", " ", t).strip()
@@ -243,15 +245,57 @@ def sido_std(name):
     return s if s in SIDO_CANON else None
 
 
-def region_like_levels(dims):
-    """normalize.level_kind 가 지역으로 못 본 분류 중 시도 이름이 3개 이상인 것 ('현거주지별', '출생지별', '전출지별' …)
-    → [(분류 이름, 표준 지역 목록, {표준: 원래})]"""
+GEO_AXIS = re.compile(r"거주지|목적지|주소|전입지|전출지|통근|통학|행정구역|지역")
+CITY_RE = re.compile(r"[가-힣]{1,5}[시군구]")
+
+
+def title_sido(tbl_nm):
+    """제목에 시도가 딱 하나면 그 표준 이름 ('…통근·통학인구(전남,12세이상)' → 전라남도)"""
+    found = {SIDO_ALIAS[m] for m in SIDO_RE.findall(tbl_nm) if m in SIDO_ALIAS}
+    return next(iter(found)) if len(found) == 1 else None
+
+
+SIDO_CODE = {code: canon for code, canon, _ in SIDO}
+
+
+def city_names(rows, home):
+    """시·군·구 코드 → 위 단계부터 이어 붙인 이름. 코드 앞 2자리 = 시도, 앞 4자리가 같은 구 = 그 시의 구
+    ('24010 동구' → 광주광역시 동구, '37011 남구' → 경상북도 포항시 남구)"""
+    names, cur = [], None
+    for r in rows:
+        n, code = r["name"], str(r["code"])
+        s = sido_std(n)
+        if s and (len(code) <= 2 or not code[2:].strip("0")):     # 시도 행 ('36', '00000 전라남도')
+            names.append(s)
+            cur = None
+            continue
+        if r["is_total"] or not CITY_RE.fullmatch(n):
+            continue
+        sd = SIDO_CODE.get(code[:2]) or home
+        if not sd:
+            continue
+        if n.endswith("구") and cur and code[:4] == cur[0][:4]:
+            names.append(f"{sd} {cur[1]} {n}")
+        else:
+            names.append(f"{sd} {n}")
+            cur = (code, n) if n.endswith("시") else None
+    return list(dict.fromkeys(names))
+
+
+def region_like_levels(dims, tbl_nm=""):
+    """normalize.level_kind 가 지역으로 못 본 분류를 지역으로 보정 → [(obj_id, 분류 이름, 표준 지역 목록, {표준: 원래})]
+    ① 시도 이름이 3개 이상 ('현거주지별', '출생지별', '전출지별' …)
+    ② 한 도 전용 표에서 거주지·목적지 축의 값이 시·군 이름 3개 이상 ('목포시, 여수시 …' → '전라남도 여수시')"""
     out = []
+    home = title_sido(tbl_nm)
     for info, rows in dims:
         if info["kind"] == "regions" or NOT_REGION_AXIS.search(info["obj_nm"]):
             continue
         sido = [(r["name"], sido_std(r["name"])) for r in rows if sido_std(r["name"])]
         if len(sido) < 3:
+            cities = [r["name"] for r in rows if not r["is_total"] and CITY_RE.fullmatch(r["name"])]
+            if (home or sido) and GEO_AXIS.search(info["obj_nm"]) and len(cities) >= 2:
+                out.append((info["obj_id"], clean_axis(info["obj_nm"]), city_names(rows, home), {}))
             continue
         names = (["전국"] if any(r["is_total"] or r["name"] == "전국" for r in rows) else []) + \
             list(dict.fromkeys(s for _, s in sido))
@@ -283,7 +327,7 @@ def item_regions(items):
 
 def conditions(p, levels_dims, items):
     reg = [rows for info, rows in levels_dims if info["kind"] == "regions"]
-    like = region_like_levels(levels_dims)              # [NEW] 지역인데 '기타' 로 판정된 분류
+    like = region_like_levels(levels_dims, p["tbl_nm"])  # [NEW] 지역인데 '기타' 로 판정된 분류
     role2, names2, _ = item_regions(items)
     src = "분류"
     if reg:
@@ -339,7 +383,7 @@ def main():
         title = clean_title(p["tbl_nm"])
         topic = clean_path(p.get("path"), p.get("survey_nm"))
         axes_raw = []
-        like_ids = {oid for oid, _, _, _ in region_like_levels(dims)}
+        like_ids = {oid for oid, _, _, _ in region_like_levels(dims, p["tbl_nm"])}
         for info, rows in dims:
             if info["kind"] == "regions":
                 continue
