@@ -1,0 +1,9 @@
+# 스크립트를 돌리면 생기는 파일 (올리지 않음)
+sample/
+full/pieces.jsonl
+full/unmapped.csv
+full/report.txt
+full/cards_backup_*.jsonl
+scripts/review/review.html
+scripts/review/review_sample.html
+__pycache__/
