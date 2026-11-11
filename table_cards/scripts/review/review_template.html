@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>카드 설명 검토</title>
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--ink:#1d1d1b;--sub:#5f5e5a;--muted:#8a8984;--line:#e1e0d9;--accent:#185FA5;--accent-bg:#E6F1FB;
+ --ok:#3B6D11;--ok-bg:#EAF3DE;--warn:#854F0B;--warn-bg:#FAEEDA;--edit:#534AB7;--edit-bg:#EEEDFE;--field:#fff}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#1a1a19;--card:#232321;--ink:#f0efec;--sub:#c3c2b7;--muted:#898781;--line:#383835;
+ --accent:#85B7EB;--accent-bg:#0C447C;--ok:#C0DD97;--ok-bg:#27500A;--warn:#FAC775;--warn-bg:#633806;--edit:#CECBF6;--edit-bg:#3C3489;--field:#1a1a19}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 system-ui,-apple-system,"Malgun Gothic",sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 16px}
+.wrap{max-width:980px;margin:0 auto}
+h1{font-size:18px;font-weight:600;margin:0 0 8px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+select,input[type=search],button{font:inherit;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+button{cursor:pointer}button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);color:var(--card);border-color:var(--accent)}
+.prog{margin-left:auto;font-size:13px;color:var(--sub)}
+.meter{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:8px}.meter>div{height:100%;background:var(--ok)}
+main{padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.id{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+.title{font-weight:600}
+.orig{font-size:12px;color:var(--muted);margin-top:2px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}
+.chip{font-size:12px;padding:1px 8px;border-radius:6px;background:var(--bg);color:var(--sub);border:1px solid var(--line)}
+.chip b{font-weight:600;color:var(--ink)}
+.badge{font-size:12px;padding:1px 8px;border-radius:6px}
+.b-ok{background:var(--ok-bg);color:var(--ok)}.b-warn{background:var(--warn-bg);color:var(--warn)}.b-edit{background:var(--edit-bg);color:var(--edit)}
+label.l{display:block;font-size:12px;color:var(--muted);margin:8px 0 2px}
+textarea{width:100%;font:inherit;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px;resize:vertical}
+textarea.changed{border-color:var(--edit)}
+.foot{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:8px}
+.foot input[type=text]{flex:1;min-width:160px;font:inherit;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.pager{display:flex;gap:8px;align-items:center;justify-content:center;margin:16px 0}
+.note{font-size:12px;color:var(--muted)}
+@media (max-width:600px){.prog{margin-left:0;width:100%}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+ <h1>카드 설명 검토 <span class="note">LLM이 쓴 설명만 고칠 수 있어요. 고친 내용은 이 브라우저에 자동 저장돼요.</span></h1>
+ <div class="bar">
+  <select id="fSurvey"><option value="">조사 전체</option></select>
+  <select id="fState">
+   <option value="">상태 전체</option><option value="todo">미확인</option><option value="ok">확인함</option>
+   <option value="edit">수정함</option><option value="warn">검사 걸림</option>
+  </select>
+  <input id="fText" type="search" placeholder="제목·설명·표 ID 검색">
+  <button id="btnExport" class="primary">수정본 내보내기</button>
+  <button id="btnImport">수정본 불러오기</button><input id="fileImport" type="file" accept=".json" hidden>
+  <span class="prog" id="prog"></span>
+ </div>
+ <div class="meter"><div id="meter" style="width:0"></div></div>
+</div></header>
+<main><div class="wrap">
+ <div id="list"></div>
+ <div class="pager"><button id="prev">이전</button><span id="pageInfo" class="note"></span><button id="next">다음</button></div>
+</div></main>
+
+<script>/*__CARDS__*/</script>
+<script>
+const KEY = "card_review_v1", PER = 20;
+const CARDS = window.CARDS || [];
+const byId = Object.fromEntries(CARDS.map(c => [c.id, c]));
+let E = {};
+try { E = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { E = {}; }
+CARDS.forEach(c => { if (c.검토 && !E[c.id]) E[c.id] = {확인: c.검토.확인, 수정: false, 메모: c.검토.메모 || ""}; });
+function save() { try { localStorage.setItem(KEY, JSON.stringify(E)); } catch (e) {} progress(); }
+const esc = s => String(s ?? "").replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+const curDesc = c => E[c.id]?.설명 ?? c.설명;
+const isEdited = c => { const e = E[c.id]; return !!e && e.설명 != null && e.설명 !== c.설명; };
+const period = c => (c.시점 || []).map(p => `${p.주기} ${p.시작}~${p.끝}`).join(", ");
+
+const surveys = [...new Set(CARDS.map(c => c.조사))].sort();
+document.getElementById("fSurvey").innerHTML += surveys.map(s => `<option>${esc(s)}</option>`).join("");
+let page = 0;
+
+function filtered() {
+  const s = fSurvey.value, st = fState.value, q = fText.value.trim();
+  return CARDS.filter(c => {
+    if (s && c.조사 !== s) return false;
+    const ok = !!E[c.id]?.확인;
+    if (st === "todo" && ok) return false;
+    if (st === "ok" && !ok) return false;
+    if (st === "edit" && !isEdited(c)) return false;
+    if (st === "warn" && !(c.검사 && c.검사.length)) return false;
+    if (q && !(c.id + c.제목 + c.제목_원래 + curDesc(c)).includes(q)) return false;
+    return true;
+  });
+}
+function chip(k, v) { return v && v.length ? `<span class="chip">${k} <b>${esc([].concat(v).join(", "))}</b></span>` : ""; }
+function render() {
+  const rows = filtered(), pages = Math.max(1, Math.ceil(rows.length / PER));
+  page = Math.min(page, pages - 1);
+  list.innerHTML = rows.slice(page * PER, page * PER + PER).map(c => {
+    const e = E[c.id] || {};
+    return `<div class="card" data-id="${c.id}">
+     <div class="top"><span class="id">${c.id}</span><span class="title">${esc(c.제목)}</span>
+      ${c.검사 && c.검사.length ? `<span class="badge b-warn">검사: ${esc(c.검사.join(" / "))}</span>` : ""}
+      ${isEdited(c) ? `<span class="badge b-edit">수정함</span>` : ""}${e.확인 ? `<span class="badge b-ok">확인함</span>` : ""}</div>
+     <div class="orig">${esc(c.조사)} · 원래 제목: ${esc(c.제목_원래)}</div>
+     <div class="chips">${chip("대상", c.대상)}${chip("지표", c.지표)}${chip("축", c.축)}${chip("지역", c.지역수준)}${chip("시점", period(c))}${chip("조사구분", c.조사구분)}</div>
+     <label class="l">설명</label>
+     <textarea rows="3" data-f="설명" class="${e.설명 != null && e.설명 !== c.설명 ? "changed" : ""}">${esc(curDesc(c))}</textarea>
+     <div class="foot">
+      <label><input type="checkbox" data-f="확인" ${e.확인 ? "checked" : ""}> 확인함</label>
+      <input type="text" data-f="메모" placeholder="메모 (선택)" value="${esc(e.메모 || "")}">
+      <button data-act="reset">원래대로</button>
+     </div></div>`;
+  }).join("") || `<p class="note">조건에 맞는 카드가 없어요.</p>`;
+  pageInfo.textContent = `${rows.length}개 중 ${rows.length ? page * PER + 1 : 0}–${Math.min(rows.length, page * PER + PER)} (${page + 1}/${pages}쪽)`;
+  prev.disabled = page === 0; next.disabled = page >= pages - 1;
+  progress();
+}
+function progress() {
+  const ok = CARDS.filter(c => E[c.id]?.확인).length, ed = CARDS.filter(isEdited).length;
+  prog.textContent = `확인 ${ok} / ${CARDS.length} · 수정 ${ed}`;
+  meter.style.width = (CARDS.length ? ok / CARDS.length * 100 : 0).toFixed(1) + "%";
+}
+list.addEventListener("input", ev => {
+  const card = ev.target.closest(".card"); if (!card) return;
+  const id = card.dataset.id, f = ev.target.dataset.f, c = byId[id]; if (!f) return;
+  const e = E[id] = E[id] || {};
+  if (f === "설명") e.설명 = ev.target.value;
+  if (f === "메모") e.메모 = ev.target.value;
+  if (f === "확인") e.확인 = ev.target.checked;
+  e.수정 = isEdited(c); e.시각 = new Date().toISOString();
+  if (f === "설명") ev.target.classList.toggle("changed", e.수정);
+  save();
+});
+list.addEventListener("change", ev => { if (ev.target.dataset.f === "확인") render(); });
+list.addEventListener("click", ev => {
+  if (ev.target.dataset.act !== "reset") return;
+  const id = ev.target.closest(".card").dataset.id;
+  if (E[id]) { delete E[id].설명; E[id].수정 = false; }
+  save(); render();
+});
+[fSurvey, fState].forEach(el => el.addEventListener("change", () => { page = 0; render(); }));
+fText.addEventListener("input", () => { page = 0; render(); });
+prev.onclick = () => { page--; render(); window.scrollTo(0, 0); };
+next.onclick = () => { page++; render(); window.scrollTo(0, 0); };
+btnExport.onclick = () => {
+  const edits = {};
+  for (const [id, e] of Object.entries(E)) {
+    const c = byId[id]; if (!c) continue;
+    const out = {확인: !!e.확인, 수정: isEdited(c), 메모: e.메모 || "", 시각: e.시각 || null};
+    if (e.설명 != null && e.설명 !== c.설명) out.설명 = e.설명;
+    if (out.확인 || out.수정 || out.메모) edits[id] = out;
+  }
+  const blob = new Blob([JSON.stringify({내보낸_시각: new Date().toISOString(), 개수: Object.keys(edits).length, edits}, null, 1)], {type: "application/json"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "card_edits.json"; a.click();
+};
+btnImport.onclick = () => fileImport.click();
+fileImport.onchange = async () => {
+  const f = fileImport.files[0]; if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    for (const [id, e] of Object.entries(d.edits || {})) E[id] = {...(E[id] || {}), ...e};
+    save(); render();
+  } catch (e) { alert("파일을 읽지 못했어요: " + e.message); }
+};
+render();
+</script>
+</body>
+</html>

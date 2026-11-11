@@ -1,0 +1,8 @@
+# 스크립트로 만드는 데이터 (git 에 올리지 않음)
+full/
+sample/
+sample_cards/
+sample_meta/
+scripts/review/review.html
+scripts/review/review_sample.html
+__pycache__/
