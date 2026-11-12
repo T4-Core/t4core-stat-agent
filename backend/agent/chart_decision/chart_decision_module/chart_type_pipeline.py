@@ -42,13 +42,13 @@ def decide_charts(query_bundle, view_input, use_llm=True):
     ok, reasons, _ = try_combo(targets, query_bundle)
     if ok:
         a, b = targets
-        plans.append({"chart_id": a["chart_id"], "sub_question_ids": [a["unit_id"], b["unit_id"]],
+        plans.append({"chart_id": a["chart_id"], "sub_question_ids": [a["sub_question_id"], b["sub_question_id"]],
                       "view_ids": [a["filtered_view"]["record"]["id"], b["filtered_view"]["record"]["id"]],
                       "measure": a["measure"], "chart_type": "combo", "fallback_charts": [], "_ms": [a, b]})
     else:
         for m in targets:
             r = pick_chart(m["measure"], m["profile"], use_llm=use_llm)
-            plans.append({"chart_id": m["chart_id"], "sub_question_ids": [m["unit_id"]],
+            plans.append({"chart_id": m["chart_id"], "sub_question_ids": [m["sub_question_id"]],
                           "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"],
                           "chart_type": r["chart_type"], "fallback_charts": r["fallback_charts"], "_ms": [m]})
 

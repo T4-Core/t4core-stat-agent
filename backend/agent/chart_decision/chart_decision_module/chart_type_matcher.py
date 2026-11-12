@@ -17,9 +17,11 @@ def match_units(query_bundle, view_input):
       문장이 달라 못 찾으면 unit_id 순서(<query_id>-1, -2 …)로 짝짓는다.
     - 하위질문이 없으면(질문을 나누지 않은 경우): main unit을 rewritten·filters와 짝지어 차트 1개.
     - sub_filters[i]가 없으면 전체 filters를 쓴다.
+    - sub_question_id: 하위질문 ID '{query_id}-{순번}' (모듈 3 planner.sub_question_ids와 같은 형식).
+      하위질문이 없으면 원 질문 하나를 '{query_id}-1'로 둔다 ('main'은 unit_id에만 남는다).
 
     반환: (matches, errors)
-      matches: [{"chart_id", "unit_id", "sub_question", "sub_filter", "view", "match_by"}, ...]
+      matches: [{"chart_id", "unit_id", "sub_question_id", "sub_question", "sub_filter", "view", "match_by"}, ...]
       errors : [{"sub_question", "reason"}, ...]  짝이 없거나 View가 없는 하위질문
     """
     sub_qs = query_bundle.get("sub_questions") or []
@@ -28,6 +30,7 @@ def match_units(query_bundle, view_input):
     units = view_input.get("units") or []
     by_text = {norm_text(u["query"]): u for u in units if u["unit_id"] != "main"}   # main 제외
     by_id = {u["unit_id"]: u for u in units}
+    qid = view_input.get("query_id") or query_bundle.get("query_id") or "q"
     matches, errors = [], []
 
     if sub_qs:
@@ -37,12 +40,12 @@ def match_units(query_bundle, view_input):
             unit, how = by_text.get(norm_text(sub_q)), "문장"
             if unit is None:                                                  # 문장이 다르면 순서로
                 unit, how = by_id.get(f'{view_input.get("query_id")}-{i + 1}'), "순서"
-            pairs.append((sub_q, sub_f, unit, how))
+            pairs.append((f"{qid}-{i + 1}", sub_q, sub_f, unit, how))
     else:                                                                     # 하위질문 없음 → main 하나
         main = by_id.get("main")
-        pairs = [(query_bundle.get("rewritten") or (main or {}).get("query"), filters, main, "main")]
+        pairs = [(f"{qid}-1", query_bundle.get("rewritten") or (main or {}).get("query"), filters, main, "main")]
 
-    for sub_q, sub_f, unit, how in pairs:
+    for sid, sub_q, sub_f, unit, how in pairs:
         if unit is None:
             errors.append({"sub_question": sub_q, "reason": "짝 없음 (같은 문장·순서의 unit 없음)"})
             continue
@@ -51,6 +54,6 @@ def match_units(query_bundle, view_input):
             continue
         view = min(unit["views"], key=lambda v: v["rank"])             # rank 1
         matches.append({"chart_id": f"c{len(matches) + 1}",            # 짝지은 순서대로
-                        "unit_id": unit["unit_id"], "sub_question": sub_q,
+                        "unit_id": unit["unit_id"], "sub_question_id": sid, "sub_question": sub_q,
                         "sub_filter": sub_f, "view": view, "match_by": how})
     return matches, errors

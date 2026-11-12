@@ -190,14 +190,14 @@ def chart_select_node(state):
     charts = []
     if ok:
         a, b = ms
-        charts.append({"chart_id": a["chart_id"], "sub_question_ids": [a["unit_id"], b["unit_id"]],
+        charts.append({"chart_id": a["chart_id"], "sub_question_ids": [a["sub_question_id"], b["sub_question_id"]],
                        "view_ids": [a["filtered_view"]["record"]["id"], b["filtered_view"]["record"]["id"]],
                        "measure": a["measure"], "chart_type": "combo", "fallback_charts": [], "source": "rule",
                        "log": [{"후보": "combo", "결과": "남음", "이유": ", ".join(reasons)}]})
     else:
         for m in ms:
             r = pick_chart(m["measure"], m["profile"], use_llm=False)
-            charts.append({"chart_id": m["chart_id"], "sub_question_ids": [m["unit_id"]],
+            charts.append({"chart_id": m["chart_id"], "sub_question_ids": [m["sub_question_id"]],
                            "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"],
                            "chart_type": r["chart_type"], "fallback_charts": r["fallback_charts"],
                            "source": r["source"], "log": r["log"]})
@@ -208,12 +208,12 @@ def chart_select_node(state):
 
 # ④ 규칙 실패(모두 소거) 차트만 LLM (지금은 pick_chart_llm이 자리만 있어 None)
 def chart_llm_node(state):
-    by_unit = {m["unit_id"]: m for m in state["matches"]}
+    by_sq = {m["sub_question_id"]: m for m in state["matches"]}
     charts = []
     for c in state["charts"]:
         c = dict(c)
         if c.get("needs_llm"):
-            m = by_unit[c["sub_question_ids"][0]]
+            m = by_sq[c["sub_question_ids"][0]]
             r = pick_chart(c["measure"], m["profile"], use_llm=True)
             c.update(chart_type=r["chart_type"], fallback_charts=r["fallback_charts"], source=r["source"], log=r["log"])
         charts.append(c)
@@ -228,11 +228,11 @@ def requirements_node(state):
 # ⑥ reason → 최종 chart_plan
 def reason_node(state):
     qb = state["query_bundle"]
-    by_unit = {m["unit_id"]: m for m in state["matches"]}
+    by_sq = {m["sub_question_id"]: m for m in state["matches"]}
     charts, plan_charts = [], []
     for c in state["charts"]:
         c = dict(c)
-        ms = [by_unit[u] for u in c["sub_question_ids"]]
+        ms = [by_sq[s] for s in c["sub_question_ids"]]
         c["reason"] = make_reason([m["sub_filter"] for m in ms], qb, [m["sub_question"] for m in ms])
         charts.append(c)
         plan_charts.append({k: c[k] for k in CHART_KEYS})

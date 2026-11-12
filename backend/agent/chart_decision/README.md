@@ -267,7 +267,7 @@ result = my_graph.invoke({"query_bundle": query_bundle, "view_input": view_input
 | --- | --- |
 | QueryBundle이 리스트 `[ {...} ]` | 첫 번째 질문을 쓴다. 2개 이상이면 `errors`에 경고를 남긴다 |
 | `intent`가 문자열 `"값 조회"` | 리스트 `["값 조회"]`로 바꾼다 |
-| `sub_questions`가 없음, `sub_filters`가 `null` | **main unit 하나**를 `rewritten`·`filters`와 짝지어 차트 1개를 만든다 |
+| `sub_questions`가 없음, `sub_filters`가 `null` | **main unit 하나**를 `rewritten`·`filters`와 짝지어 차트 1개를 만든다. 이 차트의 `sub_question_ids`는 `"main"`이 아니라 `["<query_id>-1"]` (모듈 3의 하위질문 ID 형식과 같음) |
 | 하위질문 문장이 View의 unit 문장과 다름 | unit_id 순서(`<query_id>-1`, `-2` …)로 짝짓는다 |
 | Views 원본 (candidates, rank 2~3 포함) | candidates를 빼고 unit마다 rank 1 View만 쓴다 |
 | 파일 경로 문자열 | 파일을 읽어서 쓴다 |
