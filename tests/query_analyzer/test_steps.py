@@ -100,3 +100,51 @@ def test_bundle():
     assert b.intent == "값 조회"
     assert "의도" not in b.filters
     assert len(b.sub_filters) == 2
+
+
+# ---- [NEW 11-12] 2-4 검증: 지표·의도를 지역·전출지 칸에 넣은 HCX 응답 ----
+def _region_case(q, hcx, subs=()):
+    q2, found, _ = rule_extract(q, TODAY)
+    return validate_slots({"question": q, "input_question": q2, "rule_found": found, "term_hits": lookup_terms(q2),
+                           "hcx_slots": {**hcx, "의도": hcx.get("의도", "값 조회")}, "hcx_subs": list(subs)})
+
+
+def test_region_slot_holds_indicators():
+    years = [f"{y}년" for y in range(2021, 2026)]
+    v = _region_case("2021~2025년 혼인건수와 출생아수 그리고 사망자수 추이",
+                     {"시점": years, "지역": ["혼인건수", "출생아수", "사망자수"], "전출지": ["추이"]})
+    s = v["slots"]
+    assert s["지역"] == ["전국"] and s["전출지"] == [] and s["지표"] == ["혼인건수", "출생아수", "사망자수"]
+    assert s["의도"] == ["추이"]                                            # 질문의 '추이' + 연도 5개
+    # 하위 질문의 지표가 지역 칸에 있어도 지워지지 않고 지표로 옮겨짐 (이전: '대상·지표가 없음' 으로 삭제)
+    v2 = _region_case("2021~2025년 혼인건수와 출생아수 추이",
+                      {"시점": years, "지역": ["전국"], "지표": ["혼인건수", "출생아수"]},
+                      [{"시점": years, "지역": ["혼인건수"]}, {"시점": years, "지역": ["출생아수"]}])
+    assert [x["지표"] for x in v2["sub_slots"]] == [["혼인건수"], ["출생아수"]]
+
+
+def test_region_slot_keeps_real_regions():
+    v = _region_case("2023년 12월 말 서울특별시 강남구와 서울특별시 중구의 주민등록인구",
+                     {"지역": ["서울특별시 강남구", "서울특별시 중구"], "지표": ["인구수"]})
+    assert v["slots"]["지역"] == ["서울특별시 강남구", "서울특별시 중구"]
+    assert _region_case("2024년 강남 인구", {"지역": ["강남"], "지표": ["인구수"]})["slots"]["지역"] == ["강남"]   # 약칭은 예전처럼
+    mv = _region_case("2024년 부산에서 울산으로 옮긴 20대 여자", {"전출지": ["부산광역시"], "전입지": ["울산광역시"], "지표": ["이동자수"]})
+    assert mv["slots"]["전출지"] == ["부산광역시"] and mv["slots"]["전입지"] == ["울산광역시"]   # 이동 말이 있으면 그대로
+
+
+def test_split_by_indicator_when_hcx_does_not():
+    # [NEW 11-12] HCX 가 하위 질문을 내지 않아도 지표가 2개 이상이면 코드가 지표별로 나눔 (agent 는 v3 만 씀)
+    years = [f"{y}년" for y in range(2021, 2026)]
+    v = _region_case("2021~2025년 혼인건수와 출생아수 그리고 사망자수 추이",
+                     {"시점": years, "지역": ["혼인건수", "출생아수", "사망자수"], "전출지": ["추이"]})
+    assert v["sub_source"] == "code"
+    assert [x["지표"] for x in v["sub_slots"]] == [["혼인건수"], ["출생아수"], ["사망자수"]]
+    assert all(x["시점"] == years and x["지역"] == ["전국"] and x["의도"] == "추이" for x in v["sub_slots"])
+    sres = build_sentences(v)
+    assert sres["sub_questions"][0].startswith("2021~2025년 전국 혼인건수"), sres["sub_questions"]
+    # 대상은 글자가 겹치는 지표 쪽으로 / 이름이 겹치는 지표는 하나로 봄
+    v2 = _region_case("2022년 대전 출생아 수와 1인가구 가구수",
+                      {"지역": ["대전광역시"], "대상": ["출생아", "1인가구"], "지표": ["출생아수", "가구수"]})
+    assert [(x["대상"], x["지표"]) for x in v2["sub_slots"]] == [(["출생아"], ["출생아수"]), (["1인가구"], ["가구수"])]
+    v3 = _region_case("2025년 서울 인구수와 총인구수", {"지역": ["서울특별시"], "지표": ["인구수", "총인구수"]})
+    assert v3["sub_slots"] == [] and v3["sub_source"] == ""
