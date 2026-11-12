@@ -11,5 +11,7 @@
   content.py   ChartContent 구성 · 대체 차트 재구성 · validation 출력
   planner.py   HCX 결정(Decision) + 모듈 2 charts[] → ChartPlan · displays (규칙 부분, HCX 호출 없음)
   decide.py    HCX 호출 → Decision (프롬프트: agent/prompts.py CHART_PLAN_*)
-  pipeline.py  진입점 run_module3(Module3Request) → Module3Output   (API: backend/api/v1_chart.py)
+  from_module2.py  [임시] 모듈 2 의 chart_plan → Module3Request 어댑터 (필드는 아직 맞추지 않음. 파일 머리말 TODO 참고)
+  graph.py     LangGraph: decide → plan → (build_charts ∥ answer_steps) → assemble. 노드 · 트레이스 모델 · 연결
+  pipeline.py  진입점 run_module3(Module3Request) → Module3Output   (graph.py 를 실행. API: backend/api/v1_chart.py)
 """
