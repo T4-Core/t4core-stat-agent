@@ -22,3 +22,6 @@ python-dotenv>=1.0
 
 # --- answer charts ---
 plotly>=5.18
+
+# --- agent graph (LangGraph, same pin as backend/agent/chart_decision) ---
+langgraph==1.2.20
