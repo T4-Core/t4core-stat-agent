@@ -2,7 +2,7 @@
 노트북 user_question_rewrite_v3.ipynb '2-4' 셀의 코드를 그대로 옮김 (실행·예시 출력 부분은 뺌)"""
 from .extract import AGE_WORDS, SEX, SIDO_GROUPS, norm_age, norm_country, norm_sido   # 2-2
 from .slots import INTENTS, SLOT_KEYS                                  # 2-3
-from .terms import to_canonical                                        # 2-1
+from .terms import TERM_INDEX, to_canonical                            # 2-1
 
 # ============= 2-4. 슬롯 검증 (코드, HCX 호출 없음) ================
 # 2-3의 HCX 슬롯(검증 전)을 2-2 코드 추출 결과(rule_found)와 질문으로 검사·정리
@@ -16,6 +16,35 @@ MAX_SUBS = 10            # 하위 질문 최대 개수 (2-3 프롬프트 하위 
 AGE_WORD_MAP = {"노인": "65세 이상", "고령자": "65세 이상", "고령": "65세 이상", "어르신": "65세 이상"}
 AGE_FORMAT = re.compile(r"\d+~\d+세|\d+세 (?:이상|이하|미만|초과)|\d+세")
 TERM_AGE = re.compile(r"^(\d+~\d+세|\d+세 (?:이상|이하|미만|초과))\s*(.+)$")   # '65세 이상 인구' → 연령 + 대상
+
+# [NEW 11-12] 지역 칸 검증: HCX 가 지표('혼인건수')나 의도('추이')를 지역·전출지 칸에 넣는 실수를 바로잡음
+REGION_SUFFIX = re.compile(r"[가-힣]+(?:특별시|광역시|특별자치시|특별자치도|도|시|군|구|읍|면|동|리)$")   # 행정구역 끝말
+INDICATOR_SUFFIX = re.compile(r"(?:수|율|률|비율|비중|인구|가구|연령)$")                            # 지표처럼 끝나는 말
+NOT_REGION_WORDS = {"추이", "추세", "흐름", "변화", "동향", "변동", "비교", "순위", "증감", "증가", "감소", "합계",
+                    "차이", "전망", "예측", "구성비", "증감률", "값", "조회", "통계", "현황"} | set(INTENTS)
+MOVE_WORD_RE = re.compile(r"전입|전출|이사|이동|유입|유출|옮기|옮긴|옮겨|떠나|떠난|들어온|빠져나|이주|이민|입국|출국")
+TREND_WORD_RE = re.compile(r"추이|추세|흐름")
+
+
+def _ns(v):
+    return re.sub(r"\s+", "", str(v))
+
+
+TERM_KEYS = {_ns(k) for k in TERM_INDEX}
+
+
+def _as_indicator(v):
+    """지역 칸에 들어온 값이 통계 용어(사전)면 대표 용어, 아니면 None"""
+    new, changed = to_canonical(v)
+    if changed or _ns(v) in TERM_KEYS:
+        return new
+    return None
+
+
+def _region_form(v):
+    """실제 지역명 모양인지: 토막 중 하나가 시도 이름이거나 행정구역 끝말(시·군·구·읍·면·동…)로 끝남"""
+    toks = str(v).split()
+    return any(norm_sido(t) for t in toks) or bool(toks and REGION_SUFFIX.fullmatch(toks[-1]))
 
 
 def _as_list(v):
@@ -117,11 +146,23 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
         if norm_sido(v):
             s["국적"].remove(v); s["지역"].append(v); log.append(f"{tag}국적→지역 이동: {v}")
 
+    # [NEW 11-12] 전출지·전입지는 질문에 이동을 뜻하는 말이 있을 때만. 없으면 지역 칸 값으로 보고 아래에서 같이 검사
+    if not MOVE_WORD_RE.search(q):
+        for k in ("전출지", "전입지"):
+            if s[k]:
+                log.append(f"{tag}{k}→지역 이동(질문에 이동 관련 말 없음): {s[k]}")
+                s["지역"] += s[k]
+                s[k] = []
+
     # 지역·전출지·전입지: 시도는 정식 이름 + 코드가 찾은 것만. 시군구 등은 질문에 이름이 있을 때만
+    # [CHANGED 11-12] 시도가 아닌 값은 순서대로: 통계 용어면 지표로 이동 → 지역명 모양이면 통과
+    #   → 지표처럼 끝나면('…수'·'…율') 지표로 이동 → 의도·일반어('추이')면 삭제 → 그 밖(약칭 '강남' 등)은 예전처럼 질문에 있을 때만
+    #   이전: 질문에 글자가 있으면 무엇이든 통과 → '혼인건수'가 지역, '추이'가 전출지로 남아 하위 질문이 지워지던 문제
     for k in REGION_KEYS:
         out = []
         for v in s[k]:
             full = norm_sido(v)
+            in_q = v in q or re.sub(r"(시|군|구|읍|면|동)$", "", v) in q
             if v in SIDO_GROUPS:                                   # 권역('수도권') → 코드가 찾은 시도 정식 이름으로 풀기
                 members = [f for f in SIDO_GROUPS[v] if f in rule_found.get("지역", [])]
                 out += members
@@ -130,7 +171,21 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
                 out.append(full)
                 if full != v:
                     log.append(f"{tag}{k} 정식 이름: {v} → {full}")
-            elif not full and (v in q or re.sub(r"(시|군|구|읍|면|동)$", "", v) in q):
+            elif full:
+                log.append(f"{tag}{k} 삭제(질문에 없음): {v}")
+            elif (term := _as_indicator(v)) is not None:
+                if term not in s["지표"]:
+                    s["지표"].append(term)
+                log.append(f"{tag}{k}→지표 이동(통계 용어): {v}" + (f" → {term}" if term != v else ""))
+            elif _region_form(v) and in_q:
+                out.append(v)
+            elif INDICATOR_SUFFIX.search(_ns(v)):
+                if v not in s["지표"]:
+                    s["지표"].append(v)
+                log.append(f"{tag}{k}→지표 이동(지표 모양): {v}")
+            elif _ns(v) in NOT_REGION_WORDS:
+                log.append(f"{tag}{k} 삭제(지역이 아님): {v}")
+            elif in_q and not re.search(r"\d", v):
                 out.append(v)
             else:
                 log.append(f"{tag}{k} 삭제(질문에 없음): {v}")
@@ -203,12 +258,13 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
     s["비교축"] = list(dict.fromkeys(re.sub(r"별$", "", v) for v in s["비교축"]))
 
     # 의도: '연도별'로 연도가 2개 이상이면 추이 (프롬프트 의도 규칙)
-    if len(s["시점"]) >= 2 and ("연도" in s["비교축"] or "연도별" in q):
+    # [CHANGED 11-12] 질문에 '추이·추세·흐름'이 있고 연도가 2개 이상이어도 추이 (HCX 가 '값 조회'로 두던 문제)
+    if len(s["시점"]) >= 2 and ("연도" in s["비교축"] or "연도별" in q or TREND_WORD_RE.search(q)):
         if isinstance(s["의도"], list) and "추이" not in s["의도"]:              # 원 질문: 값 조회만 있으면 바꾸고, 다른 의도가 있으면 추가
             new = ["추이"] if s["의도"] == ["값 조회"] else s["의도"] + ["추이"]
-            log.append(f"의도: 연도별로 연도 {len(s['시점'])}개 → {s['의도']} → {new}"); s["의도"] = new
+            log.append(f"의도: 연도별·추이로 연도 {len(s['시점'])}개 → {s['의도']} → {new}"); s["의도"] = new
         elif s["의도"] == "값 조회":                                               # 하위 질문: 값 조회 → 추이
-            log.append(f"{tag}의도: 연도별로 연도 {len(s['시점'])}개 → '값 조회' → '추이'"); s["의도"] = "추이"
+            log.append(f"{tag}의도: 연도별·추이로 연도 {len(s['시점'])}개 → '값 조회' → '추이'"); s["의도"] = "추이"
     return s, log
 
 
@@ -278,10 +334,59 @@ def validate_slots(r):
     if len(subs) == 1:                                   # 하위 질문이 하나면 메인과 같으므로 뺌
         log.append("하위 질문이 1개뿐이라 뺌")
         subs = []
+    source = "hcx" if subs else ""
+    if not subs and (subs := split_by_indicator(s)):     # [NEW 11-12] 프롬프트 규칙 1 을 코드로: HCX 가 나누지 않아도 지표별로
+        source = "code"
+        log.append(f"하위 질문 채움(지표 {len(subs)}개, HCX 가 나누지 않음): {[x['지표'][0] for x in subs]}")
     for ss in subs:                                      # 원 질문 의도에 하위 질문 의도가 모두 들어가게 (프롬프트 규칙 4)
         if ss["의도"] not in s["의도"]:
             s["의도"].append(ss["의도"]); log.append(f"의도 채움(하위 질문): {ss['의도']}")
-    return {"slots": s, "sub_slots": subs, "log": log}
+    # sub_source: hcx = HCX 가 나눈 하위 질문 / code = 코드가 지표별로 나눔 (v4 는 code 일 때 자기 분리 정책을 씀) / "" = 없음
+    return {"slots": s, "sub_slots": subs, "log": log, "sub_source": source}
+
+
+def _overlap(a, b):
+    a, b = _ns(a), _ns(b)
+    return bool(a and b) and (a in b or b in a)
+
+
+def _common_len(a, b):
+    """두 말의 가장 긴 공통 부분 글자 수 (띄어쓰기 무시)"""
+    a, b, best = _ns(a), _ns(b), 0
+    for i in range(len(a)):
+        for j in range(i + best + 1, len(a) + 1):
+            if a[i:j] in b:
+                best = j - i
+            else:
+                break
+    return best
+
+
+def split_by_indicator(s):
+    """[NEW 11-12] 메인 슬롯의 서로 다른 지표가 2개 이상이면 지표마다 하위 질문 (프롬프트 하위 질문 규칙 1)
+    - 이름이 겹치는 지표('인구수'·'총인구수')는 하나로 봄 → 묶음이 2개 이상일 때만 나눔
+    - 대상은 글자가 가장 많이 겹치는(2글자 이상) 지표의 하위 질문으로 ('출생아' → '출생아수', '1인가구' → '가구수'),
+      어느 지표와도 안 겹치면 모든 하위 질문에 공통
+    - 다른 슬롯(시점·지역·성별·연령·조건 …)은 모두 공통. 의도는 메인 의도의 첫 번째"""
+    groups = []
+    for m in s["지표"]:
+        g = next((g for g in groups if any(_overlap(m, x) for x in g)), None)
+        g.append(m) if g else groups.append([m])
+    if len(groups) < 2:
+        return []
+    owner = {}                                           # 대상 → 묶음 번호 (None = 공통)
+    for d in s["대상"]:
+        score = [max(_common_len(d, m) for m in g) for g in groups]
+        owner[d] = score.index(max(score)) if max(score) >= 2 else None
+    intent = (s["의도"] or ["값 조회"])[0]
+    subs = []
+    for i, g in enumerate(groups[:MAX_SUBS]):
+        ss = {k: list(v) for k, v in s.items() if k != "의도"}
+        ss["지표"] = list(g)
+        ss["대상"] = [d for d in s["대상"] if owner[d] in (i, None)]
+        ss["의도"] = intent
+        subs.append(ss)
+    return subs
 
 
 def _nonempty(s):

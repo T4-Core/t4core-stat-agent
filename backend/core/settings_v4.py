@@ -26,6 +26,9 @@ class QueryV4Settings(BaseModel):
     contain_min_len: int = 2
     search_text_mode: str = "v3"
     split_when_no_common_table: bool = True
+    # [NEW 11-12] 1-5 분리 정책: no_common_table = 지표들을 함께 가진 표가 없을 때만 나눔 (예전 동작)
+    #                           always          = 함께 가진 표가 있어도 지표(개념)마다 나눔 → 같은 표에서도 지표별 View
+    split_policy: str = "no_common_table"
     max_sub_queries: int = 4
     save_runs: bool = False
     # [Step 4] View 묶음 · Point 충돌 · 선택

@@ -20,8 +20,10 @@ contain_min_len: 2                       # 포함 매칭(인구 ⊂ 총인구수
 search_text_mode: v3                     # v3 = 재작성 모듈 문장 + CSV 표준 이름 보강 (추가 HCX 없음) / llm = 검색용 문장을 HCX 로 한 번 더
 
 # ── 1-5 서브쿼리 ──
-split_when_no_common_table: true         # 지표들을 함께 가진 표가 없으면 지표별 서브쿼리로
-max_sub_queries: 4
+split_when_no_common_table: true         # 지표들을 함께 가진 표가 없으면 지표별 서브쿼리로 (split_policy: no_common_table 일 때)
+split_policy: always                     # always = 함께 가진 표가 있어도 지표마다 서브쿼리 (같은 표에서도 지표별 View)
+                                         # no_common_table = 함께 가진 표가 없을 때만 나눔 (이전 동작)
+max_sub_queries: 4                       # 넘으면 앞에서부터 이만큼만, 빠진 지표는 decompose_reason 에 적음
 
 # ── [Step 4] View 묶음 · Point 충돌 · 선택 (backend/rag/view) ──
 view_top_k: 10                           # 검색 단위마다 후보 표 수

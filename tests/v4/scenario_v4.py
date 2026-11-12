@@ -152,9 +152,15 @@ dd = ok(c.post("/api/v1/rag/v4/decompose", json={"question": "x", "overrides": A
                                                   "slots": {"시점": ["2025년"], "지역": ["대전광역시"], "지표": ["출생아수", "사망자수"]}}))
 assert [s["slots"]["지표"] for s in dd["sub_queries"]] == [["출생아수"], ["사망자수"]], dd
 assert dd["sub_queries"][0]["candidate_tables"] == ["DT_1B81A01"] and "함께 가진 표가 없음" in dd["reason"]
-d1 = ok(c.post("/api/v1/rag/v4/decompose", json={"question": "x", "overrides": ALL,
+d1 = ok(c.post("/api/v1/rag/v4/decompose", json={"question": "x", "overrides": {**ALL, "split_policy": "no_common_table"},
                                                   "slots": {"지역": ["대전광역시"], "지표": ["총인구수", "남자인구수"]}}))
 assert d1["sub_queries"] == [] and "함께 가진 표 1개" in d1["reason"], d1                     # 같은 표에 둘 다 있음
+# [NEW 11-12] 분리 정책 always: 같은 표에 둘 다 있어도 지표마다 서브쿼리 (후보 표는 함께 가진 표가 앞)
+d1a = ok(c.post("/api/v1/rag/v4/decompose", json={"question": "x", "overrides": {**ALL, "split_policy": "always"},
+                                                   "slots": {"시점": ["2021년", "2022년", "2023년"], "지역": ["대전광역시"],
+                                                             "지표": ["총인구수", "남자인구수"]}}))
+assert [s["slots"]["지표"] for s in d1a["sub_queries"]] == [["총인구수"], ["남자인구수"]], d1a
+assert "분리 정책 always" in d1a["reason"] and d1a["sub_queries"][0]["text"].startswith("2021~2023년 "), d1a
 d0 = ok(c.post("/api/v1/rag/v4/decompose", json={"question": "x", "overrides": ALL,
                                                   "slots": {"대상": ["인구"], "지표": ["인구수"]}}))
 assert d0["sub_queries"] == [], d0                                                           # 대상 '인구' 는 지표 '인구수' 에 흡수
@@ -165,6 +171,18 @@ sub3 = analyze("2025년 대전 인구랑 구별 인구 순위")
 assert sub3["decompose_reason"].startswith("재작성 모듈") and len(sub3["view_bundle"]["sub_questions"]) == 2, sub3
 assert [f.get("의도") for f in sub3["view_bundle"]["sub_filters"]] == ["값 조회", "순위"]
 print("[1-5] 서브쿼리:", full["decompose_reason"], "|", sub3["decompose_reason"])
+
+# [NEW 11-12] HCX 가 지표 이름을 지역 칸에, '추이'를 전출지 칸에 넣은 응답 (실제 사례) → 지표 3개로 바로잡아 3개로 나눔
+YRS = [f"{y}년" for y in range(2021, 2026)]
+fake_kosis.SLOTS["사망자수 추이"] = {"slots": {"시점": YRS, "지역": ["혼인건수", "출생아수", "사망자수"], "전출지": ["추이"],
+                                             "의도": ["값 조회"]}, "sub_questions": []}
+mis = analyze("2021~2025년 혼인건수와 출생아수 그리고 사망자수 추이")
+assert mis["status"] == "ok", mis.get("clarifications") or mis["notes"]
+assert mis["state"]["raw_slots"]["지역"] == ["전국"] and "전출지" not in mis["state"]["raw_slots"], mis["state"]["raw_slots"]
+assert [x["slots"]["지표"] for x in mis["sub_queries"]] == [["혼인건수"], ["출생아수"], ["사망자수"]], mis["sub_queries"]
+assert all(x["text"].startswith("2021~2025년 전국 ") for x in mis["sub_queries"]), [x["text"] for x in mis["sub_queries"]]
+assert all(x["slots"]["시점"] == YRS for x in mis["sub_queries"]) and mis["state"]["intents"] == ["추이"]
+print("[1-5] 지역 칸 지표 바로잡기:", mis["decompose_reason"], [x["text"] for x in mis["sub_queries"]])
 
 oos = analyze("합계출산율이 무슨 뜻이야?")
 assert oos["status"] == "out_of_scope" and oos["view_bundle"] is None

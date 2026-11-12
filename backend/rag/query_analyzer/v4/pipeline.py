@@ -7,6 +7,7 @@
   단계                                            함수 (노트북에서 따로 불러 실험 가능)
   1-1 재작성(v3, HCX)                             backend.rag.query_analyzer.run_pipeline
       시점 규칙                                   clarify.apply_time_rules
+  1-2 지역 칸 바로잡기 · 대상 보충                 fix_region_slots · lexicon.Lexicon.scan
   1-2·1-3 동의어 조회 + 슬롯 접지                 lexicon.Lexicon.resolve · grounding.ground_slots
   1-4 필수 슬롯 확인·되묻기                       clarify.check
   1-5 서브쿼리 분리                               decompose.decompose
@@ -22,7 +23,8 @@ from backend.core.settings_v4 import with_overrides
 from backend.core.tracking import Tracer
 from backend.rag.query_analyzer.adapter import is_out_of_scope, sub_intents_of, to_view_bundle
 from backend.rag.query_analyzer.v4.clarify import apply_selections, apply_time_rules, check
-from backend.rag.query_analyzer.v4.decompose import concepts, decompose
+from backend.rag.csv_index.store import norm
+from backend.rag.query_analyzer.v4.decompose import REGION_SLOTS, _numeric, concepts, decompose
 from backend.rag.query_analyzer.v4.grounding import ground_slots
 from backend.rag.query_analyzer.v4.search_text import llm_text, v3_text
 
@@ -46,10 +48,37 @@ def rewrite_v3(question, today=None):
     res = run_pipeline(question, today)
     v = res["valid"]
     subs = [x for x in v.get("sub_slots") or [] if slots_to_sentence(x)]      # sub_intents_of·make_bundle 과 같은 기준
+    # [NEW 11-12] v3 가 코드로 지표별로 나눈 하위 질문(sub_source=code)은 쓰지 않음 → 1-5 가 CSV 표 기준 + split_policy 로 판단
+    code_split = v.get("sub_source") == "code"
+    if code_split:
+        subs = []
     return {"bundle": asdict(res["bundle"]), "raw_slots": _strip_intent(v["slots"]),
             "sub_slots": [_strip_intent(x) for x in subs],
-            "intents": list(v["slots"].get("의도") or []), "sub_intents": sub_intents_of(v),
+            "intents": list(v["slots"].get("의도") or []), "sub_intents": [] if code_split else sub_intents_of(v),
             "hcx_ok": bool(res["slot"].get("parsed")), "hcx_error": res["slot"].get("error") or ""}
+
+
+def fix_region_slots(raw, lex):
+    """[NEW 11-12] 지역·전출지·전입지 칸의 값 중 지역으로는 CSV 근거가 없고 지표로는 근거가 있는 값 → 지표로 옮김
+    (HCX 가 '혼인건수' 를 지역 칸에 넣은 경우. 재작성 모듈 검증을 지나쳐도 여기서 한 번 더). 반환: (슬롯, 옮긴 값 목록)"""
+    from backend.rag.ingestion.normalize import std_geo_name
+    out, moved = {k: list(v) for k, v in raw.items()}, []
+    for k in REGION_SLOTS:
+        keep = []
+        for v in out.get(k) or []:
+            rg = lex.best(std_geo_name(v), k)
+            hi = None if (rg and rg.grounded) or _numeric(v) else lex.best(v, "지표")
+            if hi and hi.grounded and hi.source != "contains":       # 포함 일치만으로는 옮기지 않음 (뜻이 달라질 수 있음)
+                moved.append((k, v))
+            else:
+                keep.append(v)
+        if k in out:
+            out[k] = keep
+    for _, v in moved:
+        out.setdefault("지표", [])
+        if v not in out["지표"]:
+            out["지표"].append(v)
+    return {k: v for k, v in out.items() if v}, moved
 
 
 def canonical_slots(raw, grounded):
@@ -98,9 +127,18 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
         with tr.step("1-4 되묻기 응답 반영", selections=selections) as st:
             raw = apply_selections(raw, selections)
             st.output = raw
+    with tr.step("1-2 지역 칸 바로잡기 (지역으로 접지 안 되고 지표로 접지되는 값 → 지표)") as st:
+        raw, moved = fix_region_slots(raw, lex)
+        st.output = moved
+        if moved:
+            notes.append(f"지역 칸의 지표 이름을 지표로 옮김: {moved}")
     if not (raw.get("대상") or raw.get("지표")):
         with tr.step("1-2 대상 보충 (질문 문장 × CSV 값 사전)", min_alias_len=s.min_alias_len) as st:
-            found = [(k, v, n) for k, v, n in lex.scan(question) if n]
+            # [CHANGED 11-12] 숫자뿐인 표현('2021'·'2025')과 시점에 쓰인 표현은 지표가 아님
+            #   이전: '2021~2025년' 의 숫자가 CSV 항목 '2021' 과 맞아 지표로 들어가 엉뚱한 서브쿼리가 생기던 문제
+            times = " ".join(str(t) for t in raw.get("시점") or [])
+            found = [(k, v, n) for k, v, n in lex.scan(question)
+                     if n and not _numeric(k) and not _numeric(v) and norm(k) not in norm(times)]
             if found:
                 raw = {**raw, "지표": list(dict.fromkeys(v for _, v, _ in found))}
                 notes.append(f"재작성 모듈이 대상·지표를 내지 않아 질문 속 CSV 표현으로 채움: {[(k, v) for k, v, _ in found]}")
@@ -126,7 +164,7 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
         tr.save()
         return {**base, "status": "needs_clarification", "clarifications": clar, "state": state, "trace": tr.as_list()}
 
-    with tr.step("1-5 서브쿼리 분리", split_when_no_common_table=s.split_when_no_common_table,
+    with tr.step("1-5 서브쿼리 분리", split_policy=s.split_policy, split_when_no_common_table=s.split_when_no_common_table,
                  max_sub_queries=s.max_sub_queries) as st:
         subs, reason = decompose(grounded, raw, state["sub_slots"], state["intents"], state["sub_intents"], lex, s)
         st.output = {"reason": reason, "subs": [(x["id"], x["text"]) for x in subs]}
