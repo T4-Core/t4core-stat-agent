@@ -51,12 +51,34 @@ def _filters_text(f: Filters | None) -> tuple[str, str]:
     return " · ".join(x for x in fixed if x), " · ".join(x for x in ref if x)
 
 
-def build_prompt(bundle: QueryBundle, records: list[Record], charts: list[ChartRequest]) -> str:
-    subs = sub_question_ids(bundle)
-    hint = " ".join([bundle.original, bundle.rewritten or "", *bundle.sub_questions])
+def _hint(bundle: QueryBundle) -> str:
+    return " ".join([bundle.original, bundle.rewritten or "", *bundle.sub_questions])
+
+
+def _header_lines(bundle: QueryBundle) -> list[str]:
     fixed, ref = _filters_text(bundle.filters)
-    lines = [f"[질문] {bundle.original}", f"[재작성] {bundle.rewritten or bundle.original}",
-             f"[고정 조건] {fixed or '(없음)'}", f"[참고 조건] {ref or '(없음)'}", "", "[하위 질문]"]
+    return [f"[질문] {bundle.original}", f"[재작성] {bundle.rewritten or bundle.original}",
+            f"[고정 조건] {fixed or '(없음)'}", f"[참고 조건] {ref or '(없음)'}"]
+
+
+def _record_lines(rec: Record, hint: str) -> list[str]:
+    """View 하나를 프롬프트에 소개하는 줄들 (기존 형식과 세트 형식이 같이 쓴다)"""
+    lines = [f"- record_id={rec.id}", f"  설명: {rec.lexical_text[:120]}"]
+    if rec.metadata.get("unit"):
+        lines.append(f"  단위: {rec.metadata['unit']}  (표 전체의 단위 목록. 항목마다 맞는 것을 고른다)")
+    for col in rec.table.columns:
+        if col != VALUE_COL:
+            lines.append(f"  열 '{col}': {_values(rec, col, hint)}")
+    return lines + [f"  주의: {n.text}" for n in rec.notes]
+
+
+def build_prompt(bundle: QueryBundle, records: list[Record], charts: list[ChartRequest]) -> str:
+    """차트에 view_ids 가 하나라도 있으면 세트 형식, 하나도 없으면 기존 형식 (옛 입력·Swagger 예시는 글자 그대로 같다)"""
+    if any(c.view_ids for c in charts):
+        return _set_prompt(bundle, records, charts)
+    subs = sub_question_ids(bundle)
+    hint = _hint(bundle)
+    lines = [*_header_lines(bundle), "", "[하위 질문]"]
     sub_filters = bundle.sub_filters or []
     for i, (sid, text) in enumerate(subs):
         sub_fixed = _filters_text(sub_filters[i])[0] if i < len(sub_filters) else ""
@@ -66,14 +88,34 @@ def build_prompt(bundle: QueryBundle, records: list[Record], charts: list[ChartR
               f"하위질문={','.join(c.sub_question_ids) or '-'}" for c in charts if c.chart_type] or ["- (없음)"]
     lines += ["", "[자료]"]
     for rec in records:
-        lines.append(f"- record_id={rec.id}")
-        lines.append(f"  설명: {rec.lexical_text[:120]}")
-        if rec.metadata.get("unit"):
-            lines.append(f"  단위: {rec.metadata['unit']}  (표 전체의 단위 목록. 항목마다 맞는 것을 고른다)")
-        for col in rec.table.columns:
-            if col != VALUE_COL:
-                lines.append(f"  열 '{col}': {_values(rec, col, hint)}")
-        lines += [f"  주의: {n.text}" for n in rec.notes]
+        lines += _record_lines(rec, hint)
+    return "\n".join(lines)
+
+
+def _set_prompt(bundle: QueryBundle, records: list[Record], charts: list[ChartRequest]) -> str:
+    """[NEW] 세트 형식: 세트 = (질문, 차트 유형, View). 세트마다 블록 하나에 질문 · 차트 · **그 세트의 View 만** 담는다.
+    세트에 속하지 않는 View(하위 질문이 있을 때의 main View 등)는 나오지 않는다.
+    view_ids 가 비어 있는 세트는 자료가 없다 (모듈 2 가 건너뛴 하위 질문 — 이유는 reason 에 있다) → 계산하지 않는다"""
+    subs = sub_question_ids(bundle)
+    sub_filters = bundle.sub_filters or []
+    text_of = dict(subs)
+    fixed_of = {sid: (_filters_text(sub_filters[i])[0] if i < len(sub_filters) else "") for i, (sid, _) in enumerate(subs)}
+    by_id = {r.id: r for r in records}
+    hint = _hint(bundle)
+    lines = _header_lines(bundle)
+    for c in charts:
+        lines += ["", f"[세트 {c.chart_id}]  (charts 의 chart_id = \"{c.chart_id}\")"]
+        for sid in c.sub_question_ids or ["-"]:
+            lines.append(f"질문 (answers 의 sub_question_id = \"{sid}\"): {text_of.get(sid, '(질문 문장 없음)')}"
+                         + (f"  [고정 조건] {fixed_of[sid]}" if fixed_of.get(sid) else ""))
+        lines.append(f"차트: {c.chart_type} (measure={c.measure})" if c.chart_type
+                     else "차트: 없음 (질문용 계산만)" if c.view_ids else "차트: 없음")
+        if not c.view_ids:
+            lines.append(f"자료: (없음 — {c.reason or '모듈 2 가 View 를 정하지 못함'}) → 이 세트는 계산하지 않는다")
+            continue
+        lines.append("자료:")
+        for vid in c.view_ids:
+            lines += _record_lines(by_id[vid], hint) if vid in by_id else [f"- (자료 없음: record_id={vid} 가 records 에 없음)"]
     return "\n".join(lines)
 
 

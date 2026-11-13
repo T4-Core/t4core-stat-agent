@@ -13,6 +13,8 @@
 
   명세에 없어 여기서 정한 것 (TODO: 팀 합의 후 조정)
     - combo 는 long 형식이라 y·y2 가 같은 '값' 열을 가리킨다 → 어느 지표가 어느 축인지 options.series_axis 에 적는다
+    - [NEW] line 도 지표 2개의 단위가 다르면 y(왼쪽)·y2(오른쪽) 두 축을 쓴다 (_dual_axis). combo 와 같은 방식으로 적되
+      options.marks 가 {"y": "line", "y2": "line"} 이다. 갈래 하나에 항목이 여럿이면 축을 나눌 수 없어 예전처럼 한 축 + 경고
     - 축이 없는 차트(pie, donut, treemap, map, radar)의 표시 설정은 options.display_ref 에 둔다
     - 제목은 규칙으로 만든다 (기간 + 항목 + 주기/기준 + 연산 이름)
     - map 의 color_bins, radar 정규화는 채우지 않는다 (명세 9장 후속)
@@ -20,6 +22,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from backend.agent.chart_calculate.axis import axis_range, group_sums
 from backend.agent.chart_calculate.calculate import TIME_COL, Calc, run_steps
 from backend.agent.chart_calculate.display import format_value, strip_unit, unit_of
 from backend.agent.chart_calculate.select import ITEM_COL, REGION_HINTS, VALUE_COL  # noqa: F401  (REGION_HINTS: 예전 위치 호환)
@@ -69,7 +72,7 @@ def _branches(plan: Plan, calcs: dict[str, Calc]) -> tuple[list[_Branch], list[s
 
 
 def _scale(unit: str | None) -> str:
-    return {"%": "percent", "index": "index"}.get(unit, "linear")
+    return {"%": "percent", "%p": "percent", "index": "index"}.get(unit, "linear")        # [CHANGED 11-13] %p 추가
 
 
 def _distinct(cols: list[str], rows: list[list], col: str) -> list:
@@ -162,17 +165,17 @@ def _assign(chart_type: str, cols: list[str], rows: list[list]) -> dict[str, str
     return enc
 
 
-def _value_axis(label: str, branch: _Branch, values: list, floor: str | None) -> AxisSpec:
+def _value_axis(label: str, branch: _Branch, values: list, rule: str | None) -> AxisSpec:
+    """숫자 축 하나. rule(specs.axis_rules)이 있으면 min · max 를 계산해 채운다 (axis.axis_range, 원값 기준)
+    [CHANGED] 이전: min 만 (zero → 0, include_zero → min(0, 최솟값)), max 는 채우지 않았다"""
     ax = AxisSpec(label=label, type="numeric", scale=_scale(branch.calc.unit), display_ref=branch.step.display_ref)
-    nums = [v for v in values if isinstance(v, (int, float))]
-    if floor == "zero":
-        ax.min = 0
-    elif floor == "include_zero" and nums:          # 막대: 0 을 기준선으로 (명세 8장 "음수 값")
-        ax.min = min(0, min(nums))
+    if rule:
+        ax.min, ax.max = axis_range(values, rule)
     return ax
 
 
-def _long_axis(chart_type: str, enc: dict, cols: list[str], rows: list[list], branches: list[_Branch]) -> dict:
+def _long_axis(chart_type: str, enc: dict, cols: list[str], rows: list[list], branches: list[_Branch],
+               dual: dict[str, str] | None = None) -> dict:
     if chart_type in _NO_AXIS:
         return {}
     axis: dict[str, AxisSpec] = {}
@@ -180,14 +183,25 @@ def _long_axis(chart_type: str, enc: dict, cols: list[str], rows: list[list], br
     for role in ("x", "y"):
         if enc.get(role) not in (None, VALUE_COL):
             axis[role] = AxisSpec(label=enc[role], type="time" if enc[role] == TIME_COL else "category")
-    floor = SPECS[chart_type].y_floor
+    rules = SPECS[chart_type].axis_rules             # [CHANGED] 이전: SPECS[chart_type].y_floor 하나 (y 축 min 만)
+    values = [r[vi] for r in rows]
     if chart_type == "combo":
         for b in branches:                           # 축마다 단위·표시 설정이 다르다
             if b.role in ("y", "y2"):
-                axis[b.role] = _value_axis(b.label, b, [r[vi] for r in rows if r[ii] == b.label], floor)
+                axis[b.role] = _value_axis(b.label, b, [r[vi] for r in rows if r[ii] == b.label], rules.get(b.role))
+    elif dual:                                       # [NEW] 이중 축 꺾은선: 단위가 다른 지표를 왼쪽(y)·오른쪽(y2) 축에
+        for b in branches:
+            axis[dual[b.label]] = _value_axis(b.label, b, [r[vi] for r in rows if r[ii] == b.label],
+                                              rules.get(dual[b.label]))
+    elif chart_type == "pyramid" and branches:       # [NEW] 값 축은 가로 → axis["x"]. 범주 축(y = 연령)은 위에서 이미 만들었다
+        names = _distinct(cols, rows, ITEM_COL)
+        axis["x"] = _value_axis(names[0] if len(names) == 1 else VALUE_COL, branches[0], values, rules.get("x"))
     elif enc.get("y") == VALUE_COL and branches:
         names = _distinct(cols, rows, ITEM_COL)
-        axis["y"] = _value_axis(names[0] if len(names) == 1 else VALUE_COL, branches[0], [r[vi] for r in rows], floor)
+        if chart_type == "stacked_bar" and enc.get("x") in cols:      # 누적 막대의 max 는 같은 x 에서 쌓은 합계의 최댓값
+            xi = cols.index(enc["x"])
+            values = list(group_sums([r[xi] for r in rows], values).values())
+        axis["y"] = _value_axis(names[0] if len(names) == 1 else VALUE_COL, branches[0], values, rules.get("y"))
     return axis
 
 
@@ -228,8 +242,13 @@ def _joined(chart_type: str, branches: list[_Branch]):
     cats = [c for c in _varying(cols, rows) if c in keys]
     if label := next((c for c in cats if c != TIME_COL), cats[0] if cats else (keys[0] if keys else None)):
         enc["label"] = label
-    axis = {b.role: AxisSpec(label=n, type="numeric", scale=_scale(b.calc.unit), display_ref=b.step.display_ref)
+    rules = SPECS[chart_type].axis_rules
+    col = {b.role: [r[cols.index(n)] for r in rows] for b, n in zip(used, names)}
+    axis = {b.role: _value_axis(n, b, col[b.role], rules.get(b.role))
             for b, n in zip(used, names) if b.role in ("x", "y")}
+    if chart_type == "dumbbell":     # [NEW] _dumbbell_pivot 과 출력 모양을 맞춘다: start·end 가 가로 값 축 하나를 나눠 쓴다
+        axis["x"] = _value_axis(" · ".join(dict.fromkeys(names)), used[0], [v for b in used for v in col[b.role]],
+                                rules.get("x"))
     return cols, rows, enc, axis, warnings
 
 
@@ -245,7 +264,7 @@ def _dumbbell_pivot(b: _Branch):
     for p in pts:
         table.setdefault(tuple(p.key.get(c) for c in cats), {})[str(p.key.get(TIME_COL))] = p.value
     rows = [[*k, v.get(t0), v.get(t1)] for k, v in table.items()]
-    axis = {"x": AxisSpec(label=b.label, type="numeric", scale=_scale(b.calc.unit), display_ref=b.step.display_ref)}
+    axis = {"x": _value_axis(b.label, b, [v for r in rows for v in r[-2:]], SPECS["dumbbell"].axis_rules.get("x"))}
     return cats + [t0, t1], rows, {"label": cats[0], "start": t0, "end": t1}, axis, []
 
 
@@ -254,6 +273,20 @@ def _units(branches: list[_Branch]) -> set:
     """갈래들이 쓰는 단위. 갈래 하나에 항목이 여럿이면(key 에 '항목') 항목 이름마다 단위를 본다"""
     return {unit_of(str(p.key[ITEM_COL])) if ITEM_COL in p.key else b.calc.unit
             for b in branches for p in b.calc.points}
+
+
+def _dual_axis(branches: list[_Branch]) -> dict[str, str] | None:
+    """[NEW] 단위가 다른 갈래 2개 → {지표 이름: 'y'(왼쪽) | 'y2'(오른쪽)}. 그 밖에는 None (한 축)
+
+    역할은 output 이 정한 것(HCX)을 따르되, 없거나 겹치면 순서대로 (첫 갈래 y, 둘째 y2). 단위가 같으면 한 축이 비교에 정직하다.
+    갈래 하나에 항목이 여럿이면(key 에 '항목') 축은 갈래 단위라 나눌 수 없다."""
+    if len(branches) != 2 or len({b.label for b in branches}) != 2 or len(_units(branches)) < 2 \
+            or any(ITEM_COL in p.key for b in branches for p in b.calc.points):
+        return None
+    roles = [b.role if b.role in ("y", "y2") else None for b in branches]
+    if sorted(r or "" for r in roles) != ["y", "y2"]:
+        roles = ["y", "y2"]
+    return {b.label: r for b, r in zip(branches, roles)}
 
 
 def _title(plan: Plan, branches: list[_Branch], names: list[str], category: str | None, prd_se: str | None) -> str:
@@ -272,7 +305,8 @@ def _title(plan: Plan, branches: list[_Branch], names: list[str], category: str 
     return " ".join(x for x in (period, " · ".join(names), tail) if x)
 
 
-def _options(chart_type: str, plan: Plan, branches: list[_Branch], content_rows, cols, enc, displays, record) -> dict:
+def _options(chart_type: str, plan: Plan, branches: list[_Branch], content_rows, cols, enc, displays, record,
+             dual: dict[str, str] | None = None) -> dict:
     opt: dict[str, Any] = {}
     if label := next((b.calc.scope_label for b in branches if b.calc.scope_label), None):
         opt["scope_label"] = label
@@ -284,6 +318,9 @@ def _options(chart_type: str, plan: Plan, branches: list[_Branch], content_rows,
     elif chart_type == "combo":
         opt["marks"] = {"y": "bar", "y2": "line"}
         opt["series_axis"] = {b.label: b.role for b in branches if b.role in ("y", "y2")}
+    elif chart_type == "line" and dual:
+        opt["marks"] = {"y": "line", "y2": "line"}
+        opt["series_axis"] = dual
     elif chart_type == "donut" and plan.measure != "share" and VALUE_COL in cols:
         total = sum(r[cols.index(VALUE_COL)] for r in content_rows)
         shown = format_value(total, displays[ref]) if ref in displays else f"{total:g}"
@@ -300,16 +337,21 @@ def _compose(chart_type: str, plan: Plan, branches: list[_Branch], displays: dic
              record: Record | None) -> ChartContent:
     live = [b for b in branches if b.calc.points]
     warnings = [n for b in live for n in b.calc.notes]
+    dual = None                      # 이중 축 꺾은선의 {지표: y|y2}. long 형식의 line 에서만 정해진다
     if SPECS[chart_type].rows == "joined":
         cols, rows, enc, axis, more = _joined(chart_type, live)
     else:
         cols, rows, more = _long(live)
         enc = _assign(chart_type, cols, rows) if rows else {}
-        axis = _long_axis(chart_type, enc, cols, rows, live) if rows else {}
+        dual = _dual_axis(live) if chart_type == "line" and rows else None
+        axis = _long_axis(chart_type, enc, cols, rows, live, dual) if rows else {}
         if chart_type == "combo" and not any(b.role == "y2" for b in live):
             enc.pop("y2", None)
         elif chart_type == "combo":
             enc["y2"] = VALUE_COL
+        elif dual:
+            enc["y2"] = VALUE_COL
+            more.append("단위가 달라 지표별로 왼쪽(y)·오른쪽(y2) 축에 나눠 그림")
         elif len(_units(live)) > 1:
             more.append("단위가 다른 지표를 한 축에 그림")
     category = enc.get("x") or enc.get("label") or enc.get("region")
@@ -322,7 +364,7 @@ def _compose(chart_type: str, plan: Plan, branches: list[_Branch], displays: dic
         # HCX 가 질문의 말로 쓴 제목이 있으면 그것 (대체 차트·합계로 바뀌어도 질문 기준이라 그대로 맞다), 없으면 규칙 제목
         title=plan.title or _title(plan, live, [n for n in names if n], category,
                                    record.metadata.get("prd_se") if record else None),
-        encoding=enc, axis=axis, options=_options(chart_type, plan, live, rows, cols, enc, displays, record),
+        encoding=enc, axis=axis, options=_options(chart_type, plan, live, rows, cols, enc, displays, record, dual),
         columns=cols, rows=rows, record_ids=list(dict.fromkeys(i for b in branches for i in b.calc.record_ids)),
         warnings=list(dict.fromkeys(warnings + more)))
 
@@ -337,11 +379,16 @@ def _totals(plan: Plan, content: ChartContent) -> dict | None:
 
 def build_chart(plan: Plan, records: list[Record], requirements: list[str] | None = None,
                 displays: dict[str, Display] | None = None,
-                attempts: list[tuple[ChartContent, CheckResult]] | None = None
+                attempts: list[tuple[ChartContent, CheckResult]] | None = None,
+                calcs: dict[str, Calc] | None = None
                 ) -> tuple[ChartContent | None, ChartValidation]:
     """requirements = 모듈 2 가 원래 차트에 대해 넘긴 조건. 대체 차트는 그 차트의 기본 조건으로 검증한다
-    attempts = 목록을 넘기면 시도마다 (구성한 내용, 검증 결과)를 순서대로 담는다 (테스트 화면용. 실패한 시도도 담긴다)"""
-    branches, errors = _branches(plan, run_steps(plan.steps, records, default=plan))
+    attempts = 목록을 넘기면 시도마다 (구성한 내용, 검증 결과)를 순서대로 담는다 (테스트 화면용. 실패한 시도도 담긴다)
+    calcs = 딕셔너리를 넘기면 단계마다 계산 결과를 담는다 ('{chart_id}.{step_id}' → Calc. 질문용 계산이 같은 계산을 다시 하지 않게 재사용한다)"""
+    done = run_steps(plan.steps, records, default=plan)
+    if calcs is not None:
+        calcs.update({f"{plan.chart_id}.{sid}": c for sid, c in done.items()})
+    branches, errors = _branches(plan, done)
     record = next((r for r in records if r.id == plan.record_id), None)
 
     def attempt(chart_type: str, reqs: list[str]) -> tuple[ChartContent, CheckResult]:

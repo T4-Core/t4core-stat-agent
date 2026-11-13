@@ -1,18 +1,18 @@
 """
 [NEW] 모듈 3 그래프 (LangGraph) — Module3Request → Module3Output
 
-  START → decide → plan ─┬→ build_charts ─┬→ assemble → END
-                         └→ answer_steps ─┘
+  START → decide → plan → build_charts → answer_steps → assemble → END
 
   decide        HCX 가 무엇을 계산할지 정한다           (state 에 decision 이 있으면 건너뛴다)
   plan          ChartPlan + displays                   (규칙)
   build_charts  차트용 계산 → ChartContent · validation
-  answer_steps  질문용 계산 → CalcResult               (차트 검증 결과와 관계없이 실행한다 — 명세 7장)
+  answer_steps  질문용 계산 → CalcResult               (차트 검증 결과와 관계없이 실행한다 — 명세 7장.
+                                                       차트 단계와 같은 계산(plan.answer_reuse)은 다시 계산하지 않고 그 결과를 쓴다)
   assemble      Module3Output + 단계별 중간 결과(Module3Trace)
 
   - 노드는 state 를 읽고 바뀐 키만 돌려주는 함수다. 그래프 밖에서도 그대로 부를 수 있다.
-  - build_charts 와 answer_steps 는 서로 기다리지 않아 병렬로 돈다. 쓰는 키가 겹치지 않고(charts·contents·validation / calc_results),
-    plan · displays · request 는 읽기만 한다. 속도 이득은 거의 없고, 두 작업이 독립이라는 사실을 그래프에 드러내는 것이 목적이다.
+  - [CHANGED] 이전: build_charts 와 answer_steps 가 병렬이었다. 같은 계산을 한 번만 하려고 answer_steps 가 build_charts 의 계산 결과
+    (state["chart_calcs"])를 받는다 → 순서가 생겼다. 차트가 검증에서 탈락해도 계산 결과는 남아 있으므로 CalcResult 는 영향이 없다.
   - HCX 호출 함수(chat)는 state 가 아니라 config["configurable"]["chat"] 로 받는다. state 에 함수를 두면 직렬화가 막힌다.
   - 진입점은 pipeline.run_module3 · run_module3_trace. 다른 그래프에 붙일 때는 graph(또는 build_module3_graph())를 노드로 넣는다.
 """
@@ -22,7 +22,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from backend.agent.chart_calculate.calculate import run_answer_steps
+from backend.agent.chart_calculate.calculate import Calc, run_answer_steps
 from backend.agent.chart_calculate.content import build_chart
 from backend.agent.chart_calculate.decide import decide_trace
 from backend.agent.chart_calculate.display import format_value
@@ -88,6 +88,7 @@ class Module3State(Module3Input, Module3Result, total=False):
     contents: list[ChartContent]
     validation: dict[str, ChartValidation]
     calc_results: list[CalcResult]
+    chart_calcs: dict[str, Calc]          # '{chart_id}.{step_id}' → 차트용 단계의 계산 결과 (질문용 계산이 재사용한다)
 
 
 # ── 노드 ─────────────────────────────────────────────────────────
@@ -113,10 +114,10 @@ def plan_node(state: Module3State) -> dict:
 def build_charts_node(state: Module3State) -> dict:
     request, dt, plan, displays = state["request"], state["decide"], state["chart_plan"], state["displays"]
     reqs = {c.chart_id: c.requirements for c in request.charts}
-    contents, validation, traces = [], {}, {}
+    contents, validation, traces, chart_calcs = [], {}, {}, {}
     for p in plan.plans:
         attempts: list = []
-        content, validation[p.chart_id] = build_chart(p, request.records, reqs.get(p.chart_id), displays, attempts)
+        content, validation[p.chart_id] = build_chart(p, request.records, reqs.get(p.chart_id), displays, attempts, chart_calcs)
         if content is not None:
             contents.append(content)
         traces[p.chart_id] = ChartTrace(plan=p, requirements=requirements_for(p.chart_type, reqs.get(p.chart_id)),
@@ -130,11 +131,14 @@ def build_charts_node(state: Module3State) -> dict:
             validation[c.chart_id] = ChartValidation(original=CheckResult(
                 chart_type=c.chart_type, passed=False, checked=[PLAN_PRESENT], failed=[PLAN_PRESENT],
                 reasons=why or list(dt.notes) or ["차트 계획 없음"]))
-    return {"charts": traces, "contents": contents, "validation": validation}
+    return {"charts": traces, "contents": contents, "validation": validation, "chart_calcs": chart_calcs}
 
 
 def answer_steps_node(state: Module3State) -> dict:
-    return {"calc_results": run_answer_steps(state["chart_plan"].answer_steps, state["request"].records)}
+    plan, done = state["chart_plan"], state.get("chart_calcs") or {}
+    # 같은 계산의 차트 단계 결과가 없으면(계산 전에 오류 등) 재사용하지 않고 따로 계산한다
+    reuse = {sid: done[ref] for sid, ref in plan.answer_reuse.items() if ref in done}
+    return {"calc_results": run_answer_steps(plan.answer_steps, state["request"].records, reuse)}
 
 
 def _display_text(r: CalcResult, displays: dict[str, Display]) -> str | list[str | None] | None:
@@ -168,8 +172,8 @@ def build_module3_graph():
     b.add_edge(START, "decide")
     b.add_edge("decide", "plan")
     b.add_edge("plan", "build_charts")
-    b.add_edge("plan", "answer_steps")
-    b.add_edge(["build_charts", "answer_steps"], "assemble")      # 둘 다 끝나야 assemble
+    b.add_edge("build_charts", "answer_steps")                    # 같은 계산은 차트 쪽 결과를 받는다
+    b.add_edge("answer_steps", "assemble")
     b.add_edge("assemble", END)
     return b.compile()
 

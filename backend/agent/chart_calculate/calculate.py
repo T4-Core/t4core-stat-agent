@@ -17,6 +17,10 @@
     extreme      최댓값 (kind="min" 이면 최솟값)    aggregate    agg = sum | mean (by 로 묶을 열 지정)
     combine      Σ (sign × 피연산자)  — 피연산자 2개 이상, join_on(기본 시점)으로 짝짓는다. 단위·수록 주기가 모두 같아야 한다
 """
+import copy
+import datetime
+import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -194,14 +198,36 @@ def _change(a: Point, b: Point):
 def _growth_rate(a: Point, b: Point):
     if a.value == 0:
         return None, "기준값 0"
+    if a.value < 0:          # [NEW 11-13] -100 → -50 은 50 증가인데 식은 -50% 가 되어 방향이 거꾸로다. 정의되지 않은 값으로 보고 계산하지 않는다
+        return None, "기준값이 음수라 증감률을 정할 수 없음"
     return (b.value - a.value) / a.value * 100, None
 
 
+# [NEW 11-13] 시점 라벨(normalize.PERIOD_LABEL_SQL) → 연 단위 숫자. 월 '2024.01', 분기 '2024 1분기', 반기 '2024 상반기', 일 '2024.01.15', 연 '2024'
+_TIME_FORMS: list[tuple[re.Pattern, Callable[[tuple], float]]] = [
+    (re.compile(r"^(\d{4})$"), lambda g: int(g[0])),
+    (re.compile(r"^(\d{4})\.(\d{2})$"), lambda g: int(g[0]) + (int(g[1]) - 1) / 12),
+    (re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})$"), lambda g: datetime.date(int(g[0]), int(g[1]), int(g[2])).toordinal() / 365.2425),
+    (re.compile(r"^(\d{4}) ?(\d)분기$"), lambda g: int(g[0]) + (int(g[1]) - 1) / 4),
+    (re.compile(r"^(\d{4}) ?(상|하)반기$"), lambda g: int(g[0]) + (0 if g[1] == "상" else 0.5)),
+]
+
+
+def time_in_years(label) -> float | None:
+    for pattern, to_years in _TIME_FORMS:
+        if m := pattern.match(str(label).strip()):
+            try:
+                return to_years(m.groups())
+            except ValueError:
+                return None
+    return None
+
+
 def _cagr(a: Point, b: Point):
-    try:
-        years = int(str(b.key[TIME_COL])[:4]) - int(str(a.key[TIME_COL])[:4])
-    except (KeyError, ValueError):
+    ta, tb = time_in_years(a.key.get(TIME_COL)), time_in_years(b.key.get(TIME_COL))
+    if ta is None or tb is None:
         return None, "연수를 알 수 없음"
+    years = tb - ta                      # 월 · 분기 · 반기는 실제 경과 기간 (2024.01 → 2025.07 = 1.5년)
     if years <= 0:
         return None, "연수가 0 이하"
     if a.value <= 0 or b.value < 0:
@@ -259,8 +285,8 @@ def _index(ctx: _Ctx) -> Calc:
     for gk, pts in _groups(s.points, _no_time).items():
         t0 = str(ctx.step.base or ctx.step.from_ or pts[0].key.get(TIME_COL))
         base = next((p for p in pts if str(p.key.get(TIME_COL)) == t0), None)
-        if base is None or base.value == 0:
-            out.notes.append(f"기준 시점 {t0} 값 없음" if base is None else "기준값 0")
+        if base is None or base.value <= 0:        # [CHANGED 11-13] 이전: == 0 — 음수 기준은 지수의 방향이 거꾸로 된다
+            out.notes.append(f"기준 시점 {t0} 값 없음" if base is None else "기준값 0" if base.value == 0 else "기준값이 음수라 지수를 정할 수 없음")
             out.points += [Point(dict(p.key), None) for p in pts]
         else:
             out.points += [Point(dict(p.key), p.value / base.value * 100) for p in pts]
@@ -370,7 +396,7 @@ def _pair(fn, same_unit: bool):
         if ctx.step.op == "ratio":     # TODO(후속 명세): 단위가 다른 두 지표의 비 — 임시로 'a단위/b단위'
             unit = result_unit("ratio", None) if a.unit == b.unit else f"{a.unit}/{b.unit}"
         else:
-            unit = a.unit
+            unit = result_unit(ctx.step.op, a.unit)        # [CHANGED 11-13] 이전: a.unit — 비율(%)끼리의 diff 는 %p
         out = ctx.calc(a, b, unit=unit)
         if _failed(a, b):
             return out
@@ -513,7 +539,46 @@ def to_calc_result(step: Step, calc: Calc) -> CalcResult:
                       note="; ".join(calc.notes) or None)
 
 
-def run_answer_steps(steps: list[Step], records: list[Record]) -> list[CalcResult]:
-    """질문용 계산. 차트 검증 결과와 관계없이 실행한다 (명세 7장)"""
-    done = run_steps(steps, records)
+# [NEW] 연산이 실제로 읽는 Step 인자. 여기 없는 인자(raw 의 from·to 등)는 값이 달라도 결과에 영향이 없다 → 같은 계산인지 볼 때 무시한다.
+# 연산별 추가 인자(by · order · kind)는 모든 연산에서 비교한다. 새 연산이나 인자를 추가하면 이 표도 고친다
+USED_ARGS: dict[str, tuple[str, ...]] = {
+    "raw": (), "extreme": (), "rank": ("top_n",), "aggregate": ("agg",),
+    "change": ("from_", "to", "base"), "growth_rate": ("from_", "to", "base"), "cagr": ("from_", "to", "base"),
+    "index": ("from_", "base"),
+    "diff": ("join_on",), "ratio": ("join_on",), "combine": ("join_on",), "share": ("join_on", "denominator"),
+}
+
+
+def step_key(step: Step, default: Plan | None = None, records: dict[str, Record] | None = None) -> str | None:
+    """같은 계산이면 같은 문자열. 앞 단계의 결과를 받는 단계(input)나 피연산자를 알 수 없는 단계는 None (재사용하지 않는다).
+    records 를 주면 조건(select) 문구가 아니라 **실제로 고른 행**으로 비교한다
+    (View 에 지역이 하나뿐이면 '지역=전국' 조건이 있든 없든 고른 행이 같다)"""
+    if step.input:
+        return None
+    if step.operands:
+        ops = list(step.operands)
+    elif default is not None:     # 피연산자를 생략하면 계획의 record_id · select 를 쓴다 (_Ctx.series 와 같은 규칙)
+        ops = [Operand(role="value", record_id=default.record_id, select=default.select)]
+    else:
+        return None
+    operands = []
+    for o in ops:
+        d = o.model_dump(mode="json")
+        rec = (records or {}).get(o.record_id)
+        if rec is not None:
+            sel = select_rows(rec, o.select, o.item)
+            d["select"] = {"columns": list(sel.columns), "rows": sel.rows, "errors": list(sel.errors)}
+        operands.append(d)
+    args = {name: getattr(step, name) for name in USED_ARGS.get(step.op, ())}
+    args = {k: v.model_dump(mode="json") if hasattr(v, "model_dump") else v for k, v in args.items()}
+    return json.dumps({"op": step.op, "operands": operands, "args": args, "extra": step.model_extra or {}},
+                      sort_keys=True, ensure_ascii=False, default=str)
+
+
+def run_answer_steps(steps: list[Step], records: list[Record], reuse: dict[str, Calc] | None = None) -> list[CalcResult]:
+    """질문용 계산. 차트 검증 결과와 관계없이 실행한다 (명세 7장).
+    reuse = {질문용 step_id: 같은 계산인 차트 단계의 Calc}. 있으면 다시 계산하지 않고 그 결과를 복사해 쓴다"""
+    reuse = reuse or {}
+    done = run_steps([st for st in steps if st.step_id not in reuse], records)
+    done.update({sid: copy.deepcopy(calc) for sid, calc in reuse.items()})
     return [to_calc_result(st, done[st.step_id]) for st in steps]

@@ -13,7 +13,7 @@ _UNIT = re.compile(r"\(([^()]+)\)\s*$")
 
 # 단위 종류별 digits 기본값 (명세 4장 표). 표에 없는 단위는 OTHER_DIGITS
 COUNT_UNITS = {"명", "건", "가구", "개", "호"}
-RATE_UNITS = {"%", "천명당", "‰"}
+RATE_UNITS = {"%", "%p", "천명당", "‰"}
 MONEY_UNITS = {"원", "천원", "백만원"}
 INDEX_UNIT = "index"
 # HCX 가 단위 목록에서 한 단어로 골라도 되는 표준 단위 (planner.hcx_unit). 목록에 없는 단위는 승인하지 않는다 → 단위 없음
@@ -24,7 +24,7 @@ OTHER_DIGITS = 1
 # 명세의 표시 예("조혼인율 4.7", "115.5")에서 단위를 붙이지 않은 것들
 NO_SUFFIX_UNITS = {INDEX_UNIT, "천명당"}
 
-# 결과 단위가 바뀌는 연산 (명세 4장). 여기 없는 연산은 입력 단위를 그대로 쓴다
+# 결과 단위가 바뀌는 연산 (명세 4장). 여기 없는 연산은 입력 단위를 그대로 쓴다 (change · diff 의 % → %p 는 아래 result_unit)
 # TODO(후속 명세): ratio 의 결과 단위는 아직 정해지지 않았다. 임시로 '배'
 # rank 는 넣지 않는다: 값은 원래 단위 그대로이고 순위는 별도 필드(calculate._rank 의 extra["rank"])라서
 RESULT_UNIT = {"growth_rate": "%", "cagr": "%", "share": "%", "index": INDEX_UNIT, "ratio": "배"}
@@ -48,7 +48,14 @@ def strip_unit(item: str) -> str:
     return _UNIT.sub("", item).strip()
 
 
+# [NEW 11-13] 비율(%)끼리의 증감·차이는 %p 다 (15.2% → 17.8% 는 2.6%p 증가). growth_rate · cagr 는 상대 변화율이라 % 그대로
+PERCENT_POINT = "%p"
+POINT_OPS = {"change", "diff"}
+
+
 def result_unit(op: str, unit: str | None) -> str | None:
+    if op in POINT_OPS and unit == "%":
+        return PERCENT_POINT
     return RESULT_UNIT.get(op, unit)
 
 
