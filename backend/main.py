@@ -13,12 +13,17 @@ Swagger 화면 순서 = 파이프라인 순서
   ② View    POST /api/v1/rag/views           view_bundle → Record 목록
   ③ Agent   POST /api/v1/agent/answer        질문 + Record 목록 → 답변
   ★         POST /api/v1/chat                ①→②→③ 한 번에
+  [NEW] 화면  /lab/chart-lab/               ①→②→모듈 2→모듈 3→모듈 6 단계별 확인 (frontend/chart-lab)
 """
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
-from backend.api import v1_chat, v1_ingest, v1_judge, v1_query, v1_search
+from backend.api import v1_answer, v1_chart, v1_chat, v1_ingest, v1_judge, v1_query, v1_search
+# [CHANGED] 이전: from backend.api import v1_chart, v1_chat, v1_ingest, v1_judge, v1_query, v1_search   (v1_answer = 모듈 6 API 추가)
 # [CHANGED] 이전: from backend.api import v1_chat, v1_ingest, v1_query, v1_search   (v1_judge = 판단 모듈 API 추가)
-from backend.core.config import OUT, TABLE_INDEX_DIR, paths
+# [CHANGED] 이전: from backend.api import v1_chat, v1_ingest, v1_judge, v1_query, v1_search   (v1_chart = 모듈 3 API 추가)
+from backend.core.config import FRONTEND_DIR, OUT, TABLE_INDEX_DIR, paths
+# [CHANGED] 이전: from backend.core.config import OUT, TABLE_INDEX_DIR, paths   (FRONTEND_DIR = 정적 화면)
 
 TAGS = [
     {"name": "system", "description": "상태·경로 확인 (데이터 폴더가 어디로 해석됐는지)"},
@@ -27,6 +32,8 @@ TAGS = [
     {"name": "② Retrieval 검색·View 생성", "description": "QueryBundle → 표 검색 → View 카드(Record) (backend/rag/retrieval, ingestion)"},
     {"name": v1_judge.TAG, "description": "View 가 질문 조건(슬롯)을 실제로 담았는가 → pass/partial/fail + 사유 코드 (backend/rag/judge)"},  # [NEW]
     {"name": "③ Agent 통합 (전체 파이프라인)", "description": "Record → HCX 답변 + 차트 + 출처 (backend/agent)"},
+    {"name": v1_chart.TAG, "description": "Record + 차트 계획 → 계산 계획·계산 결과·차트 내용·검증 (backend/agent/chart_calculate)"},  # [NEW]
+    {"name": v1_answer.TAG, "description": "질문 + View + 계산 결과 → 답변 문장·근거 표·주의사항 (backend/agent/answer_compose)"},  # [NEW]
     {"name": "④ Data 좌표 조회·차트", "description": "Record.source → DuckDB 재조회 (backend/data_engine)"},
 ]
 
@@ -44,8 +51,15 @@ app = FastAPI(
 )
 # [CHANGED] 이전: for r in (meta, normalize, query, search, views): app.include_router(r.router)   (View 모듈만)
 for r in (v1_ingest.prep, v1_ingest.router, v1_query.router, v1_search.router, v1_judge.router, v1_chat.router,
-          v1_search.data):
+          v1_chart.router, v1_answer.router, v1_search.data):
     app.include_router(r)
+# [CHANGED] 이전: (… v1_chat.router, v1_chart.router, v1_search.data)   (v1_answer.router = 모듈 6, 차트 계산 다음에 등록)
+# [CHANGED] 이전: (… v1_judge.router, v1_chat.router, v1_search.data)   (v1_chart.router 를 ③ 답변 다음에 등록)
+
+# [NEW] 테스트 화면 (frontend/). 질문부터 모듈 6 답변까지 단계별 확인: http://localhost:8000/lab/chart-lab/
+#   같은 주소에서 서빙해 CORS 설정 없이 /api/v1/* 를 부른다. API 경로와 겹치지 않게 /lab 아래에 둔다
+if FRONTEND_DIR.exists():
+    app.mount("/lab", StaticFiles(directory=FRONTEND_DIR, html=True), name="lab")
 # [CHANGED] 이전: for r in (v1_ingest.prep, v1_ingest.router, v1_query.router, v1_search.router, v1_chat.router, v1_search.data):
 #   (v1_judge.router 를 ② 검색과 ③ 답변 사이에 등록 — 파이프라인 순서 = Swagger 순서)
 
