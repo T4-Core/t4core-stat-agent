@@ -81,6 +81,7 @@ def _pick(env_keys, candidates, default, marker=None, env_must_exist=False):
 
 STORAGE_DIR = _env_path("STORAGE_DIR") or ROOT / "storage"
 EVAL_DIR = ROOT / "eval"
+FRONTEND_DIR = ROOT / "frontend"   # [NEW] 정적 화면 (backend/main.py 가 /lab 으로 서빙)
 
 # ── 1) 수집 원본 (kosis_rag_builder = collector 출력, 이미지의 kosis_data 폴더 통째) ──
 KOSIS_DATA_DIR = _pick(
@@ -151,7 +152,7 @@ def paths():
              "RAG_VIEWS_DIR": RAG_VIEWS_DIR, "RAG_INDEX_DIR": RAG_INDEX_DIR, "ANSWERS_DIR": ANSWERS_DIR,
              "VIEW_OUT_DIR": VIEW_OUT_DIR, "TABLE_INDEX_DIR": TABLE_INDEX_DIR, "VIEW_EMBED_CACHE": VIEW_EMBED_CACHE,
              "REWRITE_EVAL_DIR": REWRITE_EVAL_DIR, "TEST_DATA_DIR": TEST_DATA_DIR, "EVAL_RUNS_DIR": EVAL_RUNS_DIR,
-             "PRIVATE_DIR": PRIVATE_DIR}
+             "PRIVATE_DIR": PRIVATE_DIR, "FRONTEND_DIR": FRONTEND_DIR}
     out = {k: {"path": str(v) if v else None, "exists": bool(v) and Path(v).exists()} for k, v in named.items()}
     if CONFIG_WARNINGS:
         out["WARNINGS"] = {"path": " / ".join(CONFIG_WARNINGS), "exists": False}

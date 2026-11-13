@@ -44,6 +44,10 @@ class ChartRequest(BaseModel):
     requirements: list[str] = Field(default_factory=list, description="검증 코드 (예: time_axis_required, min_points_3)")
     fallback_chart: ChartType | None = None
     reason: str | None = None
+    # [NEW] 세트 = (질문 sub_question_ids, 차트 유형, View). 질문 문장은 QueryBundle 에서 하위 질문 ID 로 찾는다
+    view_ids: list[str] = Field(default_factory=list, description=(
+        "이 차트가 쓸 View 의 Record.id (모듈 2 의 view_ids). 일반 차트는 1개, combo 는 여러 개일 수 있다 (개수 제한 없음). "
+        "chart_type 이 null 이어도 그 하위 질문의 질문용 계산이 쓸 View 를 담는다. 비어 있으면 records 전체가 후보"))
 
 
 class Module3Request(BaseModel):
@@ -121,8 +125,13 @@ class Plan(BaseModel):
 class ChartPlan(BaseModel):
     plans: list[Plan] = Field(default_factory=list)
     answer_steps: list[Step] = Field(default_factory=list, description="질문용 계산. 차트가 없어도 만든다")
+    # [NEW 명세 외] 질문용 단계가 같은 세트의 차트 단계와 같은 계산이면 {"a1": "c1.s1"}. 그 단계는 다시 계산하지 않고 차트의 계산 결과를 쓴다
+    answer_reuse: dict[str, str] = Field(default_factory=dict, description="질문용 단계 ID → 같은 계산인 차트 단계('{chart_id}.{step_id}'). 비어 있으면 모두 따로 계산")
     # [NEW 명세 외] 질문용 연산(HCX 가 정함)과 모듈 2 measure 가 다를 때의 기록 등. QA(모듈 7)가 본다
     notes: list[str] = Field(default_factory=list)
+    # [NEW 11-13] notes 는 개발자 · QA 용 기록이라 사용자에게 보여 주기에 부적절한 문구가 많다. 계산을 보류한 사유처럼
+    # 사용자가 알아야 하는 것만 여기에 한 번 더 적는다. 모듈 6 이 주의사항(caveats)으로 답변까지 전달한다
+    warnings: list[str] = Field(default_factory=list, description="사용자에게 알려야 하는 사유 (계산 보류 등). 모듈 6 의 plan_warnings 로 넘긴다")
 
 
 # ── 표시 설정 ────────────────────────────────────────────────────

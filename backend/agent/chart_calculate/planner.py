@@ -32,7 +32,7 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.agent.chart_calculate.calculate import SELECTED_LABEL, TIME_COL
+from backend.agent.chart_calculate.calculate import SELECTED_LABEL, TIME_COL, step_key
 from backend.agent.chart_calculate.validate import TOTAL_LABELS
 from backend.agent.chart_calculate.display import STANDARD_UNITS, make_display, register, result_unit, unit_of
 from backend.agent.chart_calculate.select import AGE_HINTS, CATEGORY_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL, select_rows
@@ -53,6 +53,8 @@ AGE = "연령"                           # 고정 조건에 함께 싣는 참고
 INTENT = "의도"
 # [MOVED 11-11] AGE_HINTS · CATEGORY_HINTS → select.py
 PER_CATEGORY_INTENTS = {"비교", "순위"}  # 범주끼리 견주는 질문은 합치지 않는다
+# 질문의 지역이 '진짜 지역 이름'인지: 재작성 모듈이 지역 칸에 지역이 아닌 말('지역 혼인건수')을 넣는 경우가 있어, 그런 값 때문에 계산을 보류하지 않는다
+_REAL_REGION = re.compile(r"(특별시|광역시|특별자치시|특별자치도|도)$")
 _AGE = re.compile(r"(\d+)\s*(?:[-~]\s*(\d+))?\s*세(\s*이상)?")
 
 
@@ -170,9 +172,29 @@ class _Planner:
         self.fixed = fixed or {}
         self.displays: dict[str, Display] = {}
         self.notes: list[str] = []
+        self.warnings: list[str] = []          # [NEW 11-13] 사용자에게 알릴 사유 (ChartPlan.warnings)
+        self.withheld: set[str] = set()        # [NEW 11-13] 조건이 맞지 않아 계산을 보류한 계획 (tag)
+        self.answer_sub: dict[str, str] = {}      # 질문용 step_id → 하위 질문 ID (같은 세트의 차트 단계를 찾을 때 쓴다)
 
     def note(self, tag: str, text: str):
         self.notes.append(f"{tag}: {text}")
+
+    def withhold(self, tag: str, note: str, warning: str):
+        """계산을 보류한다. 개발자용 note 와 사용자용 warning 을 함께 남긴다"""
+        self.withheld.add(tag)
+        self.note(tag, f"{note} → 계산하지 않음")
+        self.warnings.append(warning)
+
+    def denominator_outside(self, tag: str, d: "_Args", expected: list[str]) -> bool:
+        """비중의 분모를 세트(view_ids) 밖 View 에서 가져오면 다른 범위의 총계로 나누게 된다 (40% 가 20% 로 바뀐다) → 보류"""
+        den = d.denominator
+        if not expected or den is None or den.scope != "question" or den.operand is None:
+            return False
+        if den.operand.record_id in expected:
+            return False
+        self.withhold(tag, f"분모 View {den.operand.record_id} 가 세트(view_ids) {expected} 밖",
+                      "비중의 분모로 쓸 자료가 이 질문에 정해진 자료가 아니라서 비중을 계산하지 못했습니다.")
+        return True
 
     def check(self, tag: str, record_id: str, select: Select, item: str | None):
         """고른 열·값이 View 에 실제로 있는지. 없으면 notes 에만 적는다 (파일 설명의 '검증 방침')"""
@@ -182,6 +204,15 @@ class _Planner:
             return
         for err in select_rows(rec, select, item).errors:
             self.note(tag, err)
+
+    def check_set(self, tag: str, expected: list[str], used: list[str | None]):
+        """[NEW] HCX 가 세트(모듈 2 의 view_ids) 밖의 View 를 골랐는지. 계획은 그대로 두고 notes 에만 적는다.
+        expected 가 비어 있으면(view_ids 를 안 받은 옛 입력) 아무것도 하지 않는다"""
+        if not expected:
+            return
+        stray = list(dict.fromkeys(r for r in used if r and r not in expected))
+        if stray:
+            self.note(tag, f"HCX 가 모듈 2 의 View(view_ids)가 아닌 {stray} 를 골랐다 (세트: {expected})")
 
     def unit(self, record_id: str, item: str | None, select: Select) -> str | None:
         rec = self.records.get(record_id)
@@ -263,24 +294,36 @@ class _Planner:
     def merge_same_item(self, tag: str, op: str, picks: list[Pick], keep_first: bool) -> list[Pick]:
         """피연산자 1개짜리 연산에 같은 View·항목을 여럿으로 쪼갠 것 → 조건을 합쳐 하나로 (예: a=2024, b=2021)
 
-        항목이 다르면 keep_first=True 일 때 첫 번째만 쓴다 (질문용). 차트는 항목이 다르면 갈래로 두므로 그대로 둔다.
+        항목이 다르면 keep_first=True(질문용)는 항목마다 하나씩 돌려준다 — 부른 쪽(answer)이 항목마다 단계를 만든다.
+        차트는 항목이 다르면 갈래로 두므로 그대로 둔다.
+        [CHANGED] 이전: 항목이 다르면 질문용은 첫 번째만 쓰고 나머지를 버렸다 (답변에서 그 항목의 수치가 사라졌다).
+                  keep_first 라는 이름은 그 흔적이다 (호출부 시그니처를 바꾸지 않으려고 남겼다)
         """
         if len(picks) <= 1:
             return picks
-        if any((p.record_id, p.item) != (picks[0].record_id, picks[0].item) for p in picks):
-            if not keep_first:
-                return picks
-            self.note(tag, f"{op} 는 피연산자 1개 → 첫 번째만 씀 (버린 항목: {[p.item for p in picks[1:]]})")
-            return picks[:1]
-        merged: Select = {}
+        if not keep_first and any((p.record_id, p.item) != (picks[0].record_id, picks[0].item) for p in picks):
+            return picks
+        groups: dict[tuple, list[Pick]] = {}
         for p in picks:
+            groups.setdefault((p.record_id, p.item), []).append(p)
+        out = [self._merge_group(tag, op, g) for g in groups.values()]
+        if len(out) > 1:
+            self.note(tag, f"{op} 는 피연산자 1개 → 항목마다 따로 계산 ({[p.item for p in out]})")
+        return out
+
+    def _merge_group(self, tag: str, op: str, group: list[Pick]) -> Pick:
+        """같은 View·항목의 피연산자들의 조건을 합친다"""
+        if len(group) == 1:
+            return group[0]
+        merged: Select = {}
+        for p in group:
             for col, vals in p.select.items():
                 have = merged.setdefault(col, [])
                 have += [v for v in vals if str(v) not in map(str, have)]
         # 어느 한 피연산자에 없는 열 조건 = 그 피연산자는 그 열을 전부 썼다 → 합친 조건에서도 뺀다
-        merged = {c: v for c, v in merged.items() if all(c in p.select for p in picks)}
-        self.note(tag, f"{op} 는 피연산자 1개 → 같은 항목의 피연산자를 하나로 합침 ({len(picks)}개, 조건 {merged})")
-        return [picks[0].model_copy(update={"select": merged, "role": None})]
+        merged = {c: v for c, v in merged.items() if all(c in p.select for p in group)}
+        self.note(tag, f"{op} 는 피연산자 1개 → 같은 항목의 피연산자를 하나로 합침 ({len(group)}개, 조건 {merged})")
+        return group[0].model_copy(update={"select": merged, "role": None})
 
     def fill_period(self, tag: str, op: str, select: Select, d: _Args) -> Select:
         """기간 연산인데 시점 조건에 from·to·base 시점이 빠졌으면 보탠다
@@ -352,6 +395,15 @@ class _Planner:
         if not regions or rec is None:
             return select
         cols = rec.table.columns
+        # [NEW 11-13] 질문의 지역(시도 이름)이 View 의 지역 열에 하나도 없으면 다른 지역의 값을 대신 쓰지 않는다 (서울 질문에 부산 값)
+        region_cols = [c for c in cols if any(h in c for h in REGION_HINTS)]
+        real = [r for r in regions if _REAL_REGION.search(r)]
+        if real and region_cols:
+            has = {str(r[cols.index(c)]) for c in region_cols for r in rec.table.rows}
+            if not set(real) & has:
+                self.withhold(tag, f"질문의 지역 {real} 이 {region_cols} 에 없음 (View 의 지역: {sorted(has)[:5]})",
+                              f"질문의 지역({', '.join(real)}) 자료가 없어 계산하지 못했습니다 (받은 자료의 지역: {', '.join(sorted(has)[:3])}).")
+                return select
         for col in [c for c in select if c in cols and any(h in c for h in REGION_HINTS)]:
             have = {str(r[cols.index(col)]) for r in rec.table.rows}
             usable = [r for r in regions if r in have]
@@ -408,6 +460,8 @@ class _Planner:
         for p in picks:
             sel, d2 = self.fix_select(tag, op, p.select, d, fixed or {}, p.record_id)
             out.append(p.model_copy(update={"select": sel}))
+        if tag in self.withheld:                      # 지역 불일치 등 → 이 계산의 피연산자를 비운다
+            return [], d2
         return out, d2
 
     def operand(self, tag: str, pick: Pick, role: str) -> Operand:
@@ -511,9 +565,14 @@ class _Planner:
         picks, d2 = self.normalize(tag, op, d.operands, d, chart.chart_type, fixed)
         select, d3 = self.fix_select(tag, op, d.select, d, fixed, d.record_id or (picks[0].record_id if picks else None))
         d = d2 if d.operands else d3
+        if tag in self.withheld:
+            return None
         record_id = d.record_id or (picks[0].record_id if picks else None)
         if record_id is None:
             self.note(tag, "record_id 가 없어 차트 계획을 만들지 않음")
+            return None
+        self.check_set(tag, chart.view_ids, [record_id, *(p.record_id for p in picks)])
+        if self.denominator_outside(tag, d, chart.view_ids):
             return None
         output, step_op = None, op
         # 연령 범위의 값 하나를 묻는 질문이면 차트도 나이별이 아니라 합계로 (질문용 계산과 같은 규칙)
@@ -543,23 +602,76 @@ class _Planner:
                     steps=steps, output=output, title=title)
 
     # ── 질문용 ───────────────────────────────────────────────────
-    def answer(self, n: int, d: AnswerDecision, charts: list[ChartRequest]) -> Step | None:
+    def answer(self, n: int, d: AnswerDecision, charts: list[ChartRequest]) -> list[Step]:
+        """질문용 계산 하나 → 단계 하나. 단, 피연산자 1개짜리 연산에 항목이 여럿이면 항목마다 단계 (a1-1, a1-2 …)
+
+        [CHANGED] 이전: Step | None 을 돌려줬다 (항목이 여럿이면 첫 항목만 남았다)
+        diff·ratio·combine 은 여러 피연산자를 한 단계에서 쓰므로 쪼개지 않는다.
+        """
         tag = d.sub_question_id or f"a{n}"
+        # [NEW] 세트: 이 하위 질문이 속한 세트들. 세트 형식 입력(view_ids 가 하나라도 있음)에서 View 가 없는 세트뿐이면 계산하지 않는다
+        sets = [c for c in charts if d.sub_question_id in c.sub_question_ids]
+        expected = list(dict.fromkeys(v for c in sets for v in c.view_ids))
+        if sets and not expected and any(c.view_ids for c in charts):
+            why = "; ".join(dict.fromkeys(c.reason for c in sets if c.reason)) or "모듈 2 가 View 를 정하지 못함"
+            self.note(tag, f"{why} → 질문용 계산을 만들지 않음")
+            return []
+        if self.denominator_outside(tag, d, expected):
+            return []
         picks, d = self.normalize(tag, d.op, d.operands, d, fixed=self.fixed_for([d.sub_question_id]))
+        if tag in self.withheld:
+            return []
         if not picks:                             # answer_steps 는 피연산자를 항상 적는다 (명세 4장)
             self.note(tag, f"질문용 계산 {d.op} 에 피연산자가 없어 건너뜀")
-            return None
+            return []
+        self.check_set(tag, expected, [p.record_id for p in picks])
         # 질문용 연산(HCX)과 모듈 2 의 measure(차트용)를 대조. 다른 것은 오류가 아니다 (차트는 추이, 답은 증감률일 수 있다)
         # → 둘 다 그대로 실행하고, 다르다는 사실만 QA 가 볼 수 있게 남긴다
         for c in charts:
             if c.chart_type and d.sub_question_id in c.sub_question_ids and c.measure != d.op:
                 self.note(tag, f"질문용 연산 {d.op} ≠ 모듈 2 measure {c.measure} ({c.chart_id})")
-        op = d.op
-        if op == "raw" and self.range_total(tag, picks, self.fixed_for([d.sub_question_id])):
-            age = self.fixed_for([d.sub_question_id])[AGE]
-            self.note(tag, f"raw → aggregate(sum): 연령 {age[0]}~{age[1]}세 범위의 값 하나를 묻는 질문")
-            op, d = "aggregate", d.model_copy(update={"agg": "sum"})
-        return self.step(tag, f"a{n}", op, picks, d)
+        fixed = self.fixed_for([d.sub_question_id])
+        groups = [picks] if d.op in MULTI_OPERAND else [[p] for p in picks]     # 단계 하나에 쓸 피연산자들
+        steps = []
+        for i, group in enumerate(groups, 1):
+            op, args = d.op, d
+            if op == "raw" and self.range_total(tag, group, fixed):
+                self.note(tag, f"raw → aggregate(sum): 연령 {fixed[AGE][0]}~{fixed[AGE][1]}세 범위의 값 하나를 묻는 질문")
+                op, args = "aggregate", d.model_copy(update={"agg": "sum"})
+            steps.append(self.step(tag, f"a{n}" if len(groups) == 1 else f"a{n}-{i}", op, group, args))
+        self.answer_sub.update({st.step_id: d.sub_question_id for st in steps})
+        return steps
+
+    def reuse(self, plans: list[Plan], answers: list[Step]) -> dict[str, str]:
+        """[NEW] 질문용 단계 중 같은 세트(하위 질문이 같은 차트)의 차트 단계와 같은 계산인 것 → {질문용 step_id: '{chart_id}.{step_id}'}.
+        같은 계산 = 연산이 실제로 읽는 인자까지 같다 (calculate.USED_ARGS). 같은 지표인데 조건만 달라 숫자가 어긋날 수 있으면 notes 에 남긴다"""
+        out: dict[str, str] = {}
+        for a in answers:
+            key, sid = step_key(a, None, self.records), self.answer_sub.get(a.step_id)
+            if key is None or sid is None:
+                continue
+            near = None
+            for p in plans:
+                if sid not in p.sub_question_ids:
+                    continue
+                for c in p.steps:
+                    if step_key(c, p, self.records) == key:
+                        out[a.step_id] = f"{p.chart_id}.{c.step_id}"
+                        break
+                    if near is None and c.op == a.op and _what(c, p) == _what(a):
+                        near = f"{p.chart_id}.{c.step_id}"
+                if a.step_id in out:
+                    break
+            if a.step_id not in out and near:
+                self.note(a.step_id, f"같은 세트의 차트 단계 {near} 와 같은 지표인데 조건이 달라 숫자가 다를 수 있음 (따로 계산)")
+        return out
+
+
+def _what(step: Step, default: Plan | None = None) -> list:
+    """어떤 지표를 쓰는 단계인지: (View, 항목) 목록. 조건(select)은 보지 않는다"""
+    if step.operands:
+        return [(o.record_id, o.item) for o in step.operands]
+    return [(default.record_id, None)] if default is not None else []
 
 
 def make_plan(charts: list[ChartRequest], records: list[Record], decision: Decision,
@@ -576,5 +688,7 @@ def make_plan(charts: list[ChartRequest], records: list[Record], decision: Decis
             continue
         if plan := p.plan(chart, by_chart[chart.chart_id]):
             plans.append(plan)
-    answers = [s for n, d in enumerate(p.merge_answers(decision.answers), 1) if (s := p.answer(n, d, charts))]
-    return ChartPlan(plans=plans, answer_steps=answers, notes=list(dict.fromkeys(p.notes))), p.displays
+    answers = [s for n, d in enumerate(p.merge_answers(decision.answers), 1) for s in p.answer(n, d, charts)]
+    reuse = p.reuse(plans, answers)
+    return ChartPlan(plans=plans, answer_steps=answers, answer_reuse=reuse, notes=list(dict.fromkeys(p.notes)),
+                     warnings=list(dict.fromkeys(p.warnings))), p.displays
