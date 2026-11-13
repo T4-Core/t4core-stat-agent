@@ -42,8 +42,8 @@ class ConditionReranker:
         self.top_n, self.name = top_n, name
 
     def rerank(self, query, cands, ctx):
-        if ctx.filters is None:
-            return _cut(cands, self.top_n, ctx)
+        if ctx.filters is None:                   # [CHANGED 11-12] 슬롯이 없으면 top_k (table_search.search 의 filters 없는 경로와 같게)
+            return _cut(cands, "top_k" if self.top_n is not None else None, ctx)
         from backend.rag.ingestion.resolve import rerank
         out = rerank(cands, ctx.filters)          # score 는 앞 단계 값 그대로 두고 cost·unmet·cover 를 붙임
         return _cut(out, self.top_n, ctx)

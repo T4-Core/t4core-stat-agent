@@ -1,0 +1,8 @@
+# 기존 baseline 과 같은 단계 — 읽는 데이터만 table_card_expend 카드
+#   BM25(kiwi, 카드 bm25_text) 50 → 조건 확인(conditions.jsonl 의 프로필 → resolve.unmet) → 상위 top_k → HCX bge-m3(dense_text)
+description: table_card_expend — BM25(bm25_text) 50 → 조건(프로필) → 상위 top_k → HCX bge-m3(dense_text)
+extends: baseline
+corpus: {type: table_card_expend, set_name: full}
+rerank:
+  - {type: card_condition, top_n: 20}   # [CHANGED 11-12] 이전 top_k(10): dense 가 20개를 보고 최종 top_k
+  - {type: card_embed, embedder: {type: hcx_bge_m3}, respect_cost: true}

@@ -1,0 +1,25 @@
+# [NEW 11-12] 쉬운 평가셋 — pipeline.yaml 을 바탕으로 바뀐 값만 (extends)
+#   CSV 1개(단순 조회·두 시점 비교) 또는 2개(두 표 비율)만, 최근 연도·조건 1개 이하 View, 연도 구간으로 쪼갠 표 묶음 제외
+#   실행: python -m synthetic_gold_pipeline.main_pipeline --config synthetic_gold_pipeline/configs/pipeline_easy.yaml --mode real --target-count 60
+extends: pipeline.yaml
+
+paths:
+  output_root: ${SGP_OUTPUT_ROOT_EASY:-synthetic_gold_pipeline/outputs_easy}   # 어려운 셋(outputs/)과 섞이지 않게
+
+run:
+  taxonomy_ratio:                        # 답할 수 있는 유형 사이 비율
+    SIMPLE_LOOKUP: 1.0                   #   CSV 1개 · View 1개 · 값 하나 그대로 ("2024년 서울 1인가구 수는?")
+    TIME_SERIES_COMPARISON: 0.7          #   CSV 1개 · 같은 항목 두 시점 (증감·증감률)
+    CROSS_TABLE_RATIO: 0.4               #   CSV 2개 · 같은 시점·지역 비율
+    CONDITIONAL_AGGREGATION: 0.0         #   조건부 집계는 뺌 (어려운 셋에만)
+  unanswerable_ratio: 0.0                # 검색 평가에는 답할 수 있는 문항만 씀 → HCX 호출 절약
+
+sampler:
+  max_conditions_per_view: 1             # 질문에 꼭 써야 하는 분류 조건 1개 이하 (예: '남자' 정도)
+  max_item_name_length: 20
+  min_year: 2015                         # 이 해보다 옛 시점 View 제외 (옛 행정구역·옛 표 제외)
+  exclude_table_title_patterns:          # 표 이름이 맞으면 제외: 연도 구간으로 쪼갠 표 묶음 ('…(2007~2015)', '…(~2007)')
+    - "\\(\\s*\\d{4}\\s*~\\s*\\d{0,4}\\s*\\)"
+    - "\\(\\s*~\\s*\\d{4}\\s*\\)"
+  lookup_kinds: [COUNT, AMOUNT, RATE]    # 단순 조회에 쓸 값 종류
+  subtype_weights: {PP_DIFFERENCE: 0.3, RATE_PER: 0.5}

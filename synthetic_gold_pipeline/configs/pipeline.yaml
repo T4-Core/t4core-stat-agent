@@ -1,0 +1,170 @@
+# KOSIS Multi-View Synthetic Golden Set pipeline settings
+# Paths are relative to the repository root. ${VAR:-default} reads environment variables.
+# No absolute Windows paths: use env vars (e.g. SGP_KOSIS_DATA_ROOT) or CLI --data-root / --output-root.
+
+paths:
+  kosis_data_root: ${SGP_KOSIS_DATA_ROOT:-storage/kosis_data}     # read-only source (real mode)
+  output_root: ${SGP_OUTPUT_ROOT:-synthetic_gold_pipeline/outputs}
+
+run:
+  seed: 42
+  target_count: 10
+  fail_fast_after: 24                    # 처음 N개 샘플이 전부 탈락하면 중단 (API 낭비 방지, 0 = 끔)
+  target_count_unit: fact_records        # N = Fact records; each record has 2 questions (original + paraphrased)
+  taxonomy_ratio:                        # ratio among answerable types
+    SIMPLE_LOOKUP: 0.0                   # [NEW 11-12] 단순 조회 (쉬운 평가셋은 configs/pipeline_easy.yaml)
+    TIME_SERIES_COMPARISON: 1.0
+    CROSS_TABLE_RATIO: 1.0
+    CONDITIONAL_AGGREGATION: 1.2
+  unanswerable_ratio: 0.12               # share of the FINAL dataset (10~15%)
+  batch_size: 8
+  concurrency: 4
+  max_sampling_attempts: 400
+  max_consecutive_sampling_failures: 30
+  today: null                            # null = system date (used for FUTURE_OBSERVATION)
+
+input:
+  modes: [GENERATED_FROM_RAW, STORED_VIEW]   # B: build views from RAW+meta, A: read stored views
+  stored_view_roots: []                      # extra stored-view roots (<root>/<ORG>_<TBL>/*.csv|parquet)
+  only_selected: false                       # true: skip catalog rows with selected=False
+  include_tables: []                         # optional allow-list of ORG_TBL keys or TBL_IDs
+  max_tables: null
+  max_views_per_table: 60                    # large tables: keep recent periods first (view files are written per view)
+
+adapter:
+  split_dimension_types: [SEX]               # extra per-code view split (SCENARIO is always split)
+  split_dimension_max_codes: 4
+  view_file_format: parquet                  # parquet | csv (falls back to csv without pyarrow)
+  min_numeric_values_per_view: 1
+  max_rows_per_table: 2000000
+  projection_pattern: "추계|전망|projection"
+  population_scope_rules:                    # first match wins (survey + table title + catalog path)
+    - {pattern: "외국인", scope: FOREIGN_RESIDENTS}
+    - {pattern: "장래인구추계|추계인구", scope: PROJECTED_POPULATION}
+    - {pattern: "경제활동인구", scope: AGE_15_PLUS}
+    - {pattern: "주민등록", scope: REGISTERED_POPULATION}
+    - {pattern: "인구총조사|등록센서스", scope: CENSUS_POPULATION}
+    - {pattern: "인구동향|혼인|출생|사망", scope: VITAL_EVENTS}
+
+index:
+  frame_cache_size: 128
+  cache_enabled: true            # per-table cache in outputs/metadata_index/cache (saved after each table)
+  verify_source_hash: false      # true: re-hash RAW files on cache hit (strict but slower)
+  progress_every: 50             # log progress every N tables
+  workers: auto                  # parallel table processes for uncached tables (auto = min(4, CPUs-1)); 1 = sequential
+
+compatibility:
+  min_common_join_codes: 2
+  max_join_name_mismatch_ratio: 0.0
+  max_neighbor_candidates: 400
+  build_full_graph_max_views: 3000
+  incompatible_population_scopes:
+    - [FOREIGN_RESIDENTS, REGISTERED_POPULATION]
+    - [FOREIGN_RESIDENTS, CENSUS_POPULATION]
+  time_series_equivalent_tables: []          # e.g. [[101_DT_OLD, 101_DT_NEW]] when verified as the same series
+
+sampler:
+  max_samples_per_table: 6
+  max_samples_per_survey: 20
+  max_attempts_per_table: 60
+  diversity_alpha: 1.0
+  max_conditions_per_view: 2                 # 질문에 꼭 써야 하는 분류 조건이 이보다 많은 View 는 제외
+  max_item_name_length: 30                   # 항목 이름이 이보다 긴 View 제외 (패널 전이표 등)
+  table_balance: true                        # 표마다 같은 확률로 시작점 선택 (View 가 많은 표 쏠림 방지)
+  attempt_decay: 0.3                         # 시도했지만 탈락한 표는 다음에 덜 뽑음 (같은 표 반복 방지)
+  max_anchor_tries: 25
+  hard_negative_candidates_per_view: 6
+  indicator_families: [["인구", "주민"], ["가구"], ["혼인"], ["출생"], ["사망"], ["전입", "전출", "이동"], ["취업", "경제활동"]]
+  subtype_weights: {}
+  ratio_rules:
+    share_denominator_include_patterns: ["총인구", "^인구수?$", "^일반가구$", "전체", "계$"]
+    share_denominator_exclude_patterns: ["남자", "여자", "남성", "여성", "외국인"]
+    rate_per_denominator_families: [PERSON]
+    rate_per_denominator_include_patterns: ["총인구", "^인구수?$", "주민등록인구", "추계인구", "^총?가구수?$", "^일반가구(수)?$"]
+    rate_per_denominator_exclude_patterns: ["외국인", "입국", "출국", "남자", "여자"]
+
+statistics:
+  weighted_mean_pairs: []                    # e.g. [{value_item: 경제활동참가율, weight_item: 15세이상인구}]
+  share_denominator_include_patterns: ["총인구", "^인구수?$", "^일반가구$", "전체", "계$"]
+  share_denominator_exclude_patterns: ["남자", "여자", "남성", "여성", "외국인"]
+  max_abs_growth_rate_pct: 1000
+
+calculation:
+  query_timeout_seconds: 10
+  row_limit: 100000
+  memory_limit: 1GB
+  threads: 1
+  inline_vector_fact_limit: 50               # larger vectors -> evidence file + hash
+  allow_sql_plan: false
+  vector_missing_policy: drop_sample         # drop_sample | skip_element
+  rounding: {COUNT: 0, AMOUNT: 0, RATE: 1, MEAN: 1, INDEX: 1, UNKNOWN: 2}
+
+ablation:
+  max_alternative_candidates: 60
+  confirm_alternatives_with_engine: true
+
+planner:
+  mode: rule                                 # rule = 하위 유형별 계산 틀을 코드가 채움 (LLM 은 질문·검수만) | llm = HCX 가 계획
+  max_self_correction_retries: 2
+  max_codes_in_card: 40
+  mock_inject_structural_error_rate: 0.15    # demo only: exercises the self-correction path
+
+reverse_qa:
+  max_question_original_chars: 160          # 원문 질문 최대 길이 (표 이름 포함)
+  max_question_paraphrased_chars: 90        # 일상어 질문 최대 길이 — 실제 사용자 질문 길이
+
+quality:
+  max_question_revisions: 1
+  required_review_checks:                    # LLM 검수에서 하나라도 false 면 탈락. multi_hop_necessity 는 Ablation 이 대신 보장
+    [semantic_valid, statistical_validity, question_answer_alignment, paraphrase_equivalence, natural_question]
+
+evaluation:
+  accepted_rounding_digits: {COUNT: [0], AMOUNT: [0], RATE: [1, 2], MEAN: [1, 2], INDEX: [1, 2], UNKNOWN: [1, 2]}
+  rel_tolerance: 0.0
+  region_aliases: {}
+
+verification:
+  min_metadata_completeness: 0.6
+
+dedup:
+  similarity_threshold: 0.85
+  char_ngram_range: [2, 4]
+
+unanswerable:
+  type_weights:
+    CONTEXT_UNANSWERABLE: 1.5
+    CORPUS_UNANSWERABLE: 1.0
+    AMBIGUOUS: 0.8
+    OUT_OF_SCOPE: 0.8
+    FUTURE_OBSERVATION: 1.0
+  out_of_scope_topics: ["아파트 매매가격지수", "코스피 지수", "연평균 기온", "자동차 등록대수", "소비자물가지수"]
+
+existing_rag:
+  views_jsonl: null                          # read-only; auto: storage/kosis_data/rag_views/views.jsonl
+
+llm:
+  provider: hcx                              # real mode: hcx | hcx_repo | openai_compat
+  provider_demo: mock
+  model: null                                # null -> HCX_MODEL env (HCX-007)
+  api_key_env: HCX_API_KEY                   # key itself is never stored
+  path_template: "/{app_type}/v3/chat-completions/{model}"
+  native_structured_output: true
+  temperature: 0.2
+  max_tokens: 2500                           # 계획(planner) 기본값
+  max_tokens_by_task:                        # CLOVA Studio TPM 은 '입력 + 최대 출력 토큰' 으로 셈 → 작업별로 필요한 만큼만
+    reverse_qa: 1500
+    quality_verifier: 1000
+  rate_limit:                                # HCX-007 기본 한도 (CLOVA Studio 이용량 제어 정책, 테스트 앱 키 기준)
+    requests_per_minute: 60                  #   서비스 앱 키면 QPM 180 · TPM 300,000 으로 올려도 됨
+    tokens_per_minute: 60000
+    safety: 0.85                             # 한도의 85% 까지만 사용
+    chars_per_token: 2.0                     # 시작 추정치 (응답의 실제 입력 토큰으로 자동 보정)
+    max_retries: 8                           # 429 가 연속 이 횟수를 넘으면 실행을 멈춤 (탈락으로 세지 않음, --resume 가능)
+    backoff_seconds: 15                      # 429 대기: 응답 헤더(x-ratelimit-reset-*) 우선, 없으면 15·30·60·120초
+    max_backoff_seconds: 120
+  max_api_calls: 5000                      # 실행 전체 합계 (표·CSV별 아님). 재시도 포함(429 거절은 제외), --resume 시 이어서 셈
+  max_concurrency: 4
+  min_interval_seconds: 0.4
+  transient_retries: 4
+  structured_retries: 2
+  timeout_seconds: 90

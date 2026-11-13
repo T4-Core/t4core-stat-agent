@@ -23,7 +23,7 @@ import numpy as np
 from rank_bm25 import BM25Okapi
 
 from backend.rag.ingestion.meta_profile import load_meta_profiles
-from backend.rag.ingestion.resolve import POOL, rerank
+from backend.rag.ingestion.resolve import POOL, dense_pool, rerank
 from backend.rag.ingestion.table_text import INDEX, tokenize
 from backend.rag.retrieval.dense import embed_many, embed_one, normalize
 # [CHANGED] 이전: from services.embedding import embed_many, embed_one, normalize
@@ -50,7 +50,7 @@ def index():
 
 def search(query, top_k=10, filters=None, pool=POOL):
     # 반환: BM25 후보를 dense 로 다시 줄 세운 목록 (rank = 재정렬 순위, bm25_rank = 1단계 순위)
-    # filters(슬롯 dict) 가 있으면: BM25 상위 pool 개 → resolve 로 조건 확인 → 상위 top_k 만 dense
+    # filters(슬롯 dict) 가 있으면: BM25 상위 pool 개 → resolve 로 조건 확인 → 상위 dense_pool(top_k)=20 개 dense → top_k
     #   → 최종 순서 = (cost, dense). 후보마다 unmet(못 맞춘 조건)·cover(요청 연도 중 담은 비율)·cost 를 붙임
     # filters 가 없으면 예전과 같음: BM25 상위 top_k → dense
     ix = index()
@@ -59,12 +59,13 @@ def search(query, top_k=10, filters=None, pool=POOL):
     first = [int(i) for i in np.argsort(-bm)[:pool if filters is not None else top_k]]   # 1단계: BM25
     cands = [{"tbl_id": ix["ids"][i], "bm25_rank": r, "bm25": round(float(bm[i]), 3)} for r, i in enumerate(first, 1)]
     if filters is not None:
-        cands = rerank(cands, filters)[:top_k]                        # 조건을 많이 맞춘 표부터
+        cands = rerank(cands, filters)[:dense_pool(top_k)]            # 조건을 많이 맞춘 표부터
+        # [CHANGED 11-12] 이전: [:top_k] — dense 가 조건 단계 상위 10개만 봄. 이제 20개를 보고 최종 top_k
     vecs = normalize(embed_many([ix["texts"][c["tbl_id"]] for c in cands], progress=lambda m: None))
     dense = vecs @ normalize(embed_one(query))                        # 2단계: 그 안에서만 dense
     order = sorted(range(len(cands)), key=lambda j: (cands[j].get("cost", 0), -dense[j]))
     out = []
-    for r, j in enumerate(order, 1):
+    for r, j in enumerate(order[:top_k], 1):
         c, p = cands[j], ix["prof"][cands[j]["tbl_id"]]
         out.append({"rank": r, "tbl_id": p["tbl_id"], "tbl_nm": p["tbl_nm"], "survey_nm": p["survey_nm"],
                     "score": round(float(dense[j]), 4), "dense": round(float(dense[j]), 4),

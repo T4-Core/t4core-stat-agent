@@ -1,0 +1,117 @@
+{"qid":"S2-P01","split":"test","qtype":"concept","source":"phase1","question":"2025년 경기도에서 태어난 아이는 몇 명이에요?","required":[["101_DT_1B8000H","101_DT_1B8000I","101_DT_1B81A23","101_DT_1B81A12"]],"phase1_id":"S-VAL-03","label_version":2}
+{"qid":"S2-P02","split":"dev","qtype":"exact_name","source":"phase1","question":"2020년 부산광역시 인구밀도는?","required":[["101_DT_1B08024"]],"phase1_id":"S-VAL-04"}
+{"qid":"S2-P03","split":"test","qtype":"multi_condition","source":"phase1","question":"2023년 제주도 1인 가구는 몇 가구인가요?","required":[["101_DT_1JC1502","101_DT_1PL1502","101_DT_1PL1501"]],"phase1_id":"S-VAL-05"}
+{"qid":"S2-P04","split":"dev","qtype":"concept","source":"phase1","question":"1985년생 여성 중 2020년까지 결혼한 적 있는 사람의 비율은?","required":[["101_DT_101094A001"]],"phase1_id":"S-VAL-06"}
+{"qid":"S2-P05","split":"test","qtype":"exact_name","source":"phase1","question":"2015년부터 2020년까지 합계출산율은 어떻게 변했나요?","required":[["101_DT_1B81A17","101_DT_1BPA101","101_DT_1B81A21","101_DT_1B81A23","101_INH_1B8000F_01","101_DT_1B8000F"]],"phase1_id":"S-TRN-01"}
+{"qid":"S2-P06","split":"test","qtype":"period_cycle","source":"phase1","question":"2024년 상반기 서울특별시 혼인 건수는 몇 건이야?","required":[["101_DT_1B83A35"]],"phase1_id":"S-CX-MON-01"}
+{"qid":"S2-P07","split":"test","qtype":"exact_name","source":"phase1","question":"중위 추계로 보면 인구성장률은 2030년과 2050년에 각각 얼마야?","required":[["101_DT_1BPA002"]],"phase1_id":"S-EDG-09"}
+{"qid":"S2-P08","split":"dev","qtype":"multi_condition","source":"phase1","question":"중위 추계 기준 2030년 35세 남자 순이동률은 서울과 경기도 중 어디가 높고, 차이는 얼마야?","required":[["101_DT_1BPB301"]],"phase1_id":"S-EDG-13"}
+{"qid":"S2-P09","split":"test","qtype":"exact_name","source":"phase1","question":"2024년 경기도 외국인주민은 몇 명이야?","required":[["110_TX_11025_A000_A","110_TX_11025_A001_A"]],"phase1_id":"S-EDG-16"}
+{"qid":"S2-P10","split":"dev","qtype":"multi_condition","source":"phase1","question":"2024년 서울 중구의 중국(한국계) 외국국적동포는 몇 명이야?","required":[["110_DT_110025_A037_A","110_DT_110025_A038_A"]],"phase1_id":"S-EDG-21"}
+{"qid":"S2-M01","split":"test","qtype":"exact_name","source":"mentor_poc","question":"주민등록 총인구수","required":[["101_DT_1B040A3","101_DT_1B04006","101_DT_1B04005N"]]}
+{"qid":"S2-M02","split":"dev","qtype":"period_cycle","source":"mentor_poc","question":"최근 3개월 출생아수","required":[["101_DT_1B8000G","101_DT_1B81A01"]]}
+{"qid":"S2-E01","split":"dev","qtype":"exact_name","source":"scenario","question":"조출생률 통계 어디서 봐?","required":[["101_INH_1B8000F_01","101_DT_1B8000F","101_DT_1B8000H","101_DT_1B8000I"]]}
+{"qid":"S2-E02","split":"test","qtype":"exact_name","source":"scenario","question":"시도별 사망자 수와 조사망률","required":[["101_DT_1B8000H","101_DT_1B8000I"]]}
+{"qid":"S2-E03","split":"test","qtype":"exact_name","source":"scenario","question":"평균 초혼연령 자료 찾아줘","required":[["101_DT_1B83A05","101_DT_1B83A09"]]}
+{"qid":"S2-E04","split":"test","qtype":"exact_name","source":"scenario","question":"시도별 이혼 건수","required":[["101_DT_1B8000H","101_DT_1B8000I","101_DT_1B85033"]]}
+{"qid":"S2-E05","split":"test","qtype":"exact_name","source":"scenario","question":"체류외국인 현황 통계표","required":[["111_DT_1B040A5A","111_DT_1B040A5B","111_DT_1B040A5","111_DT_1B040A6","111_DT_1B040A5C"]]}
+{"qid":"S2-E06","split":"test","qtype":"exact_name","source":"scenario","question":"장래가구추계 1인 가구 전망","required":[["101_DT_1BZ0503","101_DT_1BZ0502","101_DT_1BZ0506","101_DT_1BZ0505"]]}
+{"qid":"S2-E07","split":"test","qtype":"exact_name","source":"scenario","question":"시도별 순이동자 수","required":[["101_DT_1B26002","101_DT_1B26001_A04","101_DT_1B26001_A01","101_DT_1B26001"]]}
+{"qid":"S2-E08","split":"dev","qtype":"exact_name","source":"scenario","question":"다문화 혼인 건수","required":[["101_DT_1BB0001","101_DT_1BB0002"]]}
+{"qid":"S2-E09","split":"dev","qtype":"exact_name","source":"scenario","question":"영주귀국 사할린 동포 실태조사 결과","required":[["182_DT_182001_A059_2025","182_DT_182001_A088_2025","182_DT_182001_A076_2025","182_DT_182001_A078_2025","182_DT_182001_A075_2025","182_DT_182001_A079_2025","182_DT_182001_A004_2025","182_DT_182001_A040_2025","182_DT_182001_A060_2025","182_DT_182001_A038_2025","182_DT_182001_A036_2025","182_DT_182001_A087_2025","182_DT_182001_A039_2025","182_DT_182001_A002_2025","182_DT_182001_A003_2025","182_DT_182001_A005_2025","182_DT_182001_A006_2025","182_DT_182001_A007_2025","182_DT_182001_A008_2025","182_DT_182001_A009_2025","182_DT_182001_A010_2025","182_DT_182001_A011_2025","182_DT_182001_A012_2025","182_DT_182001_A013_2025","182_DT_182001_A014_2025","182_DT_182001_A015_2025","182_DT_182001_A016_2025","182_DT_182001_A017_2025","182_DT_182001_A018_2025","182_DT_182001_A019_2025","182_DT_182001_A020_2025","182_DT_182001_A021_2025","182_DT_182001_A022_2025","182_DT_182001_A023_2025","182_DT_182001_A024_2025","182_DT_182001_A025_2025","182_DT_182001_A026_2025","182_DT_182001_A027_2025","182_DT_182001_A028_2025","182_DT_182001_A029_2025","182_DT_182001_A030_2025","182_DT_182001_A031_2025","182_DT_182001_A032_2025","182_DT_182001_A033_2025","182_DT_182001_A034_2025","182_DT_182001_A035_2025","182_DT_182001_A037_2025","182_DT_182001_A041_2025","182_DT_182001_A042_2025","182_DT_182001_A043_2025","182_DT_182001_A044_2025","182_DT_182001_A045_2025","182_DT_182001_A046_2025","182_DT_182001_A047_2025","182_DT_182001_A048_2025","182_DT_182001_A049_2025","182_DT_182001_A050_2025","182_DT_182001_A051_2025","182_DT_182001_A052_2025","182_DT_182001_A053_2025","182_DT_182001_A054_2025","182_DT_182001_A055_2025","182_DT_182001_A056_2025","182_DT_182001_A057_2025","182_DT_182001_A058_2025","182_DT_182001_A061_2025","182_DT_182001_A062_2025","182_DT_182001_A063_2025","182_DT_182001_A064_2025","182_DT_182001_A065_2025","182_DT_182001_A066_2025","182_DT_182001_A067_2025","182_DT_182001_A068_2025","182_DT_182001_A069_2025","182_DT_182001_A070_2025","182_DT_182001_A071_2025","182_DT_182001_A072_2025","182_DT_182001_A073_2025","182_DT_182001_A074_2025","182_DT_182001_A077_2025","182_DT_182001_A080_2025","182_DT_182001_A081_2025","182_DT_182001_A082_2025","182_DT_182001_A083_2025","182_DT_182001_A084_2025","182_DT_182001_A085_2025","182_DT_182001_A086_2025"]]}
+{"qid":"S2-C01","split":"dev","qtype":"concept","source":"scenario","question":"요즘 애 낳는 사람이 얼마나 줄었는지 보고 싶어","required":[["101_INH_1B8000F_01","101_DT_1B8000F","101_DT_1B8000H","101_DT_1B8000G"]]}
+{"qid":"S2-C02","split":"test","qtype":"concept","source":"scenario","question":"혼자 사는 사람이 얼마나 늘었어?","required":[["101_DT_1JC1502","101_DT_1PL1501","101_DT_1PL1502","101_DT_1PL1509"]]}
+{"qid":"S2-C03","split":"dev","qtype":"concept","source":"scenario","question":"우리나라 고령화가 얼마나 심한지 알 수 있는 자료","required":[["101_DT_1BPA003","101_DT_1BPA002","101_DT_1IN2030","101_DT_1BPB002","101_DT_1BPB003"]]}
+{"qid":"S2-C04","split":"test","qtype":"concept","source":"scenario","question":"결혼을 늦게 하는 추세를 보여주는 통계","required":[["101_DT_1B83A05","101_DT_1B83A09","101_DT_1B83A06","101_DT_1B83A36"]]}
+{"qid":"S2-C05","split":"test","qtype":"concept","source":"scenario","question":"수도권으로 사람들이 얼마나 몰리는지 알고 싶어","required":[["101_DT_1B26003_A01","101_DT_1B26003","101_DT_1B26001_A04","101_DT_1B26001_A01"]]}
+{"qid":"S2-C06","split":"test","qtype":"concept","source":"scenario","question":"우리나라에 사는 외국인이 몇 명이야?","required":[["111_DT_1B040A6","111_DT_1B040A5A","110_TX_11025_A000_A","110_DT_110025_A033_A"]],"label_version":2}
+{"qid":"S2-C07","split":"test","qtype":"concept","source":"scenario","question":"앞으로 인구가 언제부터 줄어드는지","required":[["101_DT_1BPA002","101_DT_1BPA401","101_DT_1BPA003","101_DT_1BPA001"]]}
+{"qid":"S2-C08","split":"dev","qtype":"concept","source":"scenario","question":"엄마 나이가 많아지는 추세 확인할 수 있는 표","required":[["101_DT_1B81A20","101_DT_1B81A28","101_DT_1B80A01"]]}
+{"qid":"S2-C09","split":"dev","qtype":"concept","source":"scenario","question":"이사하는 이유로 제일 많은 게 뭐야?","required":[["101_DT_1B26B21","101_DT_1B26B22","101_DT_1B26B23","101_DT_1B26B24"]]}
+{"qid":"S2-C10","split":"test","qtype":"concept","source":"scenario","question":"육아휴직 쓰면 아이를 더 낳는지 알 수 있는 통계","required":[["101_DT_101094D001","101_DT_101094D002","101_DT_101094D003","101_DT_101094D004","101_DT_101094D005"]]}
+{"qid":"S2-C11","split":"test","qtype":"concept","source":"scenario","question":"부모님이랑 같이 사는 성인 자녀가 얼마나 돼?","required":[["101_DT_1PM2004","101_DT_1PM1505","101_DT_1IN1507"]]}
+{"qid":"S2-C12","split":"test","qtype":"concept","source":"scenario","question":"아이 없이 사는 부부가 늘고 있는지","required":[["101_DT_1JC1515","101_DT_1JC1516","101_DT_1JC1517"]]}
+{"qid":"S2-C13","split":"test","qtype":"concept","source":"scenario","question":"노인 혼자 사는 집이 몇 가구야?","required":[["101_DT_1PL1502","101_DT_1JC1511","101_DT_1PL1509","101_DT_1IN2010","101_DT_1PE2006"]],"label_version":2}
+{"qid":"S2-C14","split":"dev","qtype":"concept","source":"scenario","question":"사람들이 몇 살에 주로 죽는지 알 수 있는 자료","required":[["101_DT_1B80A13","101_DT_1B80A11","101_INH_1B8000F_02","101_DT_1B80A18"]]}
+{"qid":"S2-C15","split":"test","qtype":"concept","source":"scenario","question":"한국에 시집온 외국인 여성 통계","required":[["101_DT_1B83A31","111_DT_1B040A16","111_DT_1B040A17","110_TX_11025_A010_A","110_TX_11025_A008_A"]]}
+{"qid":"S2-C16","split":"test","qtype":"concept","source":"scenario","question":"출퇴근이나 통학하느라 다른 지역으로 가는 사람 수","required":[["101_DT_1PA2005","101_DT_1PA2006","101_DT_1PA2007","101_DT_1PA2008","101_DT_1PA2009","101_DT_1PA2010","101_DT_1PA2011","101_DT_1PA2012","101_DT_1PA2021","101_DT_1PA1505","101_DT_1PA1521","101_DT_1PA1502"]],"label_version":2}
+{"qid":"S2-C17","split":"dev","qtype":"concept","source":"scenario","question":"일하는 나이 인구가 앞으로 얼마나 줄어들어?","required":[["101_DT_1BPA003","101_DT_1BPB003"]]}
+{"qid":"S2-C18","split":"dev","qtype":"concept","source":"scenario","question":"해외로 나가서 안 돌아오는 사람이 얼마나 돼?","required":[["101_DT_1B28025","101_DT_1B28026"]]}
+{"qid":"S2-S01","split":"dev","qtype":"sibling","source":"scenario","question":"시군구별 주민등록 인구를 1세 단위로","required":[["101_DT_1B04006"]]}
+{"qid":"S2-S02","split":"test","qtype":"sibling","source":"scenario","question":"읍면동 단위 5세별 인구 2015년 기준","required":[["101_DT_1B04005N","101_DT_1IN1503"]]}
+{"qid":"S2-S03","split":"test","qtype":"sibling","source":"scenario","question":"시도 단위 장래인구추계 2040년 인구","required":[["101_DT_1BPB001","101_DT_1BPB003"]]}
+{"qid":"S2-S04","split":"test","qtype":"sibling","source":"scenario","question":"전국 장래인구추계 저위 시나리오 총인구","required":[["101_DT_1BPA401","101_DT_1BPA402"]]}
+{"qid":"S2-S05","split":"test","qtype":"sibling","source":"scenario","question":"월별 출생아 수 시도별로","required":[["101_DT_1B81A01","101_DT_1B8000G"]]}
+{"qid":"S2-S06","split":"test","qtype":"sibling","source":"scenario","question":"시군구별 합계출산율","required":[["101_DT_1B81A17","101_DT_1B81A23"]]}
+{"qid":"S2-S07","split":"test","qtype":"sibling","source":"scenario","question":"2010년 인구총조사 시군구별 가구 수","required":[["101_DT_1JC1015","101_DT_1JC1016","101_DT_1TS1002","101_DT_1JC1011","101_DT_1TS2004"]],"label_version":2}
+{"qid":"S2-S08","split":"test","qtype":"sibling","source":"scenario","question":"외국인주민 현황 2010년 1월 1일 기준","required":[["110_TX_11025_A000","110_TX_11025_A001"]]}
+{"qid":"S2-S09","split":"test","qtype":"sibling","source":"scenario","question":"외국인주민 현황 2020년 11월 기준 시군구별","required":[["110_TX_11025_A001_A"]]}
+{"qid":"S2-S10","split":"test","qtype":"sibling","source":"scenario","question":"혼인·출산 변화 비율을 3년 단위로 본 통계","required":[["101_DT_101094C001","101_DT_101094C002","101_DT_101094C004","101_DT_101094C005","101_DT_101094C003","101_DT_101094C006"]]}
+{"qid":"S2-S11","split":"dev","qtype":"sibling","source":"scenario","question":"연앙인구 시군구 성 연령 5세별 2024년","required":[["101_DT_1B040M5_1"]]}
+{"qid":"S2-S12","split":"test","qtype":"sibling","source":"scenario","question":"분기별 인구이동률","required":[["101_DT_1B26006_A01"]]}
+{"qid":"S2-S13","split":"test","qtype":"sibling","source":"scenario","question":"시도별 장래가구추계 가구주 연령별","required":[["101_DT_1BZ05041","101_DT_1BZ0506","101_DT_1BZ0505","101_DT_1BZ05042"]]}
+{"qid":"S2-S14","split":"dev","qtype":"sibling","source":"scenario","question":"2020년 인구총조사 등록센서스 방식 시군구 성별 인구","required":[["101_DT_1IN1503","101_DT_1IN1502"]]}
+{"qid":"S2-Q01","split":"dev","qtype":"multi_condition","source":"scenario","question":"2020년 서울 20대 여성 미혼 인구","required":[["101_DT_1PM2002","101_DT_1PM2003"]]}
+{"qid":"S2-Q02","split":"dev","qtype":"multi_condition","source":"scenario","question":"2023년 경상북도 65세 이상 남자 인구","required":[["101_DT_1B04006","101_DT_1B04005N","101_DT_1IN1503"]]}
+{"qid":"S2-Q03","split":"dev","qtype":"multi_condition","source":"scenario","question":"2015년 시도별 대졸 이상 30대 인구","required":[["101_DT_1PM1501","101_DT_1PM1504"]]}
+{"qid":"S2-Q04","split":"test","qtype":"multi_condition","source":"scenario","question":"2024년 부산 30대 엄마가 낳은 첫째 아이 수","required":[["101_DT_1B81A12"]]}
+{"qid":"S2-Q05","split":"test","qtype":"multi_condition","source":"scenario","question":"전라남도 군 지역 80세 이상 1인 가구 2020년","required":[["101_DT_1PL1502","101_DT_1PR2001","101_DT_1PR2002","101_DT_1PR2008","101_DT_1PL1509"]]}
+{"qid":"S2-Q06","split":"test","qtype":"multi_condition","source":"scenario","question":"2024년 경기도로 전입한 20대 중 직업 때문에 온 사람","required":[["101_DT_1B26B24"]]}
+{"qid":"S2-Q07","split":"test","qtype":"multi_condition","source":"scenario","question":"2020년 시도별 외국인 남녀 국적별 인구","required":[["101_DT_1JA1503"]]}
+{"qid":"S2-Q08","split":"test","qtype":"multi_condition","source":"scenario","question":"2023년 서울 40대 남성 이혼 건수","required":[["101_DT_1B85003","101_DT_1B85027"]]}
+{"qid":"S2-Q09","split":"dev","qtype":"no_answer","source":"scenario","question":"2015년 인천 맞벌이 가구 수","answerable":false,"no_answer_reason":"no_item"}
+{"qid":"S2-Q10","split":"test","qtype":"multi_condition","source":"scenario","question":"2020년 세종시 주택 유형별 가구 수","required":[["101_DT_1JC1503","101_DT_1JC1505","101_DT_1JC1520","101_DT_1JC1514"]]}
+{"qid":"S2-Q11","split":"dev","qtype":"multi_condition","source":"scenario","question":"2024년 베트남 국적 결혼이민자 시도별 현황","required":[["110_TX_11025_A008_A"]]}
+{"qid":"S2-T01","split":"dev","qtype":"period_cycle","source":"scenario","question":"2025년 2분기 사망자 수","required":[["101_DT_1B8000G"]]}
+{"qid":"S2-T02","split":"dev","qtype":"period_cycle","source":"scenario","question":"지난달 혼인 건수","required":[["101_DT_1B8000G","101_DT_1B83A35"]]}
+{"qid":"S2-T03","split":"dev","qtype":"multi_table","source":"scenario","question":"1995년부터 5년마다 총인구 변화","required":[["101_DT_1IN0001_ENG"],["101_DT_1IN1502"]]}
+{"qid":"S2-T04","split":"test","qtype":"period_cycle","source":"scenario","question":"2000년대 연도별 출생아 수","required":[["101_DT_1B8000F","101_INH_1B8000F_01","101_DT_1B8000G","101_DT_1B8000H"]]}
+{"qid":"S2-T05","split":"test","qtype":"period_cycle","source":"scenario","question":"2026년 1월 시도별 인구이동","required":[["101_DT_1B26003_A01","101_DT_1B26001_A04","101_DT_1B26003","101_DT_1B26001_A01"]]}
+{"qid":"S2-T06","split":"test","qtype":"period_cycle","source":"scenario","question":"1970년 인구총조사 시도별 인구","required":[["101_DT_1IN7001","101_DT_1IN0001_ENG"]]}
+{"qid":"S2-T07","split":"test","qtype":"period_cycle","source":"scenario","question":"2072년까지 장래 인구 피라미드","required":[["101_DT_1BPA001","101_DT_1BPA402"]]}
+{"qid":"S2-T08","split":"test","qtype":"period_cycle","source":"scenario","question":"최근 1년간 월별 외국인 입국자 수","required":[["111_DT_091_111_2009_S005A","101_DT_1B28023","101_DT_1B28021","101_DT_1B28022"]]}
+{"qid":"S2-T09","split":"dev","qtype":"period_cycle","source":"scenario","question":"2023년 4분기 출생아 수 전년 동기 대비","required":[["101_DT_1B8000G"]]}
+{"qid":"S2-T10","split":"dev","qtype":"multi_table","source":"scenario","question":"2005년과 2025년 인구총조사 고령인구 비교","required":[["101_DT_1GO0501"],["101_DT_1IN1503"]]}
+{"qid":"S2-T11","split":"test","qtype":"period_cycle","source":"scenario","question":"올해 상반기 시군구별 전입자 수","required":[["101_DT_1B26001_A01","101_DT_1B26001_A02"]]}
+{"qid":"S2-X01","split":"test","qtype":"multi_table","source":"scenario","question":"2023년 시도별 출생아 수와 혼인 건수를 같이 보고 싶어","required":[["101_DT_1B8000H","101_DT_1B8000I","101_DT_1B81A23"],["101_DT_1B8000H","101_DT_1B8000I","101_DT_1B83A35"]]}
+{"qid":"S2-X02","split":"test","qtype":"multi_table","source":"scenario","question":"출생아 수와 사망자 수를 비교해서 자연감소 추이 보기","required":[["101_DT_1B8000F","101_INH_1B8000F_01","101_DT_1B8000G","101_DT_1B8000H"],["101_INH_1B8000F_02","101_DT_1B8000F","101_DT_1B8000H","101_DT_1B8000G"]]}
+{"qid":"S2-X03","split":"test","qtype":"multi_table","source":"scenario","question":"외국인주민 수와 다문화 출생아 수를 시도별로 비교","required":[["110_TX_11025_A000","110_TX_11025_A000_A"],["101_DT_1BB0006"]]}
+{"qid":"S2-X04","split":"test","qtype":"multi_table","source":"scenario","question":"현재 1인 가구 수와 2050년 1인 가구 전망","required":[["101_DT_1JC1502","101_DT_1PL1501","101_DT_1PL1502"],["101_DT_1BZ0503","101_DT_1BZ0502","101_DT_1BZ0506","101_DT_1BZ0505"]]}
+{"qid":"S2-X05","split":"test","qtype":"multi_table","source":"scenario","question":"시도별 전입·전출 이동자 수와 시도별 총인구, 고령인구 비율 함께","required":[["101_DT_1B26003_A01","101_DT_1B26001_A04","101_DT_1B26001_A01"],["101_DT_1B040A3","101_DT_1B04006","101_DT_1IN1502"],["101_DT_1BPB003"]]}
+{"qid":"S2-X06","split":"test","qtype":"multi_table","source":"scenario","question":"혼인 건수, 이혼 건수, 평균 초혼연령을 연도별로 같이","required":[["101_DT_1B8000F","101_INH_1B8000F_03"],["101_DT_1B8000F","101_INH_1B8000F_04"],["101_DT_1B83A05"]]}
+{"qid":"S2-X07","split":"test","qtype":"multi_table","source":"scenario","question":"체류외국인 수와 출입국자 수 연도별 비교","required":[["111_DT_1B040A5A","111_DT_1B040A6"],["101_DT_1B28024","101_DT_1B28025","111_DT_091_111_2009_S009","111_DT_091_111_2009_S010"]]}
+{"qid":"S2-A01","split":"test","qtype":"ambiguous","source":"scenario","question":"인구","required":[["101_DT_1B040A3","101_DT_1IN1502","101_DT_1IN1503","101_DT_1B04006","101_DT_1IN0001_ENG","101_DT_1BPA001"]]}
+{"qid":"S2-A02","split":"test","qtype":"ambiguous","source":"scenario","question":"서울 사람 몇 명이야?","required":[["101_DT_1B040A3","101_DT_1B04006","101_DT_1B04005N","101_DT_1IN1502","101_DT_1IN1503"]]}
+{"qid":"S2-A03","split":"test","qtype":"ambiguous","source":"scenario","question":"가구 통계","required":[["101_DT_1JC1502","101_DT_1IN1502","101_DT_1JC1515","101_DT_1JC1503","101_DT_1B040B3"]]}
+{"qid":"S2-A04","split":"dev","qtype":"ambiguous","source":"scenario","question":"출산율 알려줘","required":[["101_DT_1B81A21","101_DT_1B81A17","101_DT_1B81A22","101_DT_1B81A23","101_DT_1BPA101","101_INH_1B8000F_01","101_DT_1B8000F"]]}
+{"qid":"S2-A05","split":"test","qtype":"ambiguous","source":"scenario","question":"외국인 통계","required":[["111_DT_1B040A5A","110_TX_11025_A000_A","110_TX_11025_A001_A","101_DT_1JA1503","101_DT_1JA1501","111_DT_1B040A6","101_DT_1JA1504"]],"label_version":2}
+{"qid":"S2-A06","split":"test","qtype":"ambiguous","source":"scenario","question":"이동 통계 보여줘","required":[["101_DT_1B26003_A01","101_DT_1B26006_A01","101_DT_1B26001_A04","101_DT_1B26001_A01","101_DT_1B26007"]]}
+{"qid":"S2-N01","split":"test","qtype":"no_answer","source":"scenario","question":"2024년 실업률","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N02","split":"test","qtype":"no_answer","source":"scenario","question":"서울 아파트 평균 매매가격","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N03","split":"test","qtype":"no_answer","source":"scenario","question":"소비자물가지수 상승률","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N04","split":"test","qtype":"no_answer","source":"scenario","question":"1인당 국민총소득","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N05","split":"test","qtype":"no_answer","source":"scenario","question":"시도별 대학 진학률","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N06","split":"dev","qtype":"no_answer","source":"scenario","question":"우리나라 자동차 등록 대수","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N07","split":"test","qtype":"no_answer","source":"scenario","question":"청년 고용률 추이","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N08","split":"test","qtype":"no_answer","source":"scenario","question":"가구당 평균 소득","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N09","split":"test","qtype":"no_answer","source":"scenario","question":"시도별 범죄 발생 건수","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N10","split":"test","qtype":"no_answer","source":"scenario","question":"작년 쌀 생산량","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N11","split":"dev","qtype":"no_answer","source":"scenario","question":"암 발생률 통계","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N12","split":"dev","qtype":"no_answer","source":"scenario","question":"수출입 금액 월별","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N13","split":"test","qtype":"no_answer","source":"scenario","question":"미세먼지 농도 지역별","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N14","split":"test","qtype":"no_answer","source":"scenario","question":"일본 인구 고령화율","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N15","split":"dev","qtype":"no_answer","source":"scenario","question":"가계부채 규모","answerable":false,"no_answer_reason":"out_of_scope"}
+{"qid":"S2-N16","split":"test","qtype":"no_answer","source":"scenario","question":"2030년 실제 출생아 수","answerable":false,"no_answer_reason":"no_period"}
+{"qid":"S2-N17","split":"test","qtype":"no_answer","source":"scenario","question":"1인 가구 수 월별 추이","answerable":false,"no_answer_reason":"no_period"}
+{"qid":"S2-N18","split":"test","qtype":"no_answer","source":"scenario","question":"2023년 인구총조사 통근통학 인구","answerable":false,"no_answer_reason":"no_period"}
+{"qid":"S2-N19","split":"dev","qtype":"no_answer","source":"scenario","question":"외국인주민 현황 1990년","answerable":false,"no_answer_reason":"no_period"}
+{"qid":"S2-N20","split":"test","qtype":"no_answer","source":"scenario","question":"2027년 1월 출생아 수","answerable":false,"no_answer_reason":"no_period"}
+{"qid":"S2-N21","split":"dev","qtype":"no_answer","source":"scenario","question":"분기별 인구총조사 가구 수","answerable":false,"no_answer_reason":"no_period"}
+{"qid":"S2-N22","split":"dev","qtype":"no_answer","source":"scenario","question":"사할린 동포 실태조사 2015년 결과","answerable":false,"no_answer_reason":"no_period"}
+{"qid":"S2-N23","split":"test","qtype":"no_answer","source":"scenario","question":"1900년 조선 인구","answerable":false,"no_answer_reason":"no_period"}
+{"qid":"S2-N24","split":"test","qtype":"no_answer","source":"scenario","question":"혈액형별 인구 분포","answerable":false,"no_answer_reason":"no_item"}
+{"qid":"S2-N25","split":"dev","qtype":"no_answer","source":"scenario","question":"MBTI 유형별 인구","answerable":false,"no_answer_reason":"no_item"}
+{"qid":"S2-N26","split":"test","qtype":"concept","source":"scenario","question":"반려동물 키우는 가구 수","required":[["101_DT_1PH2013","101_DT_1PH2011"]]}
+{"qid":"S2-N27","split":"test","qtype":"no_answer","source":"scenario","question":"시도별 키 평균","answerable":false,"no_answer_reason":"no_item"}
+{"qid":"S2-N28","split":"dev","qtype":"concept","source":"scenario","question":"출생아 몸무게 평균","required":[["101_DT_1B80A04","101_DT_1B80A03"]]}
+{"qid":"S2-N29","split":"dev","qtype":"no_answer","source":"scenario","question":"소득 5분위별 가구 비율","answerable":false,"no_answer_reason":"out_of_scope"}

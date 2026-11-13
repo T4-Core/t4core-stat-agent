@@ -64,11 +64,13 @@ def build_conflict_data(kd: Path):
 def test_search_query_cleanup():
     from backend.rag.ingestion.resolve import search_query
     F = {"시점": [2024, 2025], "지역": ["전국"]}
-    assert search_query("2024~2025년 전국 다문화가구 가구수 증감", F) == "다문화가구 가구수 증감"
-    assert search_query("2016년, 2025년 전국 한부모가구 가구수 증감", F) == "한부모가구 가구수 증감"
+    # [CHANGED 11-12] 의도 단어('증감'·'추이')는 검색 문장에서 뺌
+    assert search_query("2024~2025년 전국 다문화가구 가구수 증감", F) == "다문화가구 가구수"
+    assert search_query("2016년, 2025년 전국 한부모가구 가구수 증감", F) == "한부모가구 가구수"
     assert search_query("1983~1995년생 인구", {}) == "인구"
     assert search_query("2024년 7~9월 외국인 순이동 이동자수", {}) == "외국인 순이동 이동자수"
-    assert search_query("경기도로 전입한 사람 수 추이", {"지역": ["경기도"], "지표": ["전입자수"]}) == "전입한 사람 수 추이 전입자수"
+    assert search_query("경기도로 전입한 사람 수 추이", {"지역": ["경기도"], "지표": ["전입자수"]}) == "전입한 사람 수 전입자수"
+    assert search_query("순위", {}) == "순위"                                    # 의도 단어뿐이면 그대로
     assert search_query("70~79세 80세 이상", {}) == "70~79세 80세 이상"          # 단어 안의 ~ 는 그대로
     assert search_query("2025년 대구광역시 남자 20~29세 인구수", {"지역": ["대구광역시"], "연령": {"from": 20, "to": 29}}) \
         == "남자 인구수"

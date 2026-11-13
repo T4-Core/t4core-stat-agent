@@ -2,6 +2,7 @@
 노트북 user_question_rewrite_v3.ipynb '2-4' 셀의 코드를 그대로 옮김 (실행·예시 출력 부분은 뺌)"""
 from .extract import AGE_WORDS, SEX, SIDO_GROUPS, norm_age, norm_country, norm_sido   # 2-2
 from .slots import INTENTS, SLOT_KEYS                                  # 2-3
+from .measures import MEASURE_INTENT, concept_groups, is_measure, squash as _msq, strip_trailing_measure   # [NEW 11-12]
 from .terms import TERM_INDEX, to_canonical                            # 2-1
 
 # ============= 2-4. 슬롯 검증 (코드, HCX 호출 없음) ================
@@ -115,6 +116,33 @@ def apply_terms(s):
     return s, log
 
 
+# ---- 2-1) [NEW 11-12] 계산 단어 정리 ----
+def clean_measures(s, main=True):
+    """지표·대상에서 계산 단어를 뺌 (measures.py). 표의 항목 이름이 아니라 구하는 방법이라 검색·조건 확인에 잡음
+    - 값 전체가 계산 단어('구성비', '증감률', '변화폭(%p)') → 뺌. 의도가 '값 조회'뿐이고 뜻이 하나면 의도로 옮김
+    - 끝에 붙은 의도성 계산 단어('전입 증감률') → 떼어 냄 ('비율'·'구성비'·'평균'은 표 이름에도 쓰여 그대로)
+    144문항 비교: 지표에 계산 단어가 든 질문 53개 → 정답 표가 '지표 없음' 으로 밀리던 원인 중 하나"""
+    log, tag, moved = [], "" if main else "(하위) ", []
+    for k in ("지표", "대상"):
+        out = []
+        for v in s[k]:
+            if is_measure(v):
+                moved.append(_msq(v)); log.append(f"{tag}{k} 삭제(계산 단어): {v}")
+                continue
+            v2 = strip_trailing_measure(v)
+            if v2 != v:
+                moved.append(_msq(v[len(v2):])); log.append(f"{tag}{k} 계산 단어 떼기: {v} → {v2}")
+            out.append(v2)
+        s[k] = list(dict.fromkeys(out))
+    want = list(dict.fromkeys(MEASURE_INTENT[m] for m in moved if m in MEASURE_INTENT))
+    if len(want) == 1:
+        if main and s["의도"] == ["값 조회"]:
+            s["의도"] = want; log.append(f"의도: 계산 단어 → {want}")
+        elif not main and s["의도"] == "값 조회":
+            s["의도"] = want[0]; log.append(f"{tag}의도: 계산 단어 → {want[0]!r}")
+    return s, log
+
+
 # ---- 3) 근거 확인·보완 ----
 def _age_word_in(q, term_hits):
     """질문에 연령을 뜻하는 단어가 있는지 ('노인', 사전 대표 용어에 'N세'가 들어간 표현 등)"""
@@ -193,7 +221,17 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
     if main:
         used = set(s["지역"] + s["전출지"] + s["전입지"])
         for full in rule_found.get("지역", []):
-            if full not in used and not any(u.startswith(full + " ") for u in used):   # '제주특별자치도 제주시 구좌읍'에 이미 있으면 안 넣음
+            # [CHANGED 11-12] 이전: u.startswith(full + " ") — 코드가 시군구도 찾게 되어 앞뒤 어느 쪽이든 겹치면 안 넣음
+            #   ('제주특별자치도 제주시 구좌읍' 에 '제주시' 가 있음 / HCX '권선구' 와 코드 '수원시 권선구')
+            if full in used or any(_ns(full) in _ns(u) for u in used):
+                continue                                                   # HCX 값에 이미 들어 있음
+            part = [u for u in s["지역"] if _ns(u) in _ns(full)]
+            if part and any(_ns(full).endswith(_ns(u)) for u in part):
+                continue                                                   # HCX 가 끝부분('권선구')을 이미 씀
+            if part:                                                       # HCX 가 넓은 앞부분('수원시')만 씀 → 코드 값으로
+                s["지역"] = [full if u in part else u for u in s["지역"]]
+                s["지역"] = list(dict.fromkeys(s["지역"])); log.append(f"지역 바꿈(코드가 찾음): {part} → {full}")
+            else:
                 s["지역"].append(full); log.append(f"지역 채움(코드가 찾음): {full}")
         if not used and not s["지역"] and (s["대상"] or s["지표"]):                    # 프롬프트: 질문에 지역이 없으면 "전국" (찾을 대상·지표가 있을 때만)
             s["지역"] = ["전국"]; log.append("지역 채움(질문에 지역 없음): 전국")
@@ -312,18 +350,22 @@ def validate_slots(r):
         log += l1 + ([f"범위 밖이라 슬롯 비움: {cleared}"] if cleared else [])
         return {"slots": {**{k: [] for k in SLOT_KEYS}, "의도": ["범위 밖"]}, "sub_slots": [], "log": log}
     s, l2 = apply_terms(s)
+    s, lm = clean_measures(s, main=True)                         # [NEW 11-12]
     s, l3 = fix_slots(s, q, found, hits, main=True)
-    log += l1 + l2 + l3
+    log += l1 + l2 + lm + l3
 
     subs = []
     one_time = found.get("시점", []) if len(found.get("시점", [])) == 1 else []   # 질문 전체 시점이 하나뿐일 때만
     for i, raw in enumerate(r.get("hcx_subs", [])[:MAX_SUBS]):
         ss, a = clean_slots(raw, main=False)                   # 하위 질문 의도는 하나
         ss, b = apply_terms(ss)
+        ss, bm = clean_measures(ss, main=False)                  # [NEW 11-12]
         ss, c = fix_slots(ss, q, found, hits, main=False)
-        log += [f"(하위 {i}) {x}" for x in a + b] + [x.replace("(하위) ", f"(하위 {i}) ") for x in c]
+        log += [f"(하위 {i}) {x}" for x in a + b] + [x.replace("(하위) ", f"(하위 {i}) ") for x in bm + c]
         if one_time and not ss["시점"]:
             ss["시점"] = list(one_time); log.append(f"(하위 {i}) 시점 채움(질문 전체 시점 하나): {one_time}")
+        if not (ss["지역"] or ss["전출지"] or ss["전입지"]) and s["지역"]:     # [NEW 11-12] 지역을 비운 하위 질문 = 원 질문 지역
+            ss["지역"] = list(s["지역"]); log.append(f"(하위 {i}) 지역 채움(원 질문): {s['지역']}")
         if not (ss["대상"] or ss["지표"]):
             log.append(f"(하위 {i}) 삭제: 대상·지표가 없음")
             continue
@@ -345,46 +387,19 @@ def validate_slots(r):
     return {"slots": s, "sub_slots": subs, "log": log, "sub_source": source}
 
 
-def _overlap(a, b):
-    a, b = _ns(a), _ns(b)
-    return bool(a and b) and (a in b or b in a)
-
-
-def _common_len(a, b):
-    """두 말의 가장 긴 공통 부분 글자 수 (띄어쓰기 무시)"""
-    a, b, best = _ns(a), _ns(b), 0
-    for i in range(len(a)):
-        for j in range(i + best + 1, len(a) + 1):
-            if a[i:j] in b:
-                best = j - i
-            else:
-                break
-    return best
-
-
 def split_by_indicator(s):
-    """[NEW 11-12] 메인 슬롯의 서로 다른 지표가 2개 이상이면 지표마다 하위 질문 (프롬프트 하위 질문 규칙 1)
-    - 이름이 겹치는 지표('인구수'·'총인구수')는 하나로 봄 → 묶음이 2개 이상일 때만 나눔
-    - 대상은 글자가 가장 많이 겹치는(2글자 이상) 지표의 하위 질문으로 ('출생아' → '출생아수', '1인가구' → '가구수'),
-      어느 지표와도 안 겹치면 모든 하위 질문에 공통
-    - 다른 슬롯(시점·지역·성별·연령·조건 …)은 모두 공통. 의도는 메인 의도의 첫 번째"""
-    groups = []
-    for m in s["지표"]:
-        g = next((g for g in groups if any(_overlap(m, x) for x in g)), None)
-        g.append(m) if g else groups.append([m])
-    if len(groups) < 2:
+    """[NEW 11-12] 메인 슬롯의 개념이 2개 이상이면 개념마다 하위 질문 (프롬프트 하위 질문 규칙 1)
+    개념 = measures.concept_groups: 대상과 일반 지표('국제결혼 이주자' + '인구수')는 한 개념, 계산 단어는 개념이 아님
+    [CHANGED 11-12 2차] 이전: 지표 값마다 나눔 → 대상('인구')·지표('인구수')가 따로 나뉘어 한 단어 하위 질문이 생기던 문제
+    다른 슬롯(시점·지역·성별·연령·조건 …)은 모두 공통. 의도는 메인 의도의 첫 번째"""
+    concepts = concept_groups(s["대상"], s["지표"])
+    if len(concepts) < 2:
         return []
-    owner = {}                                           # 대상 → 묶음 번호 (None = 공통)
-    for d in s["대상"]:
-        score = [max(_common_len(d, m) for m in g) for g in groups]
-        owner[d] = score.index(max(score)) if max(score) >= 2 else None
     intent = (s["의도"] or ["값 조회"])[0]
     subs = []
-    for i, g in enumerate(groups[:MAX_SUBS]):
+    for c in concepts[:MAX_SUBS]:
         ss = {k: list(v) for k, v in s.items() if k != "의도"}
-        ss["지표"] = list(g)
-        ss["대상"] = [d for d in s["대상"] if owner[d] in (i, None)]
-        ss["의도"] = intent
+        ss["지표"], ss["대상"], ss["의도"] = list(c["지표"]), list(c["대상"]), intent
         subs.append(ss)
     return subs
 

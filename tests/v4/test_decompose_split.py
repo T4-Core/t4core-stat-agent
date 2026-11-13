@@ -80,3 +80,20 @@ def test_fix_region_slots_moves_indicators():
     assert out["지역"] == ["강남구"] and out["지표"] == ["혼인건수", "출생아수", "사망자수"]
     assert out["전출지"] == ["추이"]                                        # 지표로도 근거가 없으면 그대로 (문장에서는 빠짐)
     assert [v for _, v in moved] == ["혼인건수", "출생아수", "사망자수"]
+
+
+def test_target_and_generic_indicator_is_one_concept():
+    """[NEW 11-12 2차] 대상 + 일반 지표('인구수')는 한 개념 → 나누지 않음. 대상이 둘이면 대상마다 (대상 슬롯도 넘김)"""
+    s = QueryV4Settings(split_policy="always")
+    g = {"대상": [_sv("국제결혼 이주자", ["TX_A008"])], "지표": [_sv("인구수", ["TX_A008", "DT_1B04006"])]}
+    raw = {"시점": ["2015년", "2018년"], "지역": ["부산진구"], "대상": ["국제결혼 이주자"], "지표": ["인구수"]}
+    subs, reason = decompose(g, raw, [], ["증감"], [], None, s)
+    assert subs == [] and "하나" in reason
+    g2 = {"대상": [_sv("외국인근로자", ["TX_A006"]), _sv("국제결혼가정 자녀", ["TX_A028"])],
+          "지표": [_sv("인구수", ["TX_A006", "TX_A028"]), _sv("증감률", ["X"])]}
+    raw2 = {"시점": ["2016년", "2017년"], "대상": ["외국인근로자", "국제결혼가정 자녀"], "지표": ["인구수", "증감률"]}
+    subs, _ = decompose(g2, raw2, [], ["증감률"], [], None, s)
+    assert [(x["slots"]["대상"], x["slots"]["지표"]) for x in subs] == [(["외국인근로자"], ["인구수"]),
+                                                                       (["국제결혼가정 자녀"], ["인구수"])]
+    assert [x["text"] for x in subs] == ["2016~2017년 외국인근로자 인구수", "2016~2017년 국제결혼가정 자녀 인구수"]
+    assert subs[0]["candidate_tables"] == ["TX_A006"]                  # 대상의 표 (일반 지표의 넓은 표 아님)

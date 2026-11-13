@@ -72,9 +72,14 @@ kosis_fast_human_review_gpt.ipynb
 # kosis_rag_eval_50.jsonl
 test.ipynb
 review_images/
-# ── 개인 작업 폴더 (파이프라인 플러그인·실험 코드, git 에 올리지 않음) [ADDED] ──
+# ── 개인 작업 폴더 (파이프라인 플러그인·실험 코드, git 에 올리지 않음) 
 private/
 *_private/
 kosis_rag_eval_80/
 query_bundles.json
 .claude
+# synthetic_gold_pipeline/
+table_card_expend/out/
+synthetic_gold_pipeline/outputs/
+synthetic_gold_pipeline/outputs_easy/
+outputs/*/.gitkeep

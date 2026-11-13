@@ -1,0 +1,141 @@
+{
+  "pipeline_version": "0.1.0",
+  "mode": "demo",
+  "generated_at": "2026-11-11T08:45:47+00:00",
+  "elapsed_seconds": 1.79,
+  "target_count": 10,
+  "target_count_unit": "fact_records",
+  "target_count_note": "N = Fact 레코드 수. 각 레코드는 질문 2개(original·paraphrased)를 질문 CSV 에 별도 ID 로 가진다.",
+  "taxonomy_targets": {
+    "TIME_SERIES_COMPARISON": 3,
+    "CROSS_TABLE_RATIO": 3,
+    "CONDITIONAL_AGGREGATION": 3,
+    "UNANSWERABLE_ABSTENTION": 1
+  },
+  "final_dataset_count": 10,
+  "final_question_count": 20,
+  "unanswerable_ratio_actual": 0.1,
+  "total_sampling_attempts": 10,
+  "sampling_failed": 0,
+  "processed_samples": 10,
+  "rates_over_processed_samples": {
+    "plan_generation_success": 1.0,
+    "statistical_compatibility_success": 1.0,
+    "calculation_success": 0.9,
+    "ablation_pass": 0.9,
+    "question_generation_success": 0.9,
+    "numeric_validation_pass": 0.9,
+    "semantic_review_pass": 0.9
+  },
+  "dedup_dropped": 0,
+  "dedup_drop_rate": 0.0,
+  "quota_full_discarded": 0,
+  "planner_self_correction_retries": 2,
+  "question_revisions": 0,
+  "distribution": {
+    "by_taxonomy": {
+      "CONDITIONAL_AGGREGATION": 3,
+      "CROSS_TABLE_RATIO": 3,
+      "TIME_SERIES_COMPARISON": 3,
+      "UNANSWERABLE_ABSTENTION": 1
+    },
+    "by_subtype": {
+      "CLASS_DIFF_COUNT": 1,
+      "RATE_PER": 2,
+      "PP_DIFFERENCE": 1,
+      "FILTER_SUM": 2,
+      "SHARE": 1,
+      "GROWTH_RATE": 1,
+      "DIFFERENCE": 1,
+      "AMBIGUOUS": 1
+    },
+    "by_hop_type": {
+      "SINGLE_TABLE_MULTI_VIEW": 5,
+      "MULTI_TABLE_MULTI_VIEW": 4,
+      "NONE": 1
+    },
+    "by_survey": {
+      "인구총조사": 3,
+      "주민등록인구현황": 6,
+      "경제활동인구조사": 2,
+      "인구동향조사": 1,
+      "국내인구이동통계": 2
+    },
+    "by_answerability": {
+      "ANSWERABLE": 9,
+      "AMBIGUOUS": 1
+    },
+    "by_verification_status": {
+      "NEEDS_HUMAN_REVIEW": 10
+    },
+    "by_difficulty": {
+      "medium": 7,
+      "easy": 3
+    }
+  },
+  "failure_reasons": {
+    "calculation:PLAN_STRUCTURE_ERROR": 1
+  },
+  "api": {
+    "calls": 30,
+    "failed_calls": 0,
+    "transient_retries": 0,
+    "structured_retries": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "tokens_reported": false,
+    "latency_ms_total": 232.89512100012644,
+    "by_task": {
+      "planner": {
+        "calls": 12,
+        "latency_ms": 223.6159359999874,
+        "tokens": 0,
+        "failures": 0
+      },
+      "reverse_qa": {
+        "calls": 9,
+        "latency_ms": 3.5283150000395835,
+        "tokens": 0,
+        "failures": 0
+      },
+      "quality_verifier": {
+        "calls": 9,
+        "latency_ms": 5.7508700000994395,
+        "tokens": 0,
+        "failures": 0
+      }
+    },
+    "avg_latency_ms": 7.76,
+    "provider": "mock",
+    "model": "mock-deterministic"
+  },
+  "shortfall_reasons": [],
+  "notes": [
+    "Mock LLM(Demo) 결과는 파이프라인 동작 검증이며 실제 LLM 생성 품질 검증이 아닙니다."
+  ],
+  "metadata_index": {
+    "data_root": "synthetic_gold_pipeline/outputs/demo_kosis_data",
+    "n_tables": 13,
+    "n_views": 82,
+    "table_failures": [],
+    "modes": [
+      "GENERATED_FROM_RAW",
+      "STORED_VIEW"
+    ],
+    "index_seconds": 0.02,
+    "cache": {
+      "enabled": true,
+      "rebuild": false,
+      "table_hits": 13,
+      "table_misses": 0,
+      "stored_hits": 1,
+      "stored_misses": 0,
+      "invalid": {}
+    }
+  },
+  "existing_rag_view_mapping": {
+    "views_jsonl_found": false,
+    "n_loaded": 0
+  }
+}

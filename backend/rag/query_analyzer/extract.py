@@ -178,10 +178,37 @@ def find_sido(q):
     이름 바로 뒤에 시·군·구가 붙으면 시군구 이름이므로 건너뜀 ('제주시', '광주시'). SIDO_BLOCK 에 걸리면 건너뜀 ('경기 침체')"""
     found = []
     for n, fulls in SIDO_LOOKUP:
-        for m in list(re.finditer(re.escape(n) + r"(?![시군구])" + SIDO_BLOCK.get(n, ""), q)):
+        # [CHANGED 11-12] 이름 뒤에 1~2글자 + 구·군이 이어지면 시군구 이름의 앞부분 ('부산진구' 의 '부산') → 건너뜀
+        #   이전: (?![시군구]) 만 봐서 '부산진구' 를 부산광역시로 읽던 문제
+        for m in list(re.finditer(re.escape(n) + r"(?![시군구])(?![가-힣]{1,2}[구군])" + SIDO_BLOCK.get(n, ""), q)):
             found += [(m.start(), i, full) for i, full in enumerate(fulls)]
             q = _mask(q, m.span())
     return list(dict.fromkeys(full for *_, full in sorted(found)))
+
+
+# [NEW 11-12] 시군구 이름 ('가평군', '부산진구', '수원시 권선구' 의 '수원시'·'권선구')
+#   코드가 시도만 찾고 시군구는 HCX 에 맡겨, 질문 속 시군구 38곳 중 16곳이 슬롯에서 빠지던 문제 (144문항 비교)
+#   이름 뒤는 끝·기호·공백이거나 조사로 시작해야 함 ('화성군의', '가평군에서'). 아래 말로 끝나면 지역이 아님
+SGG_RE = re.compile(r"(?<![가-힣0-9])((?:[가-힣]{2,4}(?:시|군|구))|(?:[중동서남북]구))"
+                    r"(?=$|[^가-힣]|의|에|은|는|이|가|과|와|도|를|을|로|으로|내|까지|부터|보다|지역|민|만|별)")
+SGG_NOT = ("인구", "가구", "지구", "연구", "친구", "입구", "출구", "항구", "요구", "도구", "기구", "시군구", "행정구",
+           "선거구", "자치구", "당시", "동시", "역시", "도시", "특별시", "광역시", "자치시", "출생시", "사망시", "혼인시",
+           "이혼시", "조사시", "입국시", "출국시")
+
+
+def find_sigungu(q):
+    """질문에 나온 시군구 이름 (나온 순서). 시도 이름('대구시')·통계 용어('고령자가구')·일반어('출생시')는 뺌"""
+    out, last_end = [], None
+    for m in SGG_RE.finditer(q):
+        t = m.group(1)
+        if t.endswith(SGG_NOT) or norm_sido(t) or _nospace(t) in TERM_INDEX:
+            continue
+        if out and last_end is not None and q[last_end:m.start()].strip() == "" and out[-1].endswith("시"):
+            out[-1] = f"{out[-1]} {t}"                    # '수원시 권선구' → 값 하나 (프롬프트 규칙: 이어서 값 하나로)
+        else:
+            out.append(t)
+        last_end = m.end()
+    return list(dict.fromkeys(out))
 
 
 def _kor_tens_to_digit(text):
@@ -259,8 +286,9 @@ def rule_extract(question, today=None):
     if times:
         found["시점"] = list(dict.fromkeys(t for _, t in sorted(times)))
 
-    if sido := find_sido(rest):
-        found["지역"] = sido
+    sido, sgg = find_sido(rest), find_sigungu(rest)      # [CHANGED 11-12] 시군구도 (시도 뒤에 붙여 나온 순서)
+    if sido or sgg:
+        found["지역"] = list(dict.fromkeys(sido + sgg))
 
     sex = [k for k, names in SEX.items() if any(n in rest for n in names)]
     if any(w in rest for w in SEX_BOTH):

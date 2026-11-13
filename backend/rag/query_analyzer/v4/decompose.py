@@ -21,41 +21,33 @@
 """
 import re
 
-from backend.rag.csv_index.store import norm
 from backend.rag.ingestion.normalize import std_geo_name
+from backend.rag.query_analyzer.measures import concept_groups, is_generic
 from backend.rag.query_analyzer.v4.grounding import ground_slots, target_values
 
 
-def _overlap(a, b):
-    a, b = norm(a), norm(b)
-    return bool(a and b) and (a in b or b in a)
-
-
 def concepts(grounded):
-    """접지된 대상·지표 → 개념 목록 [{name, raws, tables}]
-    지표 값마다 개념 하나. 대상 값은 이름이 겹치거나(인구 ⊂ 인구수) 표 집합이 지표 쪽을 포함(더 넓은 말)하면 그 지표에 흡수,
-    아니면 따로 개념 (재작성 결과에서 대상만 있고 지표가 다른 경우)"""
+    """접지된 대상·지표 → 개념 목록 [{name, raws, tables, 지표, 대상}] (서브쿼리 하나 = 개념 하나)
+    [CHANGED 11-12 2차] 묶는 규칙 = measures.concept_groups (v3 와 같음):
+      대상 + 일반 지표('국제결혼 이주자' + '인구수')는 한 개념, 계산 단어('구성비')는 개념이 아님, 숫자('2021')는 뺌
+      이전: 지표 값마다 개념 + 겹치지 않는 대상도 개념 → '인구'·'비율' 같은 한 단어 서브쿼리가 223개 중 130개
+    tables = 구체 지표가 있으면 그 지표들의 표, 없으면 대상의 표, 그것도 없으면 일반 지표의 표"""
+    tv = {k: [sv for sv in grounded.get(k) or [] if sv["grounded"] and not _numeric(sv["raw"])] for k in ("대상", "지표")}
+    by = {}
+    for k, svs in tv.items():
+        for sv in svs:
+            by.setdefault((k, sv["raw"]), sv)
     out = []
-    for sv in grounded.get("지표") or []:
-        if not sv["grounded"] or _numeric(sv["raw"]):              # [NEW 11-12] '2021' 같은 숫자는 지표가 아님
-            continue
-        same = next((c for c in out if _overlap(c["name"], sv["value"])), None)
-        if same:
-            same["raws"].append(sv["raw"])
-            same["tables"] |= set(sv["tables"])
-        else:
-            out.append({"name": sv["value"], "raws": [sv["raw"]], "tables": set(sv["tables"])})
-    for sv in grounded.get("대상") or []:
-        if not sv["grounded"] or _numeric(sv["raw"]):
-            continue
-        ts = set(sv["tables"])
-        host = next((c for c in out if _overlap(c["name"], sv["value"]) or _overlap(c["name"], sv["raw"])
-                     or any(_overlap(r, sv["raw"]) for r in c["raws"])
-                     or (c["tables"] and ts >= c["tables"])), None)
-        if host:
-            host["raws"].append(sv["raw"])
-        else:
-            out.append({"name": sv["value"], "raws": [sv["raw"]], "tables": ts})
+    for g in concept_groups([sv["raw"] for sv in tv["대상"]], [sv["raw"] for sv in tv["지표"]]):
+        ind = [by[("지표", r)] for r in dict.fromkeys(g["지표"])]
+        tgt = [by[("대상", r)] for r in dict.fromkeys(g["대상"])]
+        specific = [sv for sv in ind if not is_generic(sv["raw"])]
+        base = specific or tgt or ind
+        tables = set().union(*[set(sv["tables"]) for sv in base]) if base else set()
+        ind_vals = [sv["value"] if not is_generic(sv["raw"]) else sv["raw"] for sv in ind]
+        name_parts = [sv["value"] for sv in specific] if specific else [sv["raw"] for sv in tgt] + ind_vals
+        out.append({"name": " ".join(dict.fromkeys(str(x) for x in name_parts)), "raws": g["대상"] + g["지표"],
+                    "tables": tables, "지표": list(dict.fromkeys(ind_vals)), "대상": [sv["raw"] for sv in tgt]})
     return out
 
 
@@ -125,7 +117,10 @@ def decompose(grounded, raw_slots, sub_slots, intents, sub_intents, lex, s):
     out = []
     for i, c in enumerate(cs[:n], 1):
         ss = {k: list(v) for k, v in raw_slots.items() if k not in ("대상", "지표", "의도")}
-        ss["지표"] = [c["name"]]
+        if c["지표"]:
+            ss["지표"] = list(c["지표"])
+        if c["대상"]:
+            ss["대상"] = list(c["대상"])                     # [CHANGED 11-12 2차] 이전: 지표 하나만 (대상은 버림)
         if common:
             why = f"'{c['name']}' 이(가) 있는 표 {len(c['tables'])}개 — 지표별 분리 정책 (함께 가진 표 {len(common)}개)"
             cand = sorted(common) + sorted(c["tables"] - common)

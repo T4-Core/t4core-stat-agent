@@ -1,0 +1,747 @@
+{
+  "dataset_id": "SG-3f42c988657d",
+  "dataset_version": "synthetic-gold-v0.1",
+  "data_snapshot_id": "snap_fc4860e469ad2c67b10c",
+  "reasoning_type": "CROSS_TABLE_RATIO",
+  "subtype": "RATE_PER",
+  "hop_type": "MULTI_TABLE_MULTI_VIEW",
+  "survey_names": [
+    "인구총조사",
+    "주민등록인구현황"
+  ],
+  "answerability_type": "ANSWERABLE",
+  "difficulty": "medium",
+  "question_original": "2020년 광주광역시의 인구총조사 「시도별 가구주 성별 일반가구」 가구주 여자 일반가구를 주민등록인구현황 「행정구역(시도)별 성별 인구」 총인구수 천 명당 값으로 나타내면 얼마인가요?",
+  "question_paraphrased": "2020년 광주에서 전체 인구 천 명당 가구주 여자 일반 가구 수는 얼마나 돼?",
+  "question_ids": {
+    "original": "SG-3f42c988657d-O",
+    "paraphrased": "SG-3f42c988657d-P"
+  },
+  "random_seed": 42008045,
+  "retrieval_eval": {
+    "golden_view_ids": [
+      "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+      "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355"
+    ],
+    "golden_table_ids": [
+      "DT_DEMO_HH",
+      "DT_DEMO_POP"
+    ],
+    "golden_org_table_ids": [
+      "101_DT_DEMO_HH",
+      "101_DT_DEMO_POP"
+    ],
+    "alternative_positive_view_ids": [],
+    "hard_negative_view_ids": [
+      "sgv::101_DT_DEMO_HH::T1::Y2015::C2=0::3b480c54",
+      "sgv::101_DT_DEMO_HH::T1::Y2015::C2=1::d59cfaef",
+      "sgv::101_DT_DEMO_HH::T1::Y2015::C2=2::75e57ad2",
+      "sgv::101_DT_DEMO_HH::T2::Y2020::C2=0::0989b9e7",
+      "sgv::101_DT_DEMO_HH::T2::Y2020::C2=1::f8eefb59",
+      "sgv::101_DT_DEMO_HH::T2::Y2020::C2=2::a3511fdd",
+      "sgv::101_DT_DEMO_POP::T20::Y2021::1f6e2989",
+      "sgv::101_DT_DEMO_POP::T20::Y2022::26797333",
+      "sgv::101_DT_DEMO_POP::T20::Y2023::1694077e",
+      "sgv::101_DT_DEMO_POP::T20::Y2024::975e6ba4",
+      "ssv::101_DT_DEMO_POP::pop_2024_selected_sido::Y::5c2ced85",
+      "sgv::101_DT_DEMO_POP::T21::Y2020::e65354da"
+    ],
+    "unjudged_view_ids": [],
+    "required_evidence_groups": {
+      "R1": {
+        "description": "2020년 일반가구 (광주광역시, 여자)",
+        "acceptable_view_ids": [
+          "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b"
+        ],
+        "acceptable_table_ids": [
+          "101_DT_DEMO_HH"
+        ],
+        "required_fact_ids": [
+          "F1"
+        ]
+      },
+      "R2": {
+        "description": "2020년 총인구수 (광주광역시)",
+        "acceptable_view_ids": [
+          "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355"
+        ],
+        "acceptable_table_ids": [
+          "101_DT_DEMO_POP"
+        ],
+        "required_fact_ids": [
+          "F2"
+        ]
+      }
+    },
+    "join_keys": [
+      {
+        "dimension_type": "REGION",
+        "levels": {
+          "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b": "C1",
+          "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355": "C1"
+        },
+        "key_basis": "CODE",
+        "expected": "ONE_TO_ONE",
+        "common_codes": [
+          "00",
+          "11",
+          "26",
+          "27",
+          "29",
+          "30",
+          "41"
+        ]
+      }
+    ],
+    "source_coordinate_references": [
+      {
+        "view_id": "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+        "parent_table_id": "101_DT_DEMO_HH",
+        "source_path": "synthetic_gold_pipeline/outputs/demo_kosis_data/raw/인구총조사/101_DT_DEMO_HH.csv",
+        "source_file_hash": "dee54b44c8c93f1c7198dbc417404e07a7aa365de68b872a0bdca62fca4d0348",
+        "row_number": 71,
+        "csv_line_number": 72,
+        "row_number_convention": "row_number: 1-based data row, header excluded; csv_line_number = row_number + 1 (header is line 1)",
+        "column_name": "DT",
+        "ORG_ID": "101",
+        "TBL_ID": "DT_DEMO_HH",
+        "PRD_SE": "A",
+        "PRD_DE": "2020",
+        "ITM_ID": "T1",
+        "ITM_NM": "일반가구",
+        "dims": {
+          "C1": "29",
+          "C2": "2"
+        },
+        "dim_names": {
+          "C1": "광주광역시",
+          "C2": "여자"
+        },
+        "UNIT_NM": "가구",
+        "raw_value": "191900",
+        "value_status": "NUMERIC",
+        "normalized_value": "191900",
+        "applied_multiplier": "1",
+        "normalized_unit": "가구"
+      },
+      {
+        "view_id": "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355",
+        "parent_table_id": "101_DT_DEMO_POP",
+        "source_path": "synthetic_gold_pipeline/outputs/demo_kosis_data/raw/주민등록인구현황/101_DT_DEMO_POP.csv",
+        "source_file_hash": "ea1c03623f0dd55800ffc6f9453fda42c176892caa6fe396360e19160aefd77d",
+        "row_number": 13,
+        "csv_line_number": 14,
+        "row_number_convention": "row_number: 1-based data row, header excluded; csv_line_number = row_number + 1 (header is line 1)",
+        "column_name": "DT",
+        "ORG_ID": "101",
+        "TBL_ID": "DT_DEMO_POP",
+        "PRD_SE": "A",
+        "PRD_DE": "2020",
+        "ITM_ID": "T20",
+        "ITM_NM": "총인구수",
+        "dims": {
+          "C1": "29"
+        },
+        "dim_names": {
+          "C1": "광주광역시"
+        },
+        "UNIT_NM": "명",
+        "raw_value": "1439245",
+        "value_status": "NUMERIC",
+        "normalized_value": "1439245",
+        "applied_multiplier": "1",
+        "normalized_unit": "명"
+      }
+    ],
+    "retrieval_eligible": true,
+    "view_mapping_status": {
+      "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b": {
+        "synthetic_view_id": "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+        "org_table_id": "101_DT_DEMO_HH",
+        "source_coordinates": {
+          "itm_ids": [
+            "T1"
+          ],
+          "prd_se": "A",
+          "prd_de": [
+            "2020"
+          ],
+          "dim_filters": {
+            "C2": [
+              "2"
+            ]
+          }
+        },
+        "existing_rag_view_ids": [],
+        "status": "UNMAPPED",
+        "reason": "기존 RAG views.jsonl 을 찾지 못함 (매핑 불가, 추정하지 않음)"
+      },
+      "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355": {
+        "synthetic_view_id": "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355",
+        "org_table_id": "101_DT_DEMO_POP",
+        "source_coordinates": {
+          "itm_ids": [
+            "T20"
+          ],
+          "prd_se": "A",
+          "prd_de": [
+            "2020"
+          ],
+          "dim_filters": {}
+        },
+        "existing_rag_view_ids": [],
+        "status": "UNMAPPED",
+        "reason": "기존 RAG views.jsonl 을 찾지 못함 (매핑 불가, 추정하지 않음)"
+      }
+    },
+    "context_view_ids": null
+  },
+  "generation_eval": {
+    "exact_numeric_ground_truth": {
+      "raw": 133.33379653915767,
+      "exact_decimal": "133.333796539157683369",
+      "round_0": 133,
+      "round_1": 133.3,
+      "round_2": 133.33,
+      "unit": "가구/천명",
+      "display_digits": 1,
+      "display": "133.3가구/천명",
+      "formatted_candidates": [
+        "133.3가구/천명",
+        "133.33가구/천명"
+      ]
+    },
+    "final_answer": {
+      "kind": "SCALAR",
+      "value": {
+        "raw": 133.33379653915767,
+        "exact_decimal": "133.333796539157683369",
+        "round_0": 133,
+        "round_1": 133.3,
+        "round_2": 133.33,
+        "unit": "가구/천명",
+        "display_digits": 1,
+        "display": "133.3가구/천명",
+        "formatted_candidates": [
+          "133.3가구/천명",
+          "133.33가구/천명"
+        ]
+      },
+      "entity": null,
+      "ranking": [],
+      "unit": "가구/천명"
+    },
+    "intermediate_facts": [
+      {
+        "fact_id": "F1",
+        "operand_id": "A",
+        "view_id": "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+        "parent_table_id": "101_DT_DEMO_HH",
+        "kind": "SCALAR",
+        "key_code": null,
+        "key_name": null,
+        "period": "2020년",
+        "item_id": "T1",
+        "item_name": "일반가구",
+        "coordinate_labels": {
+          "행정구역별(시도)": "광주광역시",
+          "가구주의 성별": "여자"
+        },
+        "unit": "가구",
+        "value": {
+          "raw": 191900.0,
+          "exact_decimal": "191900",
+          "round_0": 191900,
+          "round_1": 191900.0,
+          "round_2": 191900.0,
+          "unit": "가구",
+          "display_digits": 0,
+          "display": "191,900가구",
+          "formatted_candidates": [
+            "191,900가구",
+            "191900가구"
+          ]
+        },
+        "coordinate": {
+          "view_id": "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+          "parent_table_id": "101_DT_DEMO_HH",
+          "source_path": "synthetic_gold_pipeline/outputs/demo_kosis_data/raw/인구총조사/101_DT_DEMO_HH.csv",
+          "source_file_hash": "dee54b44c8c93f1c7198dbc417404e07a7aa365de68b872a0bdca62fca4d0348",
+          "row_number": 71,
+          "csv_line_number": 72,
+          "row_number_convention": "row_number: 1-based data row, header excluded; csv_line_number = row_number + 1 (header is line 1)",
+          "column_name": "DT",
+          "ORG_ID": "101",
+          "TBL_ID": "DT_DEMO_HH",
+          "PRD_SE": "A",
+          "PRD_DE": "2020",
+          "ITM_ID": "T1",
+          "ITM_NM": "일반가구",
+          "dims": {
+            "C1": "29",
+            "C2": "2"
+          },
+          "dim_names": {
+            "C1": "광주광역시",
+            "C2": "여자"
+          },
+          "UNIT_NM": "가구",
+          "raw_value": "191900",
+          "value_status": "NUMERIC",
+          "normalized_value": "191900",
+          "applied_multiplier": "1",
+          "normalized_unit": "가구"
+        }
+      },
+      {
+        "fact_id": "F2",
+        "operand_id": "B",
+        "view_id": "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355",
+        "parent_table_id": "101_DT_DEMO_POP",
+        "kind": "SCALAR",
+        "key_code": null,
+        "key_name": null,
+        "period": "2020년",
+        "item_id": "T20",
+        "item_name": "총인구수",
+        "coordinate_labels": {
+          "행정구역(시도)별": "광주광역시"
+        },
+        "unit": "명",
+        "value": {
+          "raw": 1439245.0,
+          "exact_decimal": "1439245",
+          "round_0": 1439245,
+          "round_1": 1439245.0,
+          "round_2": 1439245.0,
+          "unit": "명",
+          "display_digits": 0,
+          "display": "1,439,245명",
+          "formatted_candidates": [
+            "1,439,245명",
+            "1439245명"
+          ]
+        },
+        "coordinate": {
+          "view_id": "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355",
+          "parent_table_id": "101_DT_DEMO_POP",
+          "source_path": "synthetic_gold_pipeline/outputs/demo_kosis_data/raw/주민등록인구현황/101_DT_DEMO_POP.csv",
+          "source_file_hash": "ea1c03623f0dd55800ffc6f9453fda42c176892caa6fe396360e19160aefd77d",
+          "row_number": 13,
+          "csv_line_number": 14,
+          "row_number_convention": "row_number: 1-based data row, header excluded; csv_line_number = row_number + 1 (header is line 1)",
+          "column_name": "DT",
+          "ORG_ID": "101",
+          "TBL_ID": "DT_DEMO_POP",
+          "PRD_SE": "A",
+          "PRD_DE": "2020",
+          "ITM_ID": "T20",
+          "ITM_NM": "총인구수",
+          "dims": {
+            "C1": "29"
+          },
+          "dim_names": {
+            "C1": "광주광역시"
+          },
+          "UNIT_NM": "명",
+          "raw_value": "1439245",
+          "value_status": "NUMERIC",
+          "normalized_value": "1439245",
+          "applied_multiplier": "1",
+          "normalized_unit": "명"
+        }
+      }
+    ],
+    "executed_sql": [
+      "SELECT \"_src_row\", \"ORG_ID\", \"TBL_ID\", \"PRD_SE\", \"PRD_DE\", \"ITM_ID\", \"ITM_NM\", \"UNIT_NM\", \"DT\", \"C1\", \"C1_NM\", \"C2\", \"C2_NM\" FROM view_1 WHERE \"ITM_ID\" = 'T1' AND \"PRD_DE\" = '2020' AND \"C1\" = '29' ORDER BY \"_src_row\" LIMIT 100001",
+      "SELECT \"_src_row\", \"ORG_ID\", \"TBL_ID\", \"PRD_SE\", \"PRD_DE\", \"ITM_ID\", \"ITM_NM\", \"UNIT_NM\", \"DT\", \"C1\", \"C1_NM\" FROM view_2 WHERE \"ITM_ID\" = 'T20' AND \"PRD_DE\" = '2020' AND \"C1\" = '29' ORDER BY \"_src_row\" LIMIT 100001"
+    ],
+    "executed_formula": "s1: 191900 / 1439245 × 1000 = 133.333796539157683369가구/천명",
+    "reference_answer": "2020년 광주광역시: 가구주 여자 일반가구 191,900가구, 총인구수 1,439,245명. 총인구수 천 명당 가구주 여자 일반가구는 133.3가구/천명입니다.\n\n[근거]\n- 인구총조사 「시도별 가구주 성별 일반가구」(101_DT_DEMO_HH) 2020년 행정구역별(시도) 광주광역시, 가구주의 성별 여자 일반가구: 191,900가구 (원본 synthetic_gold_pipeline/outputs/demo_kosis_data/raw/인구총조사/101_DT_DEMO_HH.csv 71행)\n- 주민등록인구현황 「행정구역(시도)별 성별 인구」(101_DT_DEMO_POP) 2020년 행정구역(시도)별 광주광역시 총인구수: 1,439,245명 (원본 synthetic_gold_pipeline/outputs/demo_kosis_data/raw/주민등록인구현황/101_DT_DEMO_POP.csv 13행)\n[계산]\ns1: 191900 / 1439245 × 1000 = 133.333796539157683369가구/천명\n[유의사항]\n- 분자와 분모가 서로 다른 통계표에서 왔으므로 조사·집계 기준 차이가 있을 수 있습니다.",
+    "expected_claims": [
+      {
+        "claim_id": "C_FINAL",
+        "role": "FINAL",
+        "value": 133.33379653915767,
+        "value_text": "133.3가구/천명",
+        "unit": "가구/천명",
+        "period": null,
+        "region": null,
+        "item": null,
+        "labels": {},
+        "accepted_forms": [
+          "133.3가구/천명",
+          "133.33가구/천명"
+        ]
+      },
+      {
+        "claim_id": "C_F1",
+        "role": "INTERMEDIATE",
+        "value": 191900.0,
+        "value_text": "191,900가구",
+        "unit": "가구",
+        "period": "2020년",
+        "region": "광주광역시",
+        "item": "일반가구",
+        "labels": {
+          "행정구역별(시도)": "광주광역시",
+          "가구주의 성별": "여자"
+        },
+        "accepted_forms": [
+          "191,900가구",
+          "191900가구"
+        ]
+      },
+      {
+        "claim_id": "C_F2",
+        "role": "INTERMEDIATE",
+        "value": 1439245.0,
+        "value_text": "1,439,245명",
+        "unit": "명",
+        "period": "2020년",
+        "region": "광주광역시",
+        "item": "총인구수",
+        "labels": {
+          "행정구역(시도)별": "광주광역시"
+        },
+        "accepted_forms": [
+          "1,439,245명",
+          "1439245명"
+        ]
+      }
+    ],
+    "expected_abstention": false,
+    "abstention_reason": null,
+    "unit_conversion_trace": [],
+    "comparison_policy": {
+      "rounding_digits": [
+        1,
+        2
+      ],
+      "abs_tolerance": 0.05,
+      "rel_tolerance": 0.0,
+      "sign_sensitive": true,
+      "unit_required": true
+    },
+    "evidence_trace": [
+      {
+        "type": "LOOKUP",
+        "fact_id": "F1",
+        "view_id": "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+        "parent_table_id": "101_DT_DEMO_HH",
+        "period": "2020년",
+        "labels": {
+          "행정구역별(시도)": "광주광역시",
+          "가구주의 성별": "여자"
+        },
+        "item": "일반가구",
+        "value": "191,900가구",
+        "source_path": "synthetic_gold_pipeline/outputs/demo_kosis_data/raw/인구총조사/101_DT_DEMO_HH.csv",
+        "row_number": 71
+      },
+      {
+        "type": "LOOKUP",
+        "fact_id": "F2",
+        "view_id": "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355",
+        "parent_table_id": "101_DT_DEMO_POP",
+        "period": "2020년",
+        "labels": {
+          "행정구역(시도)별": "광주광역시"
+        },
+        "item": "총인구수",
+        "value": "1,439,245명",
+        "source_path": "synthetic_gold_pipeline/outputs/demo_kosis_data/raw/주민등록인구현황/101_DT_DEMO_POP.csv",
+        "row_number": 13
+      },
+      {
+        "type": "OPERATION",
+        "step_id": "s1",
+        "op": "SHARE_RATIO",
+        "formula": "191900 / 1439245 × 1000 = 133.333796539157683369가구/천명",
+        "inputs": [
+          "A",
+          "B"
+        ]
+      }
+    ]
+  },
+  "module_eval": {
+    "M1": {
+      "expected_intent": "CROSS_TABLE_RATIO:RATE_PER (두 지표의 비율)",
+      "expected_filters": {
+        "periods": [
+          "2020"
+        ],
+        "period_labels": [
+          "2020년"
+        ],
+        "regions": [
+          "광주광역시"
+        ],
+        "items": [
+          "일반가구",
+          "총인구수"
+        ],
+        "units": [
+          "가구",
+          "명"
+        ],
+        "surveys": [
+          "인구총조사",
+          "주민등록인구현황"
+        ],
+        "operation": "SHARE_RATIO",
+        "conditions": [],
+        "k": null
+      },
+      "expected_sub_questions": [
+        "2020년 일반가구 (광주광역시, 여자)",
+        "2020년 총인구수 (광주광역시)"
+      ],
+      "ambiguity_handling": "NONE",
+      "pass_criteria": [
+        "질문의 시점·지역·지표·연산을 모두 추출",
+        "필수 근거 그룹 2개에 대응하는 하위 질의 생성",
+        "서로 다른 주기·모집단을 같은 조건으로 합치지 않음"
+      ]
+    },
+    "M2": {
+      "expected_source_coordinates": [
+        {
+          "view_id": "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+          "parent_table_id": "101_DT_DEMO_HH",
+          "source_path": "synthetic_gold_pipeline/outputs/demo_kosis_data/raw/인구총조사/101_DT_DEMO_HH.csv",
+          "source_file_hash": "dee54b44c8c93f1c7198dbc417404e07a7aa365de68b872a0bdca62fca4d0348",
+          "row_number": 71,
+          "csv_line_number": 72,
+          "row_number_convention": "row_number: 1-based data row, header excluded; csv_line_number = row_number + 1 (header is line 1)",
+          "column_name": "DT",
+          "ORG_ID": "101",
+          "TBL_ID": "DT_DEMO_HH",
+          "PRD_SE": "A",
+          "PRD_DE": "2020",
+          "ITM_ID": "T1",
+          "ITM_NM": "일반가구",
+          "dims": {
+            "C1": "29",
+            "C2": "2"
+          },
+          "dim_names": {
+            "C1": "광주광역시",
+            "C2": "여자"
+          },
+          "UNIT_NM": "가구",
+          "raw_value": "191900",
+          "value_status": "NUMERIC",
+          "normalized_value": "191900",
+          "applied_multiplier": "1",
+          "normalized_unit": "가구"
+        },
+        {
+          "view_id": "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355",
+          "parent_table_id": "101_DT_DEMO_POP",
+          "source_path": "synthetic_gold_pipeline/outputs/demo_kosis_data/raw/주민등록인구현황/101_DT_DEMO_POP.csv",
+          "source_file_hash": "ea1c03623f0dd55800ffc6f9453fda42c176892caa6fe396360e19160aefd77d",
+          "row_number": 13,
+          "csv_line_number": 14,
+          "row_number_convention": "row_number: 1-based data row, header excluded; csv_line_number = row_number + 1 (header is line 1)",
+          "column_name": "DT",
+          "ORG_ID": "101",
+          "TBL_ID": "DT_DEMO_POP",
+          "PRD_SE": "A",
+          "PRD_DE": "2020",
+          "ITM_ID": "T20",
+          "ITM_NM": "총인구수",
+          "dims": {
+            "C1": "29"
+          },
+          "dim_names": {
+            "C1": "광주광역시"
+          },
+          "UNIT_NM": "명",
+          "raw_value": "1439245",
+          "value_status": "NUMERIC",
+          "normalized_value": "1439245",
+          "applied_multiplier": "1",
+          "normalized_unit": "명"
+        }
+      ],
+      "expected_dimensions": {
+        "행정구역별(시도)": [
+          "광주광역시"
+        ],
+        "가구주의 성별": [
+          "여자"
+        ],
+        "행정구역(시도)별": [
+          "광주광역시"
+        ]
+      },
+      "expected_items": [
+        "일반가구",
+        "총인구수"
+      ],
+      "expected_periods": [
+        "2020"
+      ],
+      "expected_units": [
+        "가구",
+        "명"
+      ],
+      "expected_values": [
+        {
+          "fact_id": "F1",
+          "view_id": "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+          "period": "2020년",
+          "labels": {
+            "행정구역별(시도)": "광주광역시",
+            "가구주의 성별": "여자"
+          },
+          "item": "일반가구",
+          "value": "191900",
+          "unit": "가구"
+        },
+        {
+          "fact_id": "F2",
+          "view_id": "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355",
+          "period": "2020년",
+          "labels": {
+            "행정구역(시도)별": "광주광역시"
+          },
+          "item": "총인구수",
+          "value": "1439245",
+          "unit": "명"
+        }
+      ],
+      "aggregation_constraints": [],
+      "pass_criteria": [
+        "원본 좌표(표·시점·항목·분류 코드)의 값이 정확히 일치",
+        "단위·스케일 일치",
+        "결측 기호를 0 으로 바꾸지 않음"
+      ]
+    },
+    "M3": {
+      "expected_table_ids": [
+        "101_DT_DEMO_HH",
+        "101_DT_DEMO_POP"
+      ],
+      "expected_view_ids": [
+        "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+        "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355"
+      ],
+      "required_evidence_groups": {
+        "R1": {
+          "description": "2020년 일반가구 (광주광역시, 여자)",
+          "acceptable_view_ids": [
+            "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b"
+          ],
+          "acceptable_table_ids": [
+            "101_DT_DEMO_HH"
+          ],
+          "required_fact_ids": [
+            "F1"
+          ]
+        },
+        "R2": {
+          "description": "2020년 총인구수 (광주광역시)",
+          "acceptable_view_ids": [
+            "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355"
+          ],
+          "acceptable_table_ids": [
+            "101_DT_DEMO_POP"
+          ],
+          "required_fact_ids": [
+            "F2"
+          ]
+        }
+      },
+      "expected_final_context": [
+        "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+        "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355"
+      ],
+      "pass_criteria": [
+        "모든 필수 근거 그룹을 최종 문맥에 포함 (그룹 안에서는 대체 View 허용)",
+        "Hard Negative View 를 근거로 쓰지 않음"
+      ]
+    }
+  },
+  "verification_metrics": {
+    "deterministic_passed": true,
+    "numeric_validation_passed": true,
+    "unit_validation_passed": true,
+    "statistical_validation_passed": true,
+    "ablation_passed": true,
+    "per_view_ablation_results": [
+      {
+        "view_id": "sgv::101_DT_DEMO_HH::T1::Y2020::C2=2::db3a943b",
+        "outcome": "NECESSARY",
+        "required_fact_ids": [
+          "F1"
+        ],
+        "replacement_view_ids": [],
+        "rerun_success": false,
+        "rerun_error_code": "UNKNOWN_VIEW",
+        "detail": "남은 View 로 필수 Fact 1개를 얻을 수 없음 (재실행: UNKNOWN_VIEW)"
+      },
+      {
+        "view_id": "sgv::101_DT_DEMO_POP::T20::Y2020::cd543355",
+        "outcome": "NECESSARY",
+        "required_fact_ids": [
+          "F2"
+        ],
+        "replacement_view_ids": [],
+        "rerun_success": false,
+        "rerun_error_code": "UNKNOWN_VIEW",
+        "detail": "남은 View 로 필수 Fact 1개를 얻을 수 없음 (재실행: UNKNOWN_VIEW)"
+      }
+    ],
+    "semantic_validation_passed": true,
+    "paraphrase_equivalence_passed": true,
+    "max_jaccard_similarity": 0.2333,
+    "max_cosine_similarity": 0.4368,
+    "max_similarity_score": 0.4368,
+    "validation_errors": [],
+    "validation_warnings": [
+      "Demo Mode: 질문 생성·의미 검수가 Mock LLM 규칙 응답 (실제 LLM 품질 검증 아님)"
+    ],
+    "verification_status": "NEEDS_HUMAN_REVIEW",
+    "human_review_required": true,
+    "quality_review": {
+      "semantic_valid": true,
+      "question_answer_alignment": true,
+      "ambiguity_detected": false,
+      "missing_conditions": [],
+      "multi_hop_necessity": true,
+      "paraphrase_equivalence": true,
+      "statistical_validity": true,
+      "rejection_reasons": [],
+      "suggested_revision": null
+    },
+    "check_states": {
+      "plan_status": "PASS",
+      "all_positive_views_used": "PASS",
+      "codes_items_periods_exist": "PASS",
+      "observed_projected_not_mixed": "PASS",
+      "same_frequency": "PASS",
+      "time_series_compatible": "NOT_APPLICABLE",
+      "ratio_compatible": "PASS",
+      "aggregation_valid": "NOT_APPLICABLE",
+      "calculation": "PASS",
+      "finite_result": "PASS",
+      "join_cardinality": "NOT_APPLICABLE",
+      "every_view_has_evidence": "PASS"
+    }
+  },
+  "provenance": {
+    "sample_id": "S000001_08045",
+    "attempt_index": 1,
+    "plan_id": "P_S000001_08045_0",
+    "planner_attempts": 1,
+    "llm_provider": "mock",
+    "llm_model": "mock-deterministic",
+    "created_at": "2026-11-11T08:45:46+00:00",
+    "pipeline_version": "0.1.0",
+    "source_record_id": null
+  },
+  "fact_signature": "fs_3f42c988657d58cf26c3|b57387d841372002"
+}
