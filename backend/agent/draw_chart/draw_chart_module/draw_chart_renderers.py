@@ -9,9 +9,9 @@ import math
 
 import plotly.graph_objects as go
 
-from .draw_chart_format import (COLOR_SCALE, LABEL_MAX_POINTS, aligned, axis_title, categories, digits_of, display_for,
-                                fallback_digits, fmt, is_missing, missing_warning, nice_step, scaled, series_groups,
-                                tick_format, unit_text, value_range, y_floor)
+from .draw_chart_format import (COLOR_SCALE, LABEL_MAX_POINTS, aligned, aligned_ticks, axis_title, categories, digits_of,
+                                display_for, fallback_digits, few_bars, fmt, is_missing, missing_warning, nice_step, scaled,
+                                series_groups, tick_format, tick_format_for, unit_text, value_range, x_ticks, y_floor)
 from .draw_chart_schema import CHART_TYPES
 
 # =============================================
@@ -45,7 +45,7 @@ def _time_series(df, content, displays, area=False):
         ))
     layout = {
         "xaxis": {"title": axis_title(content.axis.get("x"), None), "type": "category",
-                  "categoryorder": "array", "categoryarray": xs},
+                  "categoryorder": "array", "categoryarray": xs, **x_ticks(len(xs))},      # 시점이 많으면 건너뛴 눈금
         "yaxis": {"title": axis_title(y_spec, d), "tickformat": tick_format(d),
                   **value_range(y_spec, d, y_floor(content))},
     }
@@ -89,12 +89,16 @@ def _bars(df, content, displays, stacked=False):
     cat_axis = {"title": axis_title(content.axis.get("x"), None), "type": "category",
                 "categoryorder": "array", "categoryarray": cats}
     val_axis = {"title": axis_title(y_spec, d), "tickformat": tick_format(d), **value_range(y_spec, d, y_floor(content))}
+    few, gap = few_bars(len(cats), reverse=horizontal)        # 막대가 2개 이하면 범주 축을 넓혀 막대 폭을 줄인다
     if horizontal:
-        cat_axis["autorange"] = "reversed"                     # 1위가 위에 오도록
+        cat_axis.update(few or {"autorange": "reversed"})      # 1위가 위에 오도록 (few 는 이미 뒤집힌 범위)
         layout = {"xaxis": val_axis, "yaxis": cat_axis}
     else:
+        cat_axis.update({**few, **x_ticks(len(cats), kind="name")})   # 이름이 많으면 기울인다
         layout = {"xaxis": cat_axis, "yaxis": val_axis}
     layout["barmode"] = "stack" if stacked else "group"
+    if gap is not None:
+        layout["bargap"] = gap
     return traces, layout, warns
 
 
@@ -313,7 +317,7 @@ def draw_combo(df, content, displays):
     series_axis = content.options.get("series_axis") or {}
     xs = categories(df, x_col)
     show = len(xs) <= LABEL_MAX_POINTS
-    traces = []
+    traces, axis_vals = [], {"y": [], "y2": []}
     for name, g in series_groups(df, s_col):
         role = series_axis.get(name)
         if role not in ("y", "y2"):
@@ -322,6 +326,7 @@ def draw_combo(df, content, displays):
         d = display_for(content, displays, role)
         raw = aligned(g, x_col, xs, v_col)
         warns += missing_warning(raw, name)
+        axis_vals[role] += [scaled(v, d) for v in raw]
         common = dict(x=xs, y=[scaled(v, d) for v in raw], name=name or v_col, yaxis="y2" if role == "y2" else "y",
                       cliponaxis=False, customdata=[fmt(v, d) for v in raw], hovertemplate="%{x}<br>" + HOVER)
         labels = [fmt(v, d, with_unit=False) for v in raw] if show else None
@@ -333,12 +338,22 @@ def draw_combo(df, content, displays):
                                      textposition="top center"))
     y_spec, y2_spec = content.axis.get("y"), content.axis.get("y2")
     dy, dy2 = display_for(content, displays, "y"), display_for(content, displays, "y2")
+
+    def ticks(role, spec, d):
+        """두 축 모두 눈금 6개 (같은 높이) · 막대 축이거나 y 기준선 규칙이 있으면 0 포함"""
+        zero = marks.get(role) == "bar" or (role == "y" and y_floor(content) in ("zero", "include_zero"))
+        fixed = (scaled(spec.min, d), scaled(spec.max, d)) if spec else None
+        rng, vals = aligned_ticks(axis_vals[role], include_zero=zero, fixed=fixed)
+        if not rng:
+            return {"tickformat": tick_format(d), **value_range(spec, d)}
+        return {"range": rng, "tickmode": "array", "tickvals": vals, "tickformat": tick_format_for(d, vals)}
+
     layout = {
         "xaxis": {"title": axis_title(content.axis.get("x"), None), "type": "category",
-                  "categoryorder": "array", "categoryarray": xs},
-        "yaxis": {"title": axis_title(y_spec, dy), "tickformat": tick_format(dy), **value_range(y_spec, dy, y_floor(content))},
-        "yaxis2": {"title": axis_title(y2_spec, dy2), "tickformat": tick_format(dy2), "overlaying": "y",
-                   "side": "right", "showgrid": False, **value_range(y2_spec, dy2)},
+                  "categoryorder": "array", "categoryarray": xs, **x_ticks(len(xs))},
+        "yaxis": {"title": axis_title(y_spec, dy), **ticks("y", y_spec, dy)},
+        "yaxis2": {"title": axis_title(y2_spec, dy2), "overlaying": "y",
+                   "side": "right", "showgrid": False, **ticks("y2", y2_spec, dy2)},
         "legend": {"orientation": "h", "x": 0.5, "xanchor": "center", "y": 1.08},
     }
     return traces, layout, warns

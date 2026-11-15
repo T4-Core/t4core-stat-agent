@@ -116,4 +116,5 @@ def results_table(results) -> pd.DataFrame:
         "json": r.files.get("json", ""),
         "png": r.files.get("png", ""),
         "warnings": " / ".join(r.warnings),
+        "합친 차트": " + ".join(r.merged_from),
     } for r in results])

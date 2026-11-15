@@ -7,7 +7,7 @@
   load     ① 입력 로드: 모듈 2·3 출력 (또는 입력 4개 직접) → 모듈 3 스키마로 파싱
   prepare  ② DrawJob 만들기 (차트 하나당 하나, ChartPlan 순서)
   draw     ③ draw_chart(job) — 차트 하나 그리기. Send로 차트마다 따로 실행된다 (fan-out, 병렬)
-  save     ④ 결과 모으기(fan-in) → ChartPlan 순서로 정렬 → json · PNG 일괄 · 질문 HTML
+  save     ④ 결과 모으기(fan-in) → ChartPlan 순서로 정렬 → 겹쳐 그리기(overlays) → json · PNG 일괄 · 질문 HTML
 
   - 노드는 state를 읽고 바뀐 키만 돌려주는 함수다 (모듈 3 그래프와 같은 방식). 그래프 밖에서도 그대로 부를 수 있다.
   - draw는 Send로 받은 {index, job}만 보고, 결과를 drawn 목록에 더한다 (operator.add). save가 index로 순서를 되돌린다.
@@ -21,6 +21,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from .draw_chart_load import parse_inputs, resolve_inputs
+from .draw_chart_overlay import apply_overlays
 from .draw_chart_prepare import build_jobs
 from .draw_chart_save import fan_in
 from .draw_chart_schema import OUTPUT_ROOT, DrawJob, DrawResult
@@ -58,7 +59,7 @@ class DrawTask(TypedDict):
 class Module5State(Module5Input, Module5Result, total=False):
     plan: dict                             # 파싱한 ChartPlan
     contents: dict                         # {chart_id: ChartContent | None}
-    calcs: list                            # CalcResult[] (아직 쓰지 않음)
+    calcs: list                            # CalcResult[] → prepare 가 차트별 강조 대상을 job.calcs 에
     display_map: dict                      # {display_ref: Display}
     checks: dict                           # 모듈 3 validation {chart_id: dict} (skipped 이유용)
     jobs: list[DrawJob]
@@ -75,7 +76,7 @@ def load_node(state: Module5State) -> dict:
 
 def prepare_node(state: Module5State) -> dict:
     return {"jobs": build_jobs(state["plan"], state["contents"], state["display_map"], state["load_errors"],
-                               state.get("checks"))}
+                               state.get("checks"), state.get("calcs"))}
 
 
 def fan_out(state: Module5State):
@@ -90,6 +91,8 @@ def draw_node(task: DrawTask) -> dict:
 
 def save_node(state: Module5State) -> dict:
     results = [r for _, r in sorted(state.get("drawn") or [], key=lambda t: t[0])]
+    # 2번 chart_plan.overlays: 원래 두 차트는 그대로 두고 합친 차트를 더한다 (겹쳐 그리기)
+    results = apply_overlays(results, state.get("jobs"), (state.get("plan") or {}).get("overlays"))
     html = None
     if state.get("save", True) and results:
         out_dir = Path(state.get("out_dir") or OUTPUT_ROOT / state["query_id"])

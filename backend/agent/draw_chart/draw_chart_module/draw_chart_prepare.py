@@ -7,6 +7,8 @@
   - ChartPlan에 없는 ChartContent는 뒤에 붙이고 경고
   나머지 검사(유형별 약속)는 draw_chart_tool.precheck에서 한다.
 """
+from .draw_chart_format import color_map
+from .draw_chart_highlight import calcs_for
 from .draw_chart_schema import FAILED, SKIPPED, DrawJob
 
 KOSIS_URL = "https://kosis.kr/statHtml/statHtml.do?orgId={org}&tblId={tbl}"   # backend/rag/ingestion/build_view.py와 같은 형식
@@ -61,8 +63,9 @@ def skip_reason(plan_chart, validation) -> str:
     return "모듈 3에서 차트 내용을 만들지 못함 (원래·대체 차트 모두 구성 실패)"
 
 
-def build_jobs(chart_plan, chart_contents, displays, load_errors, validation=None) -> list[DrawJob]:
-    """ChartPlan 차트 순서대로 DrawJob을 만든다. validation은 모듈 3 출력의 {chart_id: ChartValidation dict} (없어도 된다)"""
+def build_jobs(chart_plan, chart_contents, displays, load_errors, validation=None, calcs=None) -> list[DrawJob]:
+    """ChartPlan 차트 순서대로 DrawJob을 만든다. validation은 모듈 3 출력의 {chart_id: ChartValidation dict} (없어도 된다)
+    calcs: CalcResult[] → 차트와 record 가 겹치는 강조 대상만 job.calcs 에 (draw_chart_highlight)"""
     validation = validation or {}
     planned = {c["chart_id"]: c for c in chart_plan.get("charts", [])}
     jobs = []
@@ -70,7 +73,8 @@ def build_jobs(chart_plan, chart_contents, displays, load_errors, validation=Non
         p = planned.get(cid)
         job = DrawJob(chart_id=cid,
                       sub_question_ids=list((p or {}).get("sub_question_ids", [])),
-                      planned_type=(p or {}).get("chart_type"))
+                      planned_type=(p or {}).get("chart_type"),
+                      warnings=list((p or {}).get("warnings") or []))      # 모듈 2 사용자용 경고 (차트 아래 · 안내 박스에 보임)
         if p is None:
             job.warnings.append("ChartPlan에 없는 차트 (ChartContent에만 있음)")
 
@@ -83,9 +87,15 @@ def build_jobs(chart_plan, chart_contents, displays, load_errors, validation=Non
             job.content, job.chart_type = c, c.chart_type
             job.display_refs = display_refs_of(c)
             job.displays = {r: displays[r] for r in job.display_refs if r in displays}
+            job.calcs = calcs_for(c, calcs)
+            job.displays.update({k.display_ref: displays[k.display_ref] for k in job.calcs     # 주석 숫자 표시용
+                                 if k.display_ref in displays and k.display_ref not in job.displays})
             job.source_links, warns = source_links_of(c.record_ids)
             job.warnings += list(c.warnings) + warns
             if job.planned_type and job.planned_type != c.chart_type:
                 job.warnings.append(f"대체됨: {job.planned_type} → {c.chart_type}")
         jobs.append(job)
+    colors = color_map([j.content for j in jobs if j.content is not None])     # 질문 전체에서 이름 → 색 (c1 · c2 · 합친 차트가 같은 색)
+    for j in jobs:
+        j.colors = colors
     return jobs

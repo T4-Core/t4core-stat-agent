@@ -3,7 +3,7 @@
 
   입력 스키마는 15종 모두 ChartContent(backend/schemas/chart.py) 하나다.
   유형마다 다른 것은 encoding 역할 · 행 모양 · options뿐이고, 이를 '유형별 약속'으로 둔다.
-    - 필수/선택 역할, 행 모양(long/joined), 음수 불가 역할, y 기준선(y_floor) → 모듈 3 SPECS 그대로
+    - 필수/선택 역할, 행 모양(long/joined), 음수 불가 역할, y 기준선(axis_rules['y']) → 모듈 3 SPECS 그대로
     - 숫자여야 하는 역할 → 모듈 5의 NUMERIC_ROLES
     - 그 밖의 유형별 약속 → EXTRA_RULES
   draw_chart_tool.precheck가 이 약속을 확인한다.
@@ -16,6 +16,8 @@ import plotly.graph_objects as go
 
 from backend.agent.chart_calculate.specs import SPECS
 from backend.schemas.chart import ChartContent
+
+from .draw_chart_format import y_rule
 
 # ── 경로 ─────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent      # backend/agent/draw_chart (이 패키지의 한 단계 위)
@@ -51,7 +53,7 @@ def contract_table() -> pd.DataFrame:
         "chart_type": t, "이름": s.name,
         "필수 역할": ", ".join(s.required), "선택 역할": ", ".join(s.optional),
         "행 모양": ROWS_NAME[s.rows], "숫자 역할": ", ".join(NUMERIC_ROLES[t]),
-        "음수 불가": ", ".join(s.non_negative), "y 기준선": s.y_floor or "", "추가": EXTRA_RULES.get(t, ""),
+        "음수 불가": ", ".join(s.non_negative), "y 기준선": y_rule(s) or "", "추가": EXTRA_RULES.get(t, ""),
     } for t, s in SPECS.items()])
 
 
@@ -70,6 +72,8 @@ class DrawJob:
     status: str = READY                 # READY / SKIPPED / FAILED
     reason: str | None = None           # SKIPPED / FAILED 이유
     warnings: list = field(default_factory=list)
+    calcs: list = field(default_factory=list)          # 강조할 CalcResult (record 가 겹치는 extreme · rank · 증감)
+    colors: dict = field(default_factory=dict)         # {trace 이름: 색} — 질문 안에서 같은 이름은 같은 색
 
 
 @dataclass
@@ -85,3 +89,4 @@ class DrawResult:
     figure: go.Figure | None = None
     files: dict = field(default_factory=dict)    # save 노드에서 채운다 {json, png, html}
     warnings: list = field(default_factory=list)
+    merged_from: list = field(default_factory=list)   # 겹쳐 그린 차트면 원래 두 chart_id (2번 chart_plan.overlays)
