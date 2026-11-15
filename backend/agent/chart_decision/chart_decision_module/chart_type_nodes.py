@@ -6,24 +6,37 @@
 import copy
 from pathlib import Path
 
-from .chart_type_chart_picker import attach_requirements, pick_chart, try_combo
+from .chart_type_chart_picker import attach_requirements, pick_chart
 from .chart_type_loader import load_json, slim_query_bundle, slim_view_input
 from .chart_type_matcher import match_units
 from .chart_type_measure import decide_measure
 from .chart_type_profiler import profile_data
 from .chart_type_reason import make_reason
-from .chart_type_rules import MEASURE_TO_CHARTS, OUT_OF_SCOPE
+from .chart_type_rules import MEASURE_TO_CHARTS, OUT_OF_SCOPE, USER_WARNING_NODES
+from .chart_type_overlay import find_overlays
+from .chart_type_preference import requested_chart
+from .chart_type_schema import validate_plan
+from .chart_type_view_check import block_reason, check_view, fit_warnings
 from .chart_type_view_filter import filter_view
 
 CHART_KEYS = ["chart_id", "sub_question_ids", "view_ids", "chart_type",
-              "requirements", "fallback_charts", "measure", "reason"]       # README 4장 출력 필드 순서
+              "requirements", "fallback_charts", "measure", "reason", "warnings"]       # README 4장 출력 필드 순서
+
+
+def chart_warnings(errors, chart_ids):
+    """errors 중 그 차트(들)의 사용자용 경고 문장 (USER_WARNING_NODES 의 level=warning, 순서 유지 · 중복 제거, 고도화 4단계)
+    combo 처럼 하위질문 둘을 묶은 차트는 두 짝의 chart_id 경고를 모두 담는다"""
+    ids = set(chart_ids)
+    return list(dict.fromkeys(e["reason"] for e in errors or []
+                              if e.get("level") == "warning" and e.get("node") in USER_WARNING_NODES
+                              and e.get("chart_id") in ids))
 
 
 INPUT_DIR = Path(__file__).resolve().parents[2] / "input_data"      # chart_type_decision/input_data
 
 
 def _empty_plan(state):
-    return {"query_id": (state.get("view_input") or {}).get("query_id"), "charts": []}
+    return {"query_id": (state.get("view_input") or {}).get("query_id"), "charts": [], "overlays": []}
 
 
 def _scenario_files(name):
@@ -140,6 +153,18 @@ def filter_node(state):
     return out
 
 
+# ①-2 View 적합도: View 메모(record.notes)로 시점·나눔·지표가 요청대로인지 (고도화 1단계)
+def view_check_node(state):
+    matches, errors = [], []
+    for m in state["matches"]:
+        m = dict(m)
+        m["view_fit"] = check_view(m["view"])
+        errors += [{"node": "view_check", "chart_id": m["chart_id"], "level": "warning", "reason": w}
+                   for w in fit_warnings(m["view_fit"])]
+        matches.append(m)
+    return {"matches": matches, "errors": errors}
+
+
 # ② measure 판단 (규칙만, LLM 안 부름)
 def measure_rule_node(state):
     qb = state["query_bundle"]
@@ -169,41 +194,62 @@ def measure_llm_node(state):
 def profile_node(state):
     qb = state["query_bundle"]
     matches = []
+    errors = []
     for m in state["matches"]:
         m = dict(m)
-        m["profile"] = profile_data(m["filtered_view"], m["sub_filter"], qb["filters"])
+        m["profile"] = profile_data(m["filtered_view"], m["sub_filter"], qb["filters"], qb.get("intent"))
+        errors += [{"node": "profile", "chart_id": m["chart_id"], "level": "warning", "reason": t}
+                   for t in m["profile"].get("axis_notes") or []]          # 범주에서 뺀 열 (고도화 2단계)
         matches.append(m)
-    return {"matches": matches}
+    return {"matches": matches, "errors": errors}
+
+
+def _requested(m, qb):
+    """질문에서 이름으로 요청한 차트 (원 질문 → 하위질문 → 재작성 순서로 찾음, 고도화 3단계)"""
+    return requested_chart([qb.get("original"), m.get("sub_question"), qb.get("rewritten")])[0]
+
+
+def _request_warning(chart_id, r):
+    """요청한 차트를 못 그렸으면 경고 하나 (없으면 [])"""
+    req = r.get("request")
+    if not req or req["ok"]:
+        return []
+    return [{"node": "chart_select", "chart_id": chart_id, "level": "warning",
+             "reason": f"요청한 {req['chart']} 차트를 그릴 수 없음: {req['why']} → {r['chart_type'] or '표만'}"}]
 
 
 def _needs_llm(chart):
     """후보는 있었는데 모두 소거돼 규칙으로 못 정한 차트인가"""
     measure = chart["measure"]
     return (chart["chart_type"] is None and measure not in (None, OUT_OF_SCOPE)
-            and bool(MEASURE_TO_CHARTS.get(measure)))
+            and bool(MEASURE_TO_CHARTS.get(measure)) and not chart.get("blocked"))     # View 적합도로 막은 차트는 LLM 도 안 씀
 
 
 # ④ combo 묶음 판단 + chart_type 소거법 (규칙만)
 def chart_select_node(state):
-    ms = state["matches"]
-    ok, reasons, _ = try_combo(ms, state["query_bundle"])
-    charts = []
-    if ok:
-        a, b = ms
-        charts.append({"chart_id": a["chart_id"], "sub_question_ids": [a["sub_question_id"], b["sub_question_id"]],
-                       "view_ids": [a["filtered_view"]["record"]["id"], b["filtered_view"]["record"]["id"]],
-                       "measure": a["measure"], "chart_type": "combo", "fallback_charts": [], "source": "rule",
-                       "log": [{"후보": "combo", "결과": "남음", "이유": ", ".join(reasons)}]})
-    else:
-        for m in ms:
-            r = pick_chart(m["measure"], m["profile"], use_llm=False)
-            charts.append({"chart_id": m["chart_id"], "sub_question_ids": [m["sub_question_id"]],
-                           "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"],
-                           "chart_type": r["chart_type"], "fallback_charts": r["fallback_charts"],
-                           "source": r["source"], "log": r["log"]})
+    ms, qb = state["matches"], state["query_bundle"]
+    blocks = {m["chart_id"]: block_reason(m, qb) for m in ms}          # (막을 이유, 뺄 차트, 뺀 이유)
+    # [고도화 5단계] 하위질문 둘을 combo 차트 하나로 묶지 않는다 (3번이 서로 다른 표의 둘을 한 차트로 계산하지 못함)
+    #  → 차트는 하위질문마다 1개, 겹쳐 그리기는 reason 노드가 chart_plan.overlays 로 표시 (5번만 읽음)
+    charts, errors = [], []
+    for m in ms:
+        block, exclude, why = blocks[m["chart_id"]]
+        base = {"chart_id": m["chart_id"], "sub_question_ids": [m["sub_question_id"]],
+                "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"]}
+        if block:                                                   # View 가 질문에 맞지 않음 → 차트 없음 (표만)
+            charts.append({**base, "chart_type": None, "fallback_charts": [], "source": "rule", "blocked": True,
+                           "log": [{"후보": "-", "결과": "막음", "이유": block}]})
+            errors.append({"node": "chart_select", "chart_id": m["chart_id"], "level": "warning",
+                           "reason": f"차트 없음(표만): {block}"})
+            continue
+        r = pick_chart(m["measure"], m["profile"], use_llm=False, exclude=exclude, exclude_why=why,
+                       requested=_requested(m, qb))
+        charts.append({**base, "chart_type": r["chart_type"], "fallback_charts": r["fallback_charts"],
+                       "source": r["source"], "log": r["log"]})
+        errors += _request_warning(m["chart_id"], r)
     for c in charts:
         c["needs_llm"] = _needs_llm(c)
-    return {"charts": charts}
+    return {"charts": charts, "errors": errors}
 
 
 # ④ 규칙 실패(모두 소거) 차트만 LLM (지금은 pick_chart_llm이 자리만 있어 None)
@@ -214,7 +260,9 @@ def chart_llm_node(state):
         c = dict(c)
         if c.get("needs_llm"):
             m = by_sq[c["sub_question_ids"][0]]
-            r = pick_chart(c["measure"], m["profile"], use_llm=True)
+            _, exclude, why = block_reason(m, state["query_bundle"])
+            r = pick_chart(c["measure"], m["profile"], use_llm=True, exclude=exclude, exclude_why=why,
+                           requested=_requested(m, state["query_bundle"]))
             c.update(chart_type=r["chart_type"], fallback_charts=r["fallback_charts"], source=r["source"], log=r["log"])
         charts.append(c)
     return {"charts": charts}
@@ -234,9 +282,16 @@ def reason_node(state):
         c = dict(c)
         ms = [by_sq[s] for s in c["sub_question_ids"]]
         c["reason"] = make_reason([m["sub_filter"] for m in ms], qb, [m["sub_question"] for m in ms])
+        c["warnings"] = chart_warnings(state.get("errors"), [m["chart_id"] for m in ms])
         charts.append(c)
         plan_charts.append({k: c[k] for k in CHART_KEYS})
-    return {"charts": charts, "chart_plan": {"query_id": state["view_input"]["query_id"], "charts": plan_charts}}
+    # [고도화 5단계] 겹쳐 그리기 표시 (조건을 모두 만족할 때만) + 출력 스키마 검증
+    ordered = [by_sq[c["sub_question_ids"][0]] for c in charts]
+    overlays, notes = find_overlays(ordered, plan_charts, qb)
+    plan, schema_errors = validate_plan({"query_id": state["view_input"]["query_id"], "charts": plan_charts,
+                                         "overlays": overlays})
+    errors = [{"node": "reason", "level": "info", "reason": t} for t in notes] + schema_errors
+    return {"charts": charts, "chart_plan": plan, "errors": errors}
 
 
 # ── 조건부 엣지 ──
@@ -251,7 +306,7 @@ def route_after_match(state):
 
 
 def route_after_filter(state):
-    return "measure_rule" if state.get("matches") else "end"
+    return "view_check" if state.get("matches") else "end"
 
 
 def route_after_measure_rule(state):

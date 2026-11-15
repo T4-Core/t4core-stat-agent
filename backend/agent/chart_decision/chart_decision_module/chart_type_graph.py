@@ -18,6 +18,7 @@ def build_chart_decision_graph():
     b.add_node("load_input", n.load_input_node)       # ⓪ 입력 준비 (비우면 시나리오)
     b.add_node("match", n.match_node)                 # ① 짝짓기
     b.add_node("filter", n.filter_node)               # ①-1 필터링
+    b.add_node("view_check", n.view_check_node)       # ①-2 View 적합도 (View 메모로 판단)
     b.add_node("measure_rule", n.measure_rule_node)   # ② measure 규칙
     b.add_node("measure_llm", n.measure_llm_node)     # ② measure LLM (확신 없을 때만)
     b.add_node("profile", n.profile_node)             # ③ 데이터 모양
@@ -29,7 +30,8 @@ def build_chart_decision_graph():
     b.add_edge(START, "load_input")
     b.add_conditional_edges("load_input", n.route_after_load, {"match": "match", "end": END})
     b.add_conditional_edges("match", n.route_after_match, {"filter": "filter", "end": END})
-    b.add_conditional_edges("filter", n.route_after_filter, {"measure_rule": "measure_rule", "end": END})
+    b.add_conditional_edges("filter", n.route_after_filter, {"view_check": "view_check", "end": END})
+    b.add_edge("view_check", "measure_rule")
     b.add_conditional_edges("measure_rule", n.route_after_measure_rule,
                             {"measure_llm": "measure_llm", "profile": "profile"})
     b.add_edge("measure_llm", "profile")

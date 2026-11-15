@@ -55,9 +55,14 @@ backend/agent/chart_decision/
     ├── chart_type_loader.py           # 입력 읽기·정리
     ├── chart_type_matcher.py          # ① 하위질문 ↔ View 짝짓기
     ├── chart_type_view_filter.py      # ①-1 View 필터링
+    ├── chart_type_view_check.py       # ①-2 View 적합도 (View 메모로 시점·나눔·지표 확인)
     ├── chart_type_measure.py          # ② measure 판단 (규칙 → LLM)
     ├── chart_type_profiler.py         # ③ 데이터 모양 파악
+    ├── chart_type_axes.py             # ③-1 요청한 나눔 (질문이 나눠 달라고 한 열만 범주·계열로)
     ├── chart_type_chart_picker.py     # ④⑤ chart_type 소거법, requirements
+    ├── chart_type_preference.py       # ④-1 질문 속 차트 이름 · 데이터 모양 점수
+    ├── chart_type_overlay.py          # ⑥-1 겹쳐 그리기 표시 (chart_plan.overlays, 5번만 읽음)
+    ├── chart_type_schema.py           # 출력 스키마 (ChartPlanOut · ChartOut · OverlayOut, pydantic)
     ├── chart_type_reason.py           # ⑥ reason
     ├── chart_type_rules.py            # 규칙·사전 (키워드, 차트 후보, 조건)
     └── chart_type_llm.py              # HCX 호출
@@ -165,7 +170,7 @@ print(json.dumps(chart_plan, ensure_ascii=False, indent=2))
 ```
 
 - `invoke` 한 번이면 세부 단계(노드)가 모두 차례로 실행된다.
-  `load_input → match → filter → measure_rule → (measure_llm) → profile → chart_select → (chart_llm) → requirements → reason`
+  `load_input → match → filter → view_check → measure_rule → (measure_llm) → profile → chart_select → (chart_llm) → requirements → reason`
 - 괄호 안 노드는 규칙으로 정하지 못한 경우에만 지나간다.
 
 ### 3-2. 노드마다 중간 값 보기
@@ -192,8 +197,9 @@ for step in chart_decision.stream({"query_bundle": query_bundle, "view_input": v
 | load_input | query_bundle, view_input | 정리된 입력 |
 | match | matches | 하위질문 ↔ View 짝 (chart_id, unit_id) |
 | filter | matches, filtered_views | 걸러진 표, `filter_info` (지표 열·단위) |
+| view_check | matches, errors | `view_fit` (시점·나눔·지표가 요청대로인지), 경고 (level=warning) |
 | measure_rule / measure_llm | matches | measure, 확신 여부, 규칙 근거, LLM 근거·시간 |
-| profile | matches | 데이터 모양 (시점 수, 범주·계열, 단위 등) |
+| profile | matches, errors | 데이터 모양 (시점 수, 범주·계열, 단위 등), 범주에서 뺀 열 메모 (level=warning) |
 | chart_select / chart_llm | charts | chart_type, fallback, 후보별 소거 기록 |
 | requirements | charts | requirements |
 | reason | charts, chart_plan | reason, 최종 chart_plan |
@@ -291,18 +297,97 @@ out = {
                 "fallback_charts": ["bar"],                             # 조건 실패 시 차례로 시도할 차트
                 "measure": "raw",                                       # 값 그대로 / 가공 방법 (11개 + "범위 밖")
                 "reason": "혼인건수 연도별 추이",                       # 고른 이유 (QA·로그용)
+                "warnings": [],                                        # 사용자용 경고 (없으면 []) — 5번이 차트 아래·안내 박스에 표시
             },
             # ...
         ],
     },
     "filtered_views": [...],   # 하위질문 조건으로 걸러진 View. 각각 filter_info(지표 열, 지표, 단위, 슬롯→열)가 붙음
-    "errors": [],              # 짝 없음·필터 0행·입력 문제 등
+    "errors": [],              # 짝 없음·필터 0행·입력 문제 + View 적합도 경고(level=warning) 등
 }
 ```
 
 - **3번 모듈에서 짝짓는 법:** `charts[i]["view_ids"]` ↔ `filtered_views[j]["record"]["id"]`
 - **measure 값:** `raw`, `change`, `growth_rate`, `cagr`, `index`, `share`, `diff`, `ratio`, `rank`, `extreme`, `aggregate`, `범위 밖`
 - `chart_type`이 `None`인 차트도 `charts`에 들어간다. 3번 계산 후 표만 보여준다.
+
+### 5-00. 겹쳐 그리기 표시 (`overlays`) · 출력 스키마
+
+- 차트는 **항상 하위질문마다 1개**다. 하위질문 둘을 combo 차트 하나로 묶지 않는다 (3번 모듈이 서로 다른 표의 하위질문 둘을 한 차트로 계산하지 못함 → `try_combo`는 쓰지 않음).
+- 대신 아래 조건을 **모두** 만족하면 `chart_plan.overlays`에 표시한다. **5번만 읽고**, 3번 어댑터는 `charts`만 읽으므로 3번 입력은 그대로다.
+  하위질문(차트) 정확히 2개 · 두 차트 모두 차트 있음 · 의도 추이 또는 비교 · 두 차트 유형이 같고 line 또는 bar · measure 같음 · x축 같음(기간 · 비교축 · 범주 축과 개수) · 두 차트 모두 계열 1개
+- 그리는 방식(`mode`): 두 값의 최댓값 비율 ≥ `OVERLAY_SCALE_RATIO`(10) 이거나 단위가 다르면 `combo`(큰 값 막대 y · 작은 값 선 y2, `axes`), 아니면 `lines` / `bars`
+- 5번은 원래 두 차트에 더해 겹친 차트(`c1+c2`)를 그린다 (총 3개).
+
+```json
+"overlays": [{"overlay_id": "c1+c2", "charts": ["c1", "c2"], "mode": "combo", "axes": {"c1": "y", "c2": "y2"},
+               "reason": "같은 x축 · 크기 차이 353,850배 (≥ 10) → 막대(c1) + 선(c2)"}]
+```
+
+- 겹쳐 그리기 판단(붙임 · 안 붙임과 이유)은 `errors`에 `level: "info"`로 남는다.
+- **출력 스키마**: `chart_type_schema.py`의 `ChartPlanOut`(query_id · charts: [ChartOut] · overlays: [OverlayOut])으로 검증한 뒤 dict 로 돌려준다. 틀리면 원래 dict 를 그대로 두고 `errors`에 남긴다.
+
+### 5-0. 사용자용 경고 (`charts[].warnings`)
+
+차트마다 사용자에게 알려야 할 경고 문장 목록. `errors` 중 `view_check`·`chart_select` 노드의 `level=warning` 항목을 그 차트(combo 면 묶인 두 짝)별로 모은다 (`USER_WARNING_NODES`).
+예: "요청 시점 2011~2025 → 표에는 1995만 있음", "요청한 성별(남자, 여자) 구분이 표에 없음", "차트 없음(표만): 추이를 물었지만 표의 시점이 1개(1995)", "요청한 pie 차트를 그릴 수 없음: … → bar".
+profile 노드의 메모("요청하지 않은 나눔 … 제외" 등)는 개발자용이라 `errors`에만 남긴다. 3번 모듈 어댑터는 이 필드를 읽지 않는다.
+
+### 5-1. View 적합도 (view_check)
+
+View 모듈은 표를 만들며 맞추지 못한 조건을 `record.notes`에 남긴다 (`{slot, type, requested, applied, text}`).
+`view_check` 노드가 이 메모를 **규칙으로** 읽어 받은 View가 질문에 맞는지 판단한다 (HCX 호출 없음, `chart_type_view_check.py`).
+
+| View 메모 | 처리 |
+| --- | --- |
+| 시점 `default`·`latest_shift` (요청 시점 대신 다른 시점) | 경고 "요청 시점 2011~2025 → 표에는 1995만 있음" |
+| 의도 **추이**인데 표의 시점이 `TREND_MIN_POINTS`(2)개 미만 | **`chart_type = None` (표만)** + 경고 "차트 없음(표만): 추이를 물었지만 표의 시점이 1개(1995)" |
+| 성별·연령·지역 `missing` (요청한 나눔이 표에 없음) | 경고 + 그 나눔이 꼭 필요한 차트만 후보에서 뺀다 (`SPLIT_CHARTS`: 성별·연령 → pyramid, 지역 → map) |
+| 지표 `missing` · 표 `empty` | **`chart_type = None` (표만)** + 경고 |
+| 지표 `default` (맞는 항목이 없어 항목 전체) | 경고 |
+
+- 경고는 `errors`에 `{"node": "view_check" | "chart_select", "chart_id", "level": "warning", "reason"}`로 남는다.
+- 막힌 차트는 combo로 묶지 않고, LLM 차트 선택(`chart_llm`)으로도 보내지 않는다.
+- 기준 값은 `chart_type_rules.py`의 `TREND_MIN_POINTS`, `SPLIT_SLOTS`, `SPLIT_CHARTS`.
+
+### 5-2. 요청한 나눔 (profile · `chart_type_axes.py`)
+
+표에 값이 여러 개인 열이 있어도, **질문이 나눠 달라고 한 것만** 범주·계열로 쓴다.
+
+| 열 분류 | 판단 | 차트 판단에서 |
+| --- | --- | --- |
+| requested (요청한 나눔) | 비교축(연도·시도·지역·연령·성 …), 성별 값 2개 이상, 지역 여러 곳에 맞는 열 | 범주 / 계열 |
+| range (범위 구성 요소) | 연령 슬롯이 범위이거나 대상이 '고령자' 등인데 연령을 나눠 달라고 하지 않음 → View 가 펼친 연령 구간 | 범주에서 뺀다 (합계로 봄) |
+| extra (그 밖) | 요청하지 않았는데 값이 여러 개인 열 | 범주에서 빼고 경고 |
+
+- 열이 어떤 축인지: 열 이름(행정구역·시도·연령·성별 …) → 없으면 값('남자인구수' → 성별, '65-69세' → 연령, '서울특별시' → 지역)
+- 범주·계열: 시점을 요청했거나(비교축 연도 · 의도 추이) 다른 나눔이 없으면 **범주 = 시점, 계열 = 첫 번째 나눔**, 아니면 **범주 = 첫 번째 나눔, 계열 = 두 번째 나눔**
+- 안전장치: 요청한 나눔이 표의 어느 열에도 맞지 않고 의도가 비교·순위·구성비면, extra 열을 범주로 남긴다
+- profile 에 `requested_axes`, `category_axis`, `series_axis`, `excluded_dims`, `axis_notes`가 더해진다. `dims`·`n_categories`·`n_series`·`n_dims`는 요청한 나눔 기준
+- 기준 값은 `chart_type_rules.py`의 `AXIS_WORDS`, `AXIS_COLUMN_HINTS`, `SEX_WORDS`, `AGE_TARGET_WORDS`, `CATEGORY_INTENTS`
+
+### 5-3. 차트 이름 요청 · 데이터 모양 점수 (chart_select · `chart_type_preference.py`)
+
+`pick_chart`는 아래 순서로 차트를 고른다.
+
+1. **질문에서 이름으로 요청한 차트** — 원 질문 → 하위질문 → 재작성 순서로 `CHART_WORDS`(꺾은선·막대·원그래프·도넛·피라미드·지도·히트맵 …)를 찾는다.
+   찾으면 그 차트를 먼저 검사하고, requirements 를 통과하면 고른다 (`source: "request"`). **measure 후보에 없어도 된다.**
+   통과하지 못하면 경고 "요청한 pie 차트를 그릴 수 없음: parts_sum_to_total: 합계 행 없음 → bar"를 남기고 2로 간다.
+2. **measure 후보** 중 requirements 를 통과한 것(생존 후보)을 **데이터 모양 점수**가 높은 순으로 고른다. 점수가 같으면 기존 순서(`MEASURE_TO_CHARTS`).
+   - `REQUEST_ONLY_CHARTS`(map)는 **요청할 때만** 고른다. 요청이 없으면 후보에서 뺀다.
+
+| 데이터 모양 (2단계 profile) | 점수 |
+| --- | --- |
+| 범주 = 연령 + 계열 = 성별 2개 | pyramid +3 |
+| 범주 = 시점 3개 이상 | line +3 |
+| 시점이 아닌 요청 나눔 2개, 각각 3개 이상 | heatmap +2 |
+| 비중 + 범주 5개 이하 | donut +2 |
+| 순위 | bar +2 |
+| 그 밖 | bar +1, 나머지 0 |
+
+- 지역: 지역 슬롯('전국')이 표의 열과 맞지 않아도 요청한 나눔 중 지역 축 열(시도 17곳 등)이 있으면 그 열로 `has_region`·`n_regions`를 센다 (map 조건).
+- log 의 남은 후보에는 `점수 n (근거)`가 붙는다. 반환값 `request`: `{chart, ok, why}` (요청이 있을 때).
+- 기준 값은 `chart_type_rules.py`의 `CHART_WORDS`, `REQUEST_ONLY_CHARTS`, `SHAPE_SCORES`.
 
 ---
 
