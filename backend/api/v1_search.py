@@ -36,6 +36,9 @@ def _search_fn(name):
     # [NEW v4] 검색 구성으로 검색 함수 교체 (None → 기존 table_search.search)
     if not name:
         return None
+    if name == "v5":                       # [NEW v5] 다채널 검색 (backend.rag.search)
+        from backend.rag.search import search_fn
+        return search_fn(name)
     from backend.rag.retrieval.factory import get_pipeline
     return get_pipeline(name).search_compat
 

@@ -1,0 +1,25 @@
+{
+ "golden": "synthetic_gold_pipeline/outputs_easy/datasets/synthetic_gold_dataset.jsonl",
+ "variants": [
+  "O",
+  "P"
+ ],
+ "methods": [
+  "baseline",
+  "v5"
+ ],
+ "llm": true,
+ "dense": [
+  "hcx"
+ ],
+ "analyze": "v4",
+ "today": "2026-11-16",
+ "top_k": 10,
+ "pool": 50,
+ "limit": null,
+ "out": "runs\\1116_easy",
+ "name": "compare",
+ "alt": "synthetic_gold_pipeline/outputs_easy/datasets/alt_positives.jsonl",
+ "alt_exact_only": false,
+ "split": null
+}

@@ -107,8 +107,8 @@ RAW/Meta (+저장 View)  →  MetadataIndex(역색인) → CompatibilityGraph(�
 
 ```bash
 python -m synthetic_gold_pipeline.main_pipeline --config synthetic_gold_pipeline/configs/pipeline_easy.yaml --mode real --target-count 60
-python -m table_card_search.alt_gold --golden synthetic_gold_pipeline/outputs_easy/datasets/synthetic_gold_dataset.jsonl   # 대체 정답
-python -m table_card_search.compare --golden synthetic_gold_pipeline/outputs_easy/datasets/synthetic_gold_dataset.jsonl \
+python -m backend.rag.search.alt_gold --golden synthetic_gold_pipeline/outputs_easy/datasets/synthetic_gold_dataset.jsonl   # 대체 정답
+python -m backend.rag.search.compare --golden synthetic_gold_pipeline/outputs_easy/datasets/synthetic_gold_dataset.jsonl \
     --alt synthetic_gold_pipeline/outputs_easy/datasets/alt_positives.jsonl --dense hcx none --name easy
 ```
 

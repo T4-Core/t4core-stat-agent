@@ -41,6 +41,9 @@ TAGS = [
 ]
 
 app = FastAPI(
+    # [NEW 11-13] 요청·응답 스키마를 하나로 (FastAPI 버전에 따라 'Record-Input'·'Record-Output' 으로 갈라져
+    #   Swagger 스키마 이름이 PC 마다 달라지던 문제 — tests/v4 의 스키마 이름 확인이 그 PC 에서만 실패)
+    separate_input_output_schemas=False,
     title="KOSIS 통계 Agent API (통합)",
     description=(
         "질문 → **① 재작성** → **② 검색·View 생성** → **③ 답변** 을 한 Swagger 에서 단계별·한 번에 테스트\n\n"

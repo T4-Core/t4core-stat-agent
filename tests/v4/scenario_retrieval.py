@@ -133,7 +133,8 @@ assert set(got["ensemble_rrf"]["hits"][0]["stages"]) >= {"bm25_kiwi", "bm25_char
                                                          "rrf_stages"}, got["ensemble_rrf"]["hits"][0]["stages"]
 ce = got["rerank_bge_v2_m3"]["hits"]
 assert all("ce" in h for h in ce) and [h["cost"] for h in ce] == sorted(h["cost"] for h in ce)   # respect_cost
-assert ST_CALLS["encode"] > 0 and ST_CALLS["predict"] > 0 and ST_CALLS["device"] == "cpu"
+from backend.rag.retrieval.embedders import resolve_device          # device: auto → 이 PC 에서 고를 장치 (GPU 가 있으면 cuda)
+assert ST_CALLS["encode"] > 0 and ST_CALLS["predict"] > 0 and ST_CALLS["device"] == resolve_device("auto")
 lex = factory.get_pipeline("kiwi_lexicon").retrievers[0].tok
 assert lex.id != "kiwi:table" and "1인가구" in lex("1인가구 가구수"), lex("1인가구 가구수")       # CSV 값 사전 단어 등록
 ct = factory.get_pipeline("csv_index_corpus").docs_by_id["DT_X001"].text
