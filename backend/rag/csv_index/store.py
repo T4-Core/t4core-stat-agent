@@ -211,6 +211,11 @@ class CsvIndex:
 
     def scan_text(self, text, slots=None, scope="selected", min_len=2, max_len=24):
         """자유 문장 속에서 사전에 있는 표현 찾기 (긴 것 먼저, 겹치지 않게) → [(표현, 행 목록)]"""
+        return [(key, rows) for _, _, key, rows in self.scan_spans(text, slots, scope, min_len, max_len)]
+
+    def scan_spans(self, text, slots=None, scope="selected", min_len=2, max_len=24):
+        """[NEW 11-16] scan_text 와 같고 위치까지 → [(시작, 끝, 표현, 행 목록)] (위치는 norm(text) 기준)
+        낱말 경계를 보려는 쪽(lexicon.token_terms)이 '표현이 낱말 처음부터 이어지는가' 를 확인할 때 씀"""
         t = norm(text)
         out, i = [], 0
         while i < len(t):
@@ -219,12 +224,23 @@ class CsvIndex:
                 ids = self._exact.get(key, []) + self._variant.get(key, [])
                 rows = self._rows(ids, slots, scope) if ids else []
                 if rows:
-                    out.append((key, rows))
+                    out.append((i, i + L, key, rows))
                     i += L
                     break
             else:
                 i += 1
         return out
+
+    def latest_year(self, scope="selected", share=0.25, upto=None):
+        """[NEW 11-16] 자료의 '최신 연도' — 표 수가 가장 많은 연도의 share 이상 표가 가진 연도 중 가장 늦은 해
+        (장래 추계 표의 2030~2070 은 표 수가 적어 빠짐). upto 를 주면 그 해 이하만"""
+        c = self.years(scope=scope)
+        if upto is not None:
+            c = {y: n for y, n in c.items() if int(y) <= int(upto)}
+        if not c:
+            return None
+        top = max(c.values())
+        return max(int(y) for y, n in c.items() if n >= share * top)
 
     def values(self, slot, tbl_ids=None, scope="selected", limit=None):
         """슬롯 값 목록 (표 수 순) → [{value, n_tables, example_tables}]. 지역은 표준명, 연령은 범위로 묶음"""

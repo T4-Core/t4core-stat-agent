@@ -85,7 +85,24 @@ def search_query(text, f):
     q = " ".join(t for t in toks if t not in INTENT_TOKENS) or " ".join(toks)   # [NEW 11-12] 의도 단어 빼기
     have = squash(q)
     extra = [t for t in (f.get("지표") or []) + (f.get("대상") or []) if squash(t) not in have and t not in INTENT_TOKENS]
-    return " ".join([q, *dict.fromkeys(extra)]).strip() or text
+    return tidy_query(" ".join([q, *dict.fromkeys(extra)]).strip()) or text
+
+
+# [NEW 11-16] 검색 문장 다듬기 — 임계값 조각('99,000명 이상' 이 남긴 '0명'·'0')과 같은 단어 반복('인구 인구수 인구수')을 뺌
+#   '5가구'·'2인' 처럼 숫자가 뜻의 일부인 말은 남김 (단위가 명·원·%·건·호·집·천명·만명 인 숫자 조각만 뺌)
+NUM_TOKEN = re.compile(r"^[\d][\d,.]*(?:명|원|%|퍼센트|건|호|집|천명|만명)?$")
+
+
+def tidy_query(text):
+    toks, seen = [], set()
+    for t in str(text or "").split():
+        k = squash(t)
+        if not k or NUM_TOKEN.match(t) or (len(k) >= 2 and k in seen):
+            continue
+        seen.add(k)
+        toks.append((t, k))
+    keys = [k for _, k in toks]
+    return " ".join(t for t, k in toks if len(k) < 2 or not any(k != o and k in o for o in keys))
 
 
 def clean_tokens(toks):

@@ -3,7 +3,8 @@
 
 # ── 1-4 필수 슬롯·시점 규칙 ──
 required_slots: [시점, 지역, 대상]       # 대상 = 대상 또는 지표 값이 CSV 의 행(항목·분류 값)에 있으면 충족
-base_year: 2026                          # '최근·요즘' 이 가리키는 해
+base_year: 2026                          # '최근·요즘' 이 가리키는 해 (base_year_mode: fixed 일 때)
+base_year_mode: data                     # data = CSV 값 사전의 최신 연도(표 수 기준, 추계 연도 제외)를 기준 해로 / fixed = base_year
 trend_years: 5                           # '추이·변화' 의 기간 (base_year 포함 5개 해: 2022~2026)
 recent_words: [최근, 요즘, 현재, 지금, 근래, 요새]
 trend_words: [추이, 변화, 흐름, 추세, 동향, 변동]
@@ -18,6 +19,13 @@ contain_min_len: 2                       # 포함 매칭(인구 ⊂ 총인구수
 
 # ── 1-1 검색 문장 ──
 search_text_mode: v3                     # v3 = 재작성 모듈 문장 + CSV 표준 이름 보강 (추가 HCX 없음) / llm = 검색용 문장을 HCX 로 한 번 더
+
+clarify_mode: soft                       # soft = 시점·지역·대상이 없어도 멈추지 않고 검색 (없는 시점=최신, 지역=전국). 되묻기 후보는 clarifications 에 남김
+                                         # strict = 필수 슬롯이 없으면 needs_clarification 으로 멈춤 (예전 동작)
+question_terms: true                     # 질문 원문에 있는 CSV 표현 중 슬롯에 없는 것을 검색 문장·View 보조 단어(원문표현)로
+question_terms_max_share: 0.15           #   전체 표의 이 비율 이하에만 나오는 표현만 ('인구'·'가구' 같은 흔한 말 제외)
+question_terms_max: 6
+role_units: true                         # 분모('…중 비율'·'…로 나눈'·'천 명당')·조건('…가 N명 이상') 을 검색 단위로 더함 (v4/roles.py)
 
 # ── 1-5 서브쿼리 ──
 split_when_no_common_table: true         # 지표들을 함께 가진 표가 없으면 지표별 서브쿼리로 (split_policy: no_common_table 일 때)

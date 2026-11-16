@@ -42,7 +42,8 @@ VIEW_INTENT = {"값 조회": "값 조회", "추이": "추이", "비교": "비교
                "증감률": "추이", "합계": "값 조회", "범위 밖": "값 조회"}
 VIEW_INTENTS = ("값 조회", "추이", "비교", "순위")       # View 모듈(build_view.VIEW_TYPE)이 아는 의도
 OUT_OF_SCOPE = "범위 밖"
-UNSUPPORTED = ("전출지", "전입지", "국적", "조건", "이동")
+UNSUPPORTED = ("전출지", "전입지", "이동")              # [CHANGED 11-13] 국적·조건은 View 로 넘김 (이전: 메모만 남기고 버림)
+COHORT_COND_RE = re.compile(r"출생연도\s*=\s*((?:19|20)\d{2})(?:\s*~\s*((?:19|20)\d{2}))?")
 TIME_RE = re.compile(r"^((?:19|20)\d{2})\s*년?(?:\s*(\d{1,2})\s*월)?$")
 # v3 용어 사전은 연령이 뜻에 들어 있는 말을 대상 용어로 바꾼다 ('노인' → '고령자'). View 모듈은 연령 분류로
 # 표를 자르므로 연령으로 풀어 준다. 정의가 법·조사마다 다른 말(청년·아동·청소년)은 넣지 않음 (HCX 가 연령을 채울 때만 씀)
@@ -133,6 +134,24 @@ def to_view_filters(f, intent=None, notes=None, label=""):
         age = parse_ages(ages, notes)
         if age:
             out["연령"] = age
+    # [NEW 11-13] 조건·국적·원문표현 → View 의 보조 단어. '출생연도=1983년생' 은 출생연도(코호트) 분류를 자르는 값으로
+    conds, cohort = [], []
+    for c in f.get("조건") or []:
+        m = COHORT_COND_RE.search(str(c))
+        if m:
+            a, b = int(m[1]), int(m[2] or m[1])
+            cohort += list(range(a, b + 1)) if 0 <= b - a <= 60 else [a]
+        elif "=" in str(c):
+            conds.append(str(c).split("=", 1)[1].strip())
+        else:
+            conds.append(str(c))
+    if cohort:
+        out["출생연도"] = sorted(set(cohort))
+    if conds:
+        out["조건"] = list(dict.fromkeys(conds))
+    for k in ("국적", "원문표현"):
+        if f.get(k):
+            out[k] = list(f[k])
     if f.get("비교축"):
         out["비교축"] = f["비교축"][0]
         if len(f["비교축"]) > 1:

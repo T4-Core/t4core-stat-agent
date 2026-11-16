@@ -64,6 +64,114 @@ def specific_stems(names, stems):
     return {s for s in hit if not any(s != t and s in t for t in hit)} or set(stems)
 
 
+# [NEW 11-13] 수를 세는 일반 단어 — 구체적인 단어가 같은 분류·항목에서 맞으면 이 단어들로는 고르지 않음
+GENERIC_STEMS = {"인구", "인구수", "가구", "가구수", "건수", "명수", "호수", "주택", "주택수", "세대", "세대수", "인원", "인원수",
+                 "외국인", "사람", "수"}
+
+
+def narrow_stems(names, stems):
+    """specific_stems + 일반 단어 거르기
+    예) 단어 {'인구수','인구','내국인'}, 항목 ['총인구','내국인_계','외국인_계'] → {'내국인'}
+        단어 {'인구','가구'} (둘 다 일반) → 그대로 (둘 다 고름)"""
+    sp = specific_stems(names, stems)
+    hit = {s for s in sp if any(s in squash(n) for n in names)}
+    concrete = hit - GENERIC_STEMS
+    return concrete if concrete else sp
+
+
+def extra_stems(f):
+    """슬롯의 보조 단어: 조건 · 국적 · 원문표현 (지표·대상으로 못 고른 분류·항목에만 씀)"""
+    return term_stems((f.get("조건") or []) + (f.get("국적") or []) + (f.get("원문표현") or []))
+
+
+COHORT_NAME_RE = re.compile(r"생년|출생\s*연도|출생\s*년도|년생|코호트")
+
+
+# ── 지역 ────────────────────────────────────────────────────────
+URBAN_NAMES = {"동부", "읍부", "면부", "시부", "군부", "읍면부"}
+AXIS_GEO = {"시도": "시도", "시도별": "시도", "광역": "시도", "시군구": "시군구", "시군구별": "시군구", "구군": "시군구",
+            "읍면동": "읍면동", "읍면동별": "읍면동"}
+AXIS_ANY = {"지역", "지역별", "행정구역", "행정구역별", "지자체", "지자체별"}
+
+
+def axis_geo(axis, codes):
+    """비교축 → 지역 수준. '지역'·'행정구역' 처럼 수준을 말하지 않은 축은 표에 있는 수준 중 시도 → 시군구 → 읍면동 순"""
+    a = squash(axis)
+    if a in AXIS_GEO:
+        return AXIS_GEO[a]
+    if a in AXIS_ANY:
+        have = {c.get("geo_type") for c in codes}
+        return next((g for g in ("시도", "시군구", "읍면동") if g in have), None)
+    return None
+
+
+def _geo_key(name):
+    from backend.rag.ingestion.normalize import std_geo_name
+    return squash(std_geo_name(str(name)))
+
+
+def match_regions(codes, regions, axis_level=None):
+    """슬롯 지역 → 이 표의 지역 코드. 반환 (고른 코드, 못 찾은 지역, 같은 이름이 여러 곳인 지역)
+      · '수원시 권선구' — 끝 이름(권선구)으로 찾고 앞 이름(수원시)은 상위 지역으로 확인
+      · ['서울특별시', '도봉구'] — 시도와 그 아래 지역을 같이 물으면 시도는 상위 지역 조건 (서울 합계 행은 넣지 않음)
+      · 같은 이름이 여러 곳('고성군'·'중구')이고 상위 지역을 말하지 않았으면 모두 고르고 dup 에 적음
+      · 같은 지역이 여러 깊이에 있으면(세종: 시도·시군구) 위쪽 하나
+      · '동부'·'읍부'·'면부' 는 그 이름을 물었을 때만 고름
+      · 시도만 물었고 비교축이 시군구(axis_level)면 그 시도 아래 시군구들"""
+    by_code = {c["code"]: c for c in codes}
+
+    def ancestors(c):
+        out, seen, p = set(), set(), c.get("parent")
+        while p and p in by_code and p not in seen:
+            seen.add(p)
+            out |= {_geo_key(by_code[p]["std"]), _geo_key(by_code[p]["name"])}
+            p = by_code[p].get("parent")
+        return out
+
+    def is_sido(r):
+        return any(c["std"] == r and c.get("geo_type") == "시도" for c in codes)
+
+    subs = [r for r in regions if not is_sido(r)]
+    sidos = [r for r in regions if is_sido(r)]
+    sel, miss, dup, used_sido = [], [], [], set()
+    for r in subs:
+        parts = str(r).split()
+        last, quals = _geo_key(parts[-1]), [_geo_key(p) for p in parts[:-1]]
+        cand = [c for c in codes if not c["is_total"] and last in (_geo_key(c["std"]), _geo_key(c["name"]))
+                and ((c.get("geo_type") == "동읍면부") == (last in URBAN_NAMES))]
+        if not cand:
+            miss.append(r)
+            continue
+        for q in quals + [_geo_key(s) for s in sidos]:      # 상위 지역으로 좁히기 (좁혀서 남는 것이 있을 때만)
+            narrowed = [c for c in cand if q in ancestors(c)]
+            if narrowed:
+                cand = narrowed
+                if q in {_geo_key(s) for s in sidos}:
+                    used_sido.add(q)
+        top = min(c["depth"] for c in cand)
+        cand = [c for c in cand if c["depth"] == top]
+        if len(cand) > 1:
+            dup.append(parts[-1])
+        sel += cand
+    for r in sidos:
+        if _geo_key(r) in used_sido:                         # 아래 지역의 상위 조건으로 쓰였으면 시도 합계 행은 넣지 않음
+            continue
+        cand = [c for c in codes if c["std"] == r and c.get("geo_type") != "동읍면부"]
+        if not cand:
+            miss.append(r)
+            continue
+        head = min(cand, key=lambda c: c["depth"])
+        kids = [c for c in codes if axis_level in ("시군구", "읍면동") and c.get("geo_type") == axis_level
+                and _geo_key(r) in ancestors(c)]
+        sel += kids or [head]
+    uniq, seen = [], set()
+    for c in sel:
+        if c["code"] not in seen:
+            seen.add(c["code"])
+            uniq.append(c)
+    return uniq, miss, dup
+
+
 def match_name_ctx(name, stems, context=""):
     """[NEW v4] 분류 값 + 분류 이름으로 맞추기: 값이 질문 단어의 앞부분이고 나머지가 분류 이름에 있으면 같은 것
     예) 질문 '1인가구', 분류 '가구원수별' 의 값 '1인' → '1인' + '가구'(분류 이름에 있음) = '1인가구'
@@ -182,22 +290,23 @@ def match_level(l, f, stems, notes):
 
     if kind == "regions":
         regions, axis = f.get("지역"), f.get("비교축")
+        # [CHANGED 11-13] 지역 맞추기를 match_regions 로 옮김 (시군구·동명 지역·동부/읍부/면부·'충남의 시군구별')
+        #   이전: 표준명이 슬롯 값과 글자 그대로 같을 때만, 같은 이름이 여럿이면 하나만, 동읍면부는 항상 제외,
+        #         비교축은 '시도'·'지역'·'시군구' 세 값만 → '수원시 권선구'·'고성군'·'동부'·'행정구역별' 이 전국 합계로 떨어짐
+        gt = axis_geo(axis, codes)
         if regions:
-            sel = {}
-            for c in codes:                                   # 같은 표준명이 여럿이면 상위(depth 작은) 하나만
-                if c["std"] in regions and c.get("geo_type") != "동읍면부":
-                    if c["std"] not in sel or c["depth"] < sel[c["std"]]["depth"]:
-                        sel[c["std"]] = c
-            miss = [r for r in regions if r not in sel]
+            sel, miss, dup = match_regions(codes, regions, gt)
             if miss:
                 note(notes, "지역", "missing", f"{name}: 지역 {miss} 없음", dim=name, requested=miss)
-            return list(sel.values()) or fallback("요청 지역 없음")
-        if axis in ("시도", "지역", "시군구"):
-            gt = "시군구" if axis == "시군구" else "시도"
+            if dup:
+                note(notes, "지역", "partial", f"{name}: 같은 이름의 지역이 여러 곳 {dup} → 모두 포함 (시도를 함께 물으면 하나로)",
+                     dim=name, requested=dup, applied=[c["label"] for c in sel if c["name"] in dup or c["std"] in dup])
+            return sel or fallback("요청 지역 없음")
+        if gt:
             sel = {}
             for c in codes:
-                if c.get("geo_type") == gt and c["std"] not in sel:
-                    sel[c["std"]] = c
+                if c.get("geo_type") == gt and (c["std"], c.get("parent")) not in sel:
+                    sel[(c["std"], c.get("parent"))] = c
             return list(sel.values()) or fallback(f"{gt} 코드 없음")
         return [c for c in codes if c["is_total"]] or fallback("전국 합계 없음")
     if kind == "sex":
@@ -220,8 +329,18 @@ def match_level(l, f, stems, notes):
                  f"{name}: 중위(기본) 시나리오가 없어 '{default[0]['std']}'({l['default_reason']}) 사용",
                  dim=name, requested="중위", applied=[default[0]["std"]])
         return default
+    # [NEW 11-13] '1983년생' → 출생연도 분류의 그 코드. 실제 표의 분류 이름은 '생년별' 이라 종류가 cohort 로 잡히지 않는
+    #   경우가 있어(normalize.COHORT_RE 는 '년생'·'코호트') 이름으로도 확인
+    if f.get("출생연도") and (kind == "cohort" or (kind == "other" and COHORT_NAME_RE.search(str(name)))):
+        ys = set(f["출생연도"])
+        sel = [c for c in codes if not c["is_total"] and (
+            (c.get("cohort_from") is not None and any(c["cohort_from"] <= y <= (c.get("cohort_to") or c["cohort_from"]) for y in ys))
+            or any(str(y) in str(c["name"]) for y in ys))]
+        if sel:
+            return sel
+        note(notes, "지표", "missing", f"{name}: 출생연도 {sorted(ys)} 코드 없음", dim=name, requested=sorted(ys))
     full = full_names([c["name"] for c in codes])                                     # '-' 줄은 윗줄 이름 이어받기
-    sel = [c for c, n in zip(codes, full) if not c["is_total"] and match_name(n, specific_stems(full, stems))]
+    sel = [c for c, n in zip(codes, full) if not c["is_total"] and match_name(n, narrow_stems(full, stems))]
     # [CHANGED v4] 이전: match_name(n, stems) — 지표 '가구' 가 '1세대가구·2세대가구·1인가구 …' 를 다 골라
     #   대상 '1인가구' 를 물어도 세대구성 전체가 들어감. 같은 분류 안에서 더 구체적인 단어가 맞으면 그것만
     if sel:
@@ -230,6 +349,13 @@ def match_level(l, f, stems, notes):
     sel = [c for c, n in zip(codes, full) if not c["is_total"] and match_name_ctx(n, stems, name)]
     if sel:
         return sel
+    # [NEW 11-13] 지표·대상으로 못 고르면 보조 단어(조건·국적·원문표현)로 — '보증부월세'·'재판이혼'·'슬레이트'·'베트남'
+    extra = extra_stems(f) - set(stems)
+    if extra:
+        sel = [c for c, n in zip(codes, full) if not c["is_total"] and match_name(n, specific_stems(full, extra))] \
+            if any(match_name(n, extra) for n in full) else []
+        if sel:
+            return sel
     return [c for c in codes if c["is_total"]] or fallback("지표·대상과 맞는 코드 없음")
 
 
@@ -253,7 +379,14 @@ def pick_sex(rows, sexes):
 
 def match_items(prof, f, stems, sex_done, notes):
     items = prof["items"]
-    sel = [i for i in items if match_name(i["name"], stems)]
+    names = [i["name"] for i in items]
+    sel = [i for i in items if match_name(i["name"], narrow_stems(names, stems))]
+    # [CHANGED 11-13] 이전: match_name(이름, stems) — 대상 '내국인' + 지표 '인구수' 가 '인구' 가 든 항목을 모두 고름
+    #   구체적인 단어가 맞는 항목이 있으면 일반 지표 단어('인구'·'가구'·'건수')로는 고르지 않음 (narrow_stems)
+    if not sel:                                             # [NEW 11-13] 보조 단어(조건·국적·원문표현)
+        extra = extra_stems(f) - set(stems)
+        sel = [i for i in items if extra and match_name(i["name"], specific_stems(names, extra))] \
+            if any(match_name(n, extra) for n in names) else []
     sexes = {SEX_ALIAS.get(s, s) for s in (f.get("성별") or [])}
     if sexes and not sex_done:                              # 성별이 항목 이름에 있는 표 (남자인구수 …)
         by_sex = pick_sex(sel or items, sexes)

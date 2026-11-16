@@ -140,7 +140,10 @@ def build_viewset(source, *, today=None, retrieval_config=None, top_k=None, n_vi
                 "seconds": round(time.time() - t0, 3)}
     cfg = retrieval_config or s.view_retrieval_config
     search_fn = None
-    if cfg:
+    if cfg == "v5":                        # [NEW v5] 다채널 검색 (backend.rag.search)
+        from backend.rag.search import search_fn as v5_fn
+        search_fn = v5_fn(cfg)
+    elif cfg:
         from backend.rag.retrieval.factory import get_pipeline
         search_fn = get_pipeline(cfg).search_compat
     from backend.rag.ingestion.views import run_query

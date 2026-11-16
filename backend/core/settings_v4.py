@@ -15,6 +15,9 @@ from pydantic import BaseModel, Field
 class QueryV4Settings(BaseModel):
     required_slots: list[str] = Field(default_factory=lambda: ["시점", "지역", "대상"])
     base_year: int = 2026
+    # [NEW 11-16] '최근·요즘' 의 기준 해. fixed = base_year 그대로 / data = CSV 값 사전의 최신 연도 (csv_index.latest_year)
+    #   이전: 2026 고정 → 자료가 2025 까지인 표가 '시점 없음' 으로 깎이고 View 가 대체 연도로 잘림
+    base_year_mode: str = "fixed"
     trend_years: int = 5
     recent_words: list[str] = Field(default_factory=lambda: ["최근", "요즘", "현재", "지금", "근래", "요새"])
     trend_words: list[str] = Field(default_factory=lambda: ["추이", "변화", "흐름", "추세", "동향", "변동"])
@@ -30,6 +33,17 @@ class QueryV4Settings(BaseModel):
     #                           always          = 함께 가진 표가 있어도 지표(개념)마다 나눔 → 같은 표에서도 지표별 View
     split_policy: str = "no_common_table"
     max_sub_queries: int = 4
+    # [NEW 11-13] 질문 원문의 CSV 표현 보충 (lexicon.question_terms): 슬롯에 없는 '표를 가르는 말'을 검색 문장·View 보조 단어로
+    # [NEW 11-13] 되묻기·범위 밖·분석 실패 처리
+    #   strict = 필수 슬롯이 없으면 needs_clarification 으로 멈춤 (예전 동작)
+    #   soft   = 멈추지 않음: 없는 시점은 최신, 없는 지역은 전국으로 두고 검색·View 를 진행. 되묻기 후보는 clarifications 에 그대로 남김
+    #            HCX 실패·오류는 코드 추출 값으로, '범위 밖' 판정도 질문에 통계 용어가 있으면 뒤집음
+    clarify_mode: str = "strict"
+    question_terms: bool = True
+    # [NEW 11-16] (P2) 역할 분해: 원문의 '…중 비율'·'…로 나눈'·'천 명당'(분모), '…가 N명 이상'(조건) 을 검색 단위로 더함
+    role_units: bool = True
+    question_terms_max_share: float = 0.15       # 전체 표 중 이 비율 이하에만 나오는 표현만 (흔한 말 제외)
+    question_terms_max: int = 6
     save_runs: bool = False
     # [Step 4] View 묶음 · Point 충돌 · 선택
     view_top_k: int = 10
@@ -59,8 +73,13 @@ def get_settings() -> QueryV4Settings:
     if p.exists():
         import yaml
         data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-        return QueryV4Settings(**data)
-    return QueryV4Settings()
+    else:
+        data = {}
+    if os.getenv("QUERY_V4_CLARIFY_MODE"):                  # [NEW 11-13] 실행 환경에서 한 값만 바꾸기 (테스트는 strict)
+        data["clarify_mode"] = os.environ["QUERY_V4_CLARIFY_MODE"]
+    if os.getenv("QUERY_V4_BASE_YEAR_MODE"):                # [NEW 11-16] 테스트는 fixed (시나리오가 2026 기준으로 쓰였음)
+        data["base_year_mode"] = os.environ["QUERY_V4_BASE_YEAR_MODE"]
+    return QueryV4Settings(**data)
 
 
 def with_overrides(overrides=None) -> QueryV4Settings:

@@ -55,12 +55,28 @@ RANGE_RE = re.compile(rf"(?<!\d)({YEAR})\s*년?\s*(?:~|-|–|부터|에서(?=\s*
 MONTH_RANGE_RE = re.compile(rf"(?<!\d)({YEAR})\s*년\s*(\d{{1,2}})\s*월\s*(?:부터|~|-|–)\s*(?:({YEAR})\s*년\s*)?(\d{{1,2}})\s*월\s*(?:까지)?")
 
 
+# [NEW 11-13] 두 시점 비교('A년에서 B년까지 얼마나 변했나')는 사이 연도가 필요 없음 — 펼치면 5년 주기 표가
+#   요청 6개 중 2개만 담은 것으로 계산돼 뒤로 밀림. 추이를 물었으면(TREND_WORD) 예전처럼 모두 펼침
+TWO_POINT_RE = re.compile(r"대비|비해|비교|차이|증감|변화율|변화량|변화폭|얼마나\s*(?:변|늘|줄|증가|감소|달라)|"
+                          r"몇\s*(?:퍼센트|%|명|건|가구|호)\s*(?:늘|줄|증가|감소|변)")
+TREND_WORD_RE = re.compile(r"추이|매년|연도별|년도별|해마다|흐름|추세|연평균|동안의?\s*(?:합|총)")
+
+
+def is_two_point(text):
+    return bool(TWO_POINT_RE.search(text)) and not TREND_WORD_RE.search(text)
+
+
 def expand_year_ranges(text, max_years=MAX_RANGE_YEARS):
-    """'2020년~2024년' → '2020년 2021년 2022년 2023년 2024년'. max_years보다 길면 'a년~b년' 그대로. 반환: (바뀐 텍스트, 내역)"""
+    """'2020년~2024년' → '2020년 2021년 2022년 2023년 2024년'. max_years보다 길면 'a년~b년' 그대로. 반환: (바뀐 텍스트, 내역)
+    [CHANGED 11-13] 두 시점 비교 질문이면 양 끝 연도만 ('2023년에서 2025년까지 얼마나 변했나' → 2023년 2025년)"""
     notes = []
+    ends_only = is_two_point(text)
 
     def _r(m):
         a, b = sorted((int(m.group(1)), int(m.group(2))))
+        if ends_only and b > a:
+            notes.append(f"{m.group(0).strip()} → {a}년·{b}년 (두 시점 비교)")
+            return f"{a}년 {b}년" + (" " if m.group(0).endswith(" ") else "")
         new = " ".join(f"{y}년" for y in range(a, b + 1)) if b - a + 1 <= max_years else f"{a}년~{b}년"
         notes.append(f"{m.group(0).strip()} → {a}~{b}년 ({b - a + 1}개 연도)")
         return new + (" " if m.group(0).endswith(" ") else "")
@@ -237,11 +253,40 @@ AGE_RES = [  # 긴 패턴부터. 찾은 부분은 지워서 두 번 세지 않�
     re.compile(r"(?<!\d)\d{1,3}\s*세\s*(?:이상|이하|미만|초과)"),
     re.compile(r"(?<!\d)\d{1,3}\s*[~\-]\s*\d{1,3}\s*세"),
     re.compile(r"(?<!\d)[1-9]0\s*대(?:\s*(?:이상|이하))?"),        # 10대~90대만 ('3대 도시' 같은 것은 제외)
-    re.compile(r"(?<!\d)\d{1,3}\s*세(?!\s*(?:이상|이하|미만|초과))"),
+    re.compile(r"(?<!\d)\d{1,3}\s*세(?!\s*(?:이상|이하|미만|초과))(?!\s*(?:별|단위|간격|계급|씩|마다))"),
+    # [CHANGED 11-13] '5세별'·'1세 단위'·'5세 계급' 은 나이가 아니라 연령 구간의 크기 → 연령 조건으로 읽지 않음
+    #   이전: '읍면동 단위 5세별 인구' → 연령 5세
 ]
+# [NEW 11-13] 끝이 없는 기간 ('1995년부터 5년마다', '2015년 이후') → 시작 해부터 기준 해까지 (간격은 'N년마다'·'N년 단위')
+OPEN_RANGE_RE = re.compile(rf"(?<!\d)({YEAR})\s*년?\s*(?:부터|이후|이래)(?!\s*{YEAR})")
+STEP_RE = re.compile(r"(\d{1,2})\s*년\s*(?:마다|단위|간격|주기)")
+
+
+def expand_open_range(text, today):
+    """'1995년부터 5년마다 총인구' → '1995년 2000년 … 2025년 5년마다 총인구'. 너무 길면(MAX_RANGE_YEARS 초과) 처음·끝만"""
+    notes = []
+    m = OPEN_RANGE_RE.search(text)
+    if not m or re.search(rf"{YEAR}\s*년?\s*(?:까지|~)", text[m.end():]) or RANGE_RE.search(text):
+        return text, notes
+    a, b = int(m.group(1)), today.year
+    st = STEP_RE.search(text)
+    step = max(1, int(st.group(1))) if st else 1
+    years = list(range(a, b + 1, step))
+    if len(years) < 2:
+        return text, notes
+    if len(years) > MAX_RANGE_YEARS:
+        years = [years[0], years[-1]]
+    notes.append(f"{m.group(0).strip()} → {years[0]}~{years[-1]}년 ({len(years)}개 연도, 간격 {step}년)")
+    return text[:m.start()] + " ".join(f"{y}년" for y in years) + " " + text[m.end():], notes
 YEAR_RE = re.compile(rf"(?<!\d)({YEAR})(?!\d)(?!\s*(?:만|억|천|원|명|호|건|개|%|세|대))")   # '2000만 원'은 연도 아님
 MONTH_RE = re.compile(rf"(?<!\d)({YEAR})\s*년\s*(\d{{1,2}})\s*월")
 COHORT_RE = re.compile(rf"(?<!\d)({YEAR})(?:\s*[~\-]\s*({YEAR}))?\s*년?\s*생")
+# [NEW 11-13] 출생연도의 다른 표기 — '생년별 1983년', '1983년에 태어난', '태어난 해가 1983년', '출생연도 1983'
+#   이전: 'YYYY년생' 만 조건으로 보고 나머지는 시점으로 읽어, 2015~2023 수록 표가 '시점 1983 없음' 이 됨
+COHORT_RES2 = [re.compile(rf"생년(?:별)?\s*({YEAR})\s*년?"),
+               re.compile(rf"(?<!\d)({YEAR})\s*년(?:도)?에?\s*(?:태어난|출생한)"),
+               re.compile(rf"태어난\s*해가?\s*({YEAR})\s*년?"),
+               re.compile(rf"출생\s*연도(?:가|는|별)?\s*({YEAR})\s*년?")]
 
 # 기준이 애매한 시점 → 시점 값 (2-3 프롬프트의 시점 규칙과 같음). 질문에 연도가 없을 때만 씀
 FUZZY_TIMES = [
@@ -257,7 +302,8 @@ def rule_extract(question, today=None):
     q, notes = resolve_relative_time(question, today or date.today())
     q, n2 = expand_month_ranges(q)
     q, n3 = expand_year_ranges(q)
-    notes += n2 + n3
+    q, n4 = expand_open_range(q, today or date.today())       # [NEW 11-13]
+    notes += n2 + n3 + n4
     found, rest = {}, mask_terms(q)              # rest: 찾은 부분을 지워 가며 쓰는 사본. 일상어 사전 단어는 먼저 가림
 
     # 조건: 출생연도 ('1983~1995년생') — 시점으로 잡히지 않게 먼저 지움
@@ -265,8 +311,12 @@ def rule_extract(question, today=None):
     for m in list(COHORT_RE.finditer(rest)):
         cohort.append(f"출생연도={m.group(1)}~{m.group(2)}년생" if m.group(2) else f"출생연도={m.group(1)}년생")
         rest = _mask(rest, m.span())
+    for rx in COHORT_RES2:                                # [NEW 11-13]
+        for m in list(rx.finditer(rest)):
+            cohort.append(f"출생연도={m.group(1)}년생")
+            rest = _mask(rest, m.span())
     if cohort:
-        found["조건"] = cohort
+        found["조건"] = list(dict.fromkeys(cohort))
 
     # 시점: 'YYYY년 M월'을 먼저 찾아 지우고, 남은 곳에서 연도만 있는 것. 둘 다 남김 (나온 순서)
     times = []

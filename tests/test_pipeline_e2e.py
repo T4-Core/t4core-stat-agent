@@ -20,7 +20,8 @@ DATA_KEYS = ("KOSIS_DATA_DIR", "KOSIS_DATA", "VIEW_OUT_DIR", "RAG_INDEX_DIR", "R
 def _env(**kw):
     # 경로 변수는 "" 로 둠: pop 하면 저장소의 실제 .env 값이 load_dotenv 로 다시 채워질 수 있음 (override=False 라 "" 는 유지됨)
     env = {**os.environ, **{k: "" for k in DATA_KEYS}, "PYTHONPATH": str(ROOT),
-           "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}   # Windows 콘솔 기본(cp949)에 없는 문자(⓪ 등) 출력 오류 방지
+           "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "QUERY_V4_CLARIFY_MODE": "strict", "QUERY_V4_BASE_YEAR_MODE": "fixed",
+           "TABLE_SEARCH": "legacy"}   # 기존 시나리오는 예전 검색·strict 기준으로 쓰였음 (v5·soft 는 tests/search, tests/v4/test_fix_1113)   # Windows 콘솔 기본(cp949)에 없는 문자(⓪ 등) 출력 오류 방지
     env.update(kw)
     return env
 

@@ -52,11 +52,21 @@ def units_of(b, sub_ids=None):
     return units
 
 
+def default_search():
+    """[NEW 11-13] search_fn 을 주지 않았을 때 쓰는 검색. 환경변수 TABLE_SEARCH = v5(기본) | legacy(예전 BM25 → 조건 → dense)
+    /chat (agent.tools) · /rag/views · build_viewset 이 모두 이 함수를 거친다"""
+    import os
+    if os.getenv("TABLE_SEARCH", "v5").strip().lower() == "legacy":
+        return search
+    from backend.rag.search import search_fn
+    return search_fn()
+
+
 def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None, search_fn=None, skip_main=False):
     # 질의 하나 → 상세 결과 (카드는 units[].views[].record)
     # [CHANGED v4] search_fn: 검색 함수 교체 (search(query, top_k, filters=f) 모양). None 이면 예전과 같은 table_search.search
     #   검색 실험 구성으로 View 까지 보려면 retrieval.factory.get_pipeline(<구성>).search_compat
-    search_fn = search_fn or search
+    search_fn = search_fn or default_search()            # [CHANGED 11-13] 기본 검색 = backend.rag.search (v5)
     # [CHANGED v4] skip_main: 서브쿼리가 있으면 본 질의 단위를 건너뜀 (기본 False = 예전과 같음)
     b = dict(b)
     b["query_id"] = b.get("query_id") or uuid.uuid4().hex[:8]
@@ -70,7 +80,9 @@ def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None, sear
             label = b["query_id"] if uid == "main" else uid
             notes = []
             sq = search_query(text, f)                    # 지역·시점 단어 빼고 지표·대상 단어 더함 (resolve.py)
-            cands = search_fn(sq, top_k, filters=f)       # BM25 50개 → 조건 확인 → 상위 top_k 만 dense  [CHANGED v4] search → search_fn
+            # [CHANGED v5] 원문을 받는 검색 함수(wants_question)에는 질문 원문·단위 이름을 함께 넘김 (기존 함수는 그대로 호출)
+            kw = {"question": b.get("original"), "unit": uid} if getattr(search_fn, "wants_question", False) else {}
+            cands = search_fn(sq, top_k, filters=f, **kw)  # BM25 50개 → 조건 확인 → 상위 top_k 만 dense  [CHANGED v4] search → search_fn
             # [CHANGED] 이전: cands = search(text, top_k)
             views = []
             for c in cands[:n_views]:

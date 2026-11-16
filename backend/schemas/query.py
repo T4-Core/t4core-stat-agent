@@ -84,7 +84,15 @@ class Filters(BaseModel):
     성별: list[str] | None = Field(None, description="남자 / 여자")
     연령: AgeRange | None = Field(None, description="나이 범위 {from, to}")
     지표: list[str] | None = Field(None, description="무엇을 셌는가 (인구수, 출생아수, 고령인구비율 …)")
-    비교축: str | None = Field(None, description="비교·순위의 기준 축 (시도, 지역 …)")
+    비교축: str | None = Field(None, description="비교·순위의 기준 축 (시도, 시군구, 행정구역, 지역 …)")
+    # [NEW 11-13] View 를 자를 때의 보조 조건 (없어도 됨)
+    조건: list[str] | None = Field(None, description="분류 값으로 찾을 말 (보증부월세, 재판이혼 …)")
+    국적: list[str] | None = Field(None, description="국적 분류 값 (베트남, 중국 …)")
+    출생연도: list[int] | None = Field(None, description="출생연도(코호트) 분류 값 — 시점과 다름 (1983년생 → [1983])")
+    원문표현: list[str] | None = Field(None, description="질문 원문에 있던 CSV 표현 중 다른 슬롯에 없는 것 "
+                                                    "(대상·지표로 못 고른 분류·항목을 고를 때만 씀)")
+    역할: str | None = Field(None, description="[NEW 11-16] 검색 단위의 역할: 분모 / 조건 (쿼리 모듈 v4/roles.py 가 붙임). "
+                                             "분모 단위는 같은 조사·수준의 단순한 인구·가구 표를 찾음")
     의도: str | None = Field(None, description="View 종류를 정하는 의도: 값 조회 / 추이 / 비교 / 순위 "
                                              "(재작성 모듈 v3 의도 9종은 adapter.VIEW_INTENT 로 이 4종으로 바뀜)")
 
