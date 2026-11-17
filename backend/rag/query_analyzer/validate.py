@@ -379,7 +379,9 @@ def validate_slots(r):
     source = "hcx" if subs else ""
     if not subs and (subs := split_by_indicator(s)):     # [NEW 11-12] 프롬프트 규칙 1 을 코드로: HCX 가 나누지 않아도 지표별로
         source = "code"
-        log.append(f"하위 질문 채움(지표 {len(subs)}개, HCX 가 나누지 않음): {[x['지표'][0] for x in subs]}")
+        # [FIX 11-17] 지표가 빈 하위 질문에서 x['지표'][0] 이 IndexError → 분석 전체 실패하던 문제 (기록 문장만 바꿈)
+        log.append(f"하위 질문 채움(지표 {len(subs)}개, HCX 가 나누지 않음): "
+                   f"{[(x.get('지표') or x.get('대상') or [''])[0] for x in subs]}")
     for ss in subs:                                      # 원 질문 의도에 하위 질문 의도가 모두 들어가게 (프롬프트 규칙 4)
         if ss["의도"] not in s["의도"]:
             s["의도"].append(ss["의도"]); log.append(f"의도 채움(하위 질문): {ss['의도']}")

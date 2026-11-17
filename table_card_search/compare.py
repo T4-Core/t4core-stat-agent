@@ -40,11 +40,12 @@ from datetime import date, datetime
 from pathlib import Path
 
 import table_card_search  # noqa: F401
-from table_card_search.search import METHODS, analyze_units, get_pipeline_for
+from table_card_search.search import EMBEDDERS, METHODS, analyze_units, get_pipeline_for, hybrid_methods
 
 PACKAGE = Path(__file__).resolve().parent
 KS = (1, 3, 5, 10)
-FAIL_LABEL = {"not_in_corpus": "코퍼스에 정답 표 없음", "bm25_miss": "BM25 1단계 후보(50)에 없음",
+FAIL_LABEL = {"not_in_corpus": "코퍼스에 정답 표 없음", "prefilter_cut": "조건표 거르기에서 탈락 (하이브리드)",
+              "bm25_miss": "1단계 후보에 없음 (순차 = BM25 50, 하이브리드 = 합친 후보)",
               "condition_cut": "조건 단계에서 상위 top_k 밖으로 밀림", "rank_6_10": "상위 10 안이지만 5 밖",
               "no_filters_cut": "슬롯 없음 — BM25 상위 top_k 밖"}
 
@@ -170,8 +171,15 @@ def gold_profile(pipe, tid):
 def evaluate_one(pipe, bm25, row, units, top_k, pool):
     from backend.rag.ingestion.resolve import unmet
     best, bm25_ids, n_filters = {}, set(), 0
+    hybrid = getattr(pipe, "wants_original", False)           # [NEW 11-17] 하이브리드: 원래 질문도 넘김 + 단계별 기록
+    pool_ids, pass_ids, n_pass = set(), set(), []
     for ui, u in enumerate(units):
-        r = pipe.search(u["search_query"], u.get("filters"), top_k)
+        r = pipe.search(u["search_query"], u.get("filters"), top_k, **({"original": row["question"]} if hybrid else {}))
+        if hybrid:
+            pool_ids |= set(r["pool_ids"])
+            ids, pre = pipe.passes(u.get("filters"))
+            pass_ids |= ids
+            n_pass.append(pre["n_pass"])
         for h in r["hits"]:
             k = (h["rank"], ui)
             if h["tbl_id"] not in best or k < best[h["tbl_id"]][0]:
@@ -190,6 +198,11 @@ def evaluate_one(pipe, bm25, row, units, top_k, pool):
         res[f"groups@{k}"] = int(all(set(v) & top for v in row["groups"].values()))
     res["bm25@pool"] = int(bool(acceptable & bm25_ids))
     res["bm25_groups@pool"] = int(all(set(v) & bm25_ids for v in row["groups"].values()))
+    # [NEW 11-17] 하이브리드 단계별: 거르기에서 정답이 살아남았나 · 합친 후보 안에 정답이 있나 (순차 방식은 빈칸)
+    res["gold_pass"] = int(bool(acceptable & pass_ids)) if hybrid else None
+    res["n_pass"] = round(statistics.mean(n_pass)) if n_pass else None
+    res["fused@pool"] = int(bool(acceptable & pool_ids)) if hybrid else None
+    first_stage = res["fused@pool"] if hybrid else res["bm25@pool"]
     in_corpus = [t for t in acceptable if t in pipe.docs_by_id]
     res["in_corpus"] = int(bool(in_corpus))
     # 정답 표의 조건 불일치 (슬롯이 있는 단위 기준) — 조건표가 정답을 잘못 '못 맞춤'으로 보는지
@@ -212,7 +225,9 @@ def evaluate_one(pipe, bm25, row, units, top_k, pool):
         res["fail"] = ""
     elif not in_corpus:
         res["fail"] = "not_in_corpus"
-    elif not res["bm25@pool"]:
+    elif hybrid and not res["gold_pass"]:
+        res["fail"] = "prefilter_cut"
+    elif not first_stage:
         res["fail"] = "bm25_miss"
     elif pos and pos <= 10:
         res["fail"] = "rank_6_10"
@@ -245,7 +260,7 @@ def _mean(xs):
 
 
 METRICS = ["hit@1", "hit@3", "hit@5", "hit@10", "groups@5", "groups@10", "mrr", "bm25@pool", "bm25_groups@pool",
-           "gold_unmet_any", "sibling_confusion", "in_corpus"]
+           "gold_unmet_any", "sibling_confusion", "in_corpus", "gold_pass", "fused@pool", "n_pass"]
 ALT_METRICS = ["hit@1_alt", "hit@3_alt", "hit@5_alt", "hit@10_alt", "groups@5_alt", "groups@10_alt", "mrr_alt"]   # [NEW 11-12]
 
 
@@ -335,8 +350,8 @@ def report_md(meta, table, fails, wins, per):
                 L.append(f"| {t['config']} | {t['value']} | {t['n']} | {_fmt(t.get('with_alt'))} | "
                          + " | ".join(f"{_fmt(t[m])} → {_fmt(t[m + '_alt'])}" for m in ("hit@1", "hit@5", "hit@10", "groups@5", "mrr"))
                          + " |")
-    cols = ["n", "hit@1", "hit@3", "hit@5", "hit@10", "groups@5", "mrr", "bm25@pool", "gold_unmet_any", "sibling_confusion",
-            "in_corpus"]
+    cols = ["n", "hit@1", "hit@3", "hit@5", "hit@10", "groups@5", "mrr", "bm25@pool", "gold_pass", "fused@pool", "n_pass",
+            "gold_unmet_any", "sibling_confusion", "in_corpus"]
     for group in ("ALL", "variant", "hop_type", "reasoning_type", "split"):
         if not any(t["group"] == group for t in table):
             continue
@@ -377,8 +392,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m table_card_search.compare")
     ap.add_argument("--golden", default="synthetic_gold_pipeline/outputs/datasets/synthetic_gold_dataset.jsonl")
     ap.add_argument("--variants", nargs="*", default=["O", "P"])
-    ap.add_argument("--methods", nargs="*", default=list(METHODS), choices=list(METHODS))
-    ap.add_argument("--dense", nargs="*", default=["hcx"], choices=["hcx", "hash", "none"])
+    ap.add_argument("--methods", nargs="*", default=list(METHODS), choices=[*METHODS, *hybrid_methods()])   # [CHANGED 11-17]
+    ap.add_argument("--dense", nargs="*", default=["hcx"], choices=[*EMBEDDERS, "none"])                    # [CHANGED 11-17]
     ap.add_argument("--set", dest="set_name", default="full", choices=["full", "sample", "both"])
     ap.add_argument("--table-card-dir", nargs="*", default=None)
     ap.add_argument("--expend-dir", nargs="*", default=None)

@@ -31,7 +31,18 @@ PACKAGE = Path(__file__).resolve().parent
 CONFIGS = {"baseline": "baseline", "table_card": str(PACKAGE / "configs" / "table_card.yaml"),
            "table_card_expend": str(PACKAGE / "configs" / "table_card_expend.yaml")}
 METHODS = tuple(CONFIGS)
-EMBEDDERS = {"hcx": {"type": "hcx_bge_m3"}, "hash": {"type": "hash"}}
+EMBEDDERS = {"hcx": {"type": "hcx_bge_m3"}, "hash": {"type": "hash"},
+             # [NEW 11-17] 로컬 임베딩 모델 (sentence-transformers, CPU) — 하이브리드에서 모델만 바꿔 비교
+             "bgem3": {"type": "sentence_transformers", "model": "BAAI/bge-m3", "max_seq_length": 512, "batch_size": 8},
+             "kure": {"type": "sentence_transformers", "model": "nlpai-lab/KURE-v1", "max_seq_length": 512, "batch_size": 8},
+             "bgeko": {"type": "sentence_transformers", "model": "dragonkue/BGE-m3-ko", "max_seq_length": 512,
+                       "batch_size": 8}}
+
+
+def hybrid_methods():
+    """[NEW 11-17] configs/hybrid.yaml 의 하이브리드 구성 이름들"""
+    from table_card_search.hybrid import variant_names
+    return variant_names()
 
 
 def method_config(method, dense="hcx", set_name="full", dirs=None, top_k=None):
@@ -60,6 +71,12 @@ def method_config(method, dense="hcx", set_name="full", dirs=None, top_k=None):
 
 def get_pipeline_for(method, dense="hcx", set_name="full", dirs=None, top_k=None):
     from backend.rag.retrieval.factory import get_pipeline
+    if method in hybrid_methods():                       # [NEW 11-17] 하이브리드 (조건표 거르기 → BM25+dense → RRF)
+        from table_card_search.hybrid import get_hybrid
+        if dense != "none" and dense not in EMBEDDERS:
+            raise ValueError(f"dense 는 {tuple(EMBEDDERS)} | none: {dense}")
+        return get_hybrid(method, None if dense == "none" else dict(EMBEDDERS[dense]), set_name, dirs, top_k,
+                          dense_name=dense)
     return get_pipeline(method_config(method, dense, set_name, dirs, top_k))
 
 

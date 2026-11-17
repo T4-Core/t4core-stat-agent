@@ -1,0 +1,20 @@
+# [NEW 11-17] 하이브리드 카드 검색 구성 (table_card_search/hybrid.py 가 읽음)
+#   ① 조건표 거르기(지역 맞음 + 요청 연도와 하나라도 겹침) → ② BM25 · dense 각각 순위 → RRF → ③ 정렬
+#   lists 의 '<검색기>:<질의>'  검색기 = bm25 | dense,  질의 = sq(분석된 검색 문장) | orig(원래 질문에서 연도·지역만 뺀 문장)
+defaults:
+  lists: [bm25:sq, dense:sq]
+  rrf_k: 60
+  pool: 100          # 검색기마다 가져올 후보 수, 합친 뒤 남길 후보 수
+  prefilter: true
+  min_pass: 20       # 거르고 남은 표가 이보다 적으면 조건을 풂 (지역+시점 → 시점만 → 전부)
+  rank: soft         # soft = 관련도 우선 + 감점 | cost_first = 예전처럼 벌점 1순위 | none = RRF 그대로
+  alpha: 0.5         # 시점 외 조건 불일치 하나마다 점수를 1/(1+alpha) 배
+  beta: 0.3          # 요청 연도를 못 담은 비율만큼 감점 (전부 못 담으면 30% 감점)
+  top_k: 10
+
+variants:
+  hybrid: {}                                              # 기본
+  hybrid_nofilter: {prefilter: false}                     # 거르기 효과 보기
+  hybrid_costfirst: {rank: cost_first}                    # 정렬 방식 효과 보기 (예전 방식)
+  hybrid_orig: {lists: [bm25:sq, dense:orig]}             # dense 에는 원래 질문
+  hybrid_all: {lists: [bm25:sq, dense:sq, bm25:orig, dense:orig]}   # 분석 문장 + 원래 질문 모두
