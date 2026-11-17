@@ -4,6 +4,7 @@
   질문 ─▶ ① 질의 분석 (query_analyzer.analyze: 재작성 HCX 1회 → CSV 값 사전 접지 → 시점 규칙 → 서브쿼리)
        ─▶ ② 검색·View (view.build_viewset: 단위별 표 검색 → View 카드 → Point 충돌 판정)
        ─▶ ③ 답변 (agent.answer: HCX 1회)
+             answer_mode="modules" 이면 대신 모듈 2→3→5→6 (agent.modules: 차트 계획 → 계산 → 그림 → 답변 문장)
 
 중간에 멈추는 경우 (status)
   needs_clarification  필수 슬롯(시점·지역·대상)이 없고 clarify_mode=strict → analysis.clarifications 중 골라
@@ -45,7 +46,7 @@ def _answer(question, analysis, vs, max_rows):
 
 
 def run_chat(question, today=None, top_k=None, n_views=None, max_rows=40, auto_select=True, overrides=None,
-             previous=None, selections=None, view_selections=None, save=False):
+             previous=None, selections=None, view_selections=None, save=False, answer_mode="default", draw=True):
     from backend.rag.query_analyzer.analyze import analyze
     from backend.rag.view.viewset import apply_selections, build_viewset
     timings, t0 = {}, time.time()
@@ -82,7 +83,13 @@ def run_chat(question, today=None, top_k=None, n_views=None, max_rows=40, auto_s
         out["status"] = vs["status"]
         return _finish(out, t0, save)
     t = time.time()
-    out["result"] = _answer(question, analysis, vs, max_rows)
+    if answer_mode == "modules":
+        from backend.agent.modules import as_answer_result, run_modules
+        out["modules"] = run_modules(vs, draw=draw, max_rows=max_rows)
+        out["result"] = as_answer_result(out["modules"])
+        out["notes"] += out["modules"]["notes"]
+    else:
+        out["result"] = _answer(question, analysis, vs, max_rows)
     timings["answer"] = round(time.time() - t, 2)
     out["status"] = "ok"
     return _finish(out, t0, save)

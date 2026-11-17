@@ -63,6 +63,7 @@ def _pick(env_keys, candidates, default, marker=None, env_must_exist=False):
 
 STORAGE_DIR = _env_path("STORAGE_DIR") or ROOT / "storage"
 CONFIGS_DIR = ROOT / "configs"
+FRONTEND_DIR = ROOT / "frontend"          # 정적 테스트 화면 (main.py 가 /lab 으로 서빙)
 
 KOSIS_DATA_DIR = _pick(
     ("KOSIS_DATA_DIR",),
@@ -81,7 +82,8 @@ PRIVATE_DIR = _pick(("PRIVATE_DIR",), [ROOT / "private", ROOT.parent / "private"
 def paths():
     named = {"ROOT": ROOT, "ENV_PATH": ENV_PATH, "STORAGE_DIR": STORAGE_DIR, "KOSIS_DATA_DIR": KOSIS_DATA_DIR,
              "VIEW_OUT_DIR": VIEW_OUT_DIR, "TABLE_INDEX_DIR": TABLE_INDEX_DIR, "CSV_INDEX_DIR": CSV_INDEX_DIR,
-             "EMBED_CACHE": EMBED_CACHE, "RUNS_DIR": RUNS_DIR, "ANSWERS_DIR": ANSWERS_DIR, "PRIVATE_DIR": PRIVATE_DIR}
+             "EMBED_CACHE": EMBED_CACHE, "RUNS_DIR": RUNS_DIR, "ANSWERS_DIR": ANSWERS_DIR, "PRIVATE_DIR": PRIVATE_DIR,
+             "FRONTEND_DIR": FRONTEND_DIR}
     out = {k: {"path": str(v) if v else None, "exists": bool(v) and Path(v).exists()} for k, v in named.items()}
     if CONFIG_WARNINGS:
         out["WARNINGS"] = {"path": " / ".join(CONFIG_WARNINGS), "exists": False}

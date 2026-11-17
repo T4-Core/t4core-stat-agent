@@ -66,6 +66,10 @@ class ChatRequest(BaseModel):
     view_selections: list[SelectionItem] | None = Field(None, description="충돌 선택 (selection_token + option_id). previous 와 함께")
     save: bool = Field(False, description="true 면 ANSWERS_DIR 에 결과 JSON 저장")
     pipeline: str = Field("default", description="default | 개인 폴더 파이프라인 이름 (GET /api/v1/system/pipelines)")
+    answer_mode: Literal["default", "modules"] = Field("default", description=(
+        "default = 답변 HCX 1회 (agent/answer.py) · modules = 모듈 2→3→5→6 (차트 계획·계산·그림·답변 문장). "
+        "modules 의 결과 전체는 응답 modules 에, 답변은 result 에도 같은 모양으로 넣는다"))
+    draw: bool = Field(True, description="answer_mode=modules 일 때 모듈 5 로 차트 그림(plotly JSON)도 만들지")
 
 
 class ChatResponse(BaseModel):
@@ -78,5 +82,15 @@ class ChatResponse(BaseModel):
     result: AnswerResult | None = Field(None, description="답변 (status=ok · out_of_scope 일 때)")
     notes: list[str] = Field(default_factory=list)
     timings: dict[str, float] = Field(default_factory=dict, description="단계별 소요 시간(초)")
+    modules: dict[str, Any] | None = Field(None, description=(
+        "answer_mode=modules 결과: charts · chart_errors · chart_plan(모듈 2) · module3 · drawn(모듈 5) · answer(모듈 6) · notes"))
     saved: str | None = None
     trace: list[dict] | None = Field(None, description="플러그인 파이프라인 단계 기록 (있으면)")
+
+
+class ModulesRequest(BaseModel):
+    """POST /api/v1/rag/views 응답(ViewSet) → 모듈 2→3→5→6 한 번에"""
+    views: ViewSet = Field(..., description="POST /api/v1/rag/views 응답 그대로 (status=ok)")
+    use_llm_chart: bool = Field(True, description="False 면 모듈 2 가 HCX 를 부르지 않는다 (규칙으로 못 정한 measure 는 raw)")
+    draw: bool = Field(True, description="모듈 5 로 차트 그림(plotly JSON)도 만들지")
+    max_rows: int = Field(50, ge=1, le=500, description="근거 표에 넣을 원본 View 최대 행 수")

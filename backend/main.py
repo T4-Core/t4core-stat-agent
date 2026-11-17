@@ -7,11 +7,16 @@ Swagger 순서 = 파이프라인 순서
   ② 검색·View  POST /api/v1/rag/views          → 단위별 View + 충돌 판정 → records
   ③ 답변       POST /api/v1/agent/answer       질문 + records → 답변
   ★            POST /api/v1/chat               ①→②→③ 한 번에
+  ③-1 차트     POST /api/v1/chart/decide       질문 + View → 차트 계획 (모듈 2)
+               POST /api/v1/chart/calc         차트 계획 → 계산·차트 내용·검증 (모듈 3)
+  ③-2 답변·표  POST /api/v1/answer/compose     계산 결과 → 답변 문장·근거 표·주의사항 (모듈 6)
+  화면         /lab/chart-lab/                 frontend/ 가 있을 때 정적 테스트 화면
 """
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
-from backend.api import chat, csv_index, ingest, judge, query, views
-from backend.core.config import TABLE_INDEX_DIR, VIEW_OUT_DIR, paths
+from backend.api import answer, chart, chat, csv_index, ingest, judge, query, views
+from backend.core.config import FRONTEND_DIR, TABLE_INDEX_DIR, VIEW_OUT_DIR, paths
 
 TAGS = [
     {"name": "system", "description": "상태·경로 확인"},
@@ -23,6 +28,9 @@ TAGS = [
                                        "(backend/rag/view)"},
     {"name": judge.TAG, "description": "View 가 질문 조건(슬롯)을 실제로 담았는가 → pass/partial/fail + 사유 (backend/rag/judge)"},
     {"name": chat.TAG, "description": "Record → HCX 답변 + 차트 + 출처 (backend/agent)"},
+    {"name": chart.TAG, "description": "질문 + View → 차트 계획(모듈 2) → 계산 계획·계산 결과·차트 내용·검증(모듈 3) "
+                                       "(backend/agent/chart_decision, chart_calculate)"},
+    {"name": answer.TAG, "description": "질문 + View + 계산 결과 → 답변 문장·근거 표·주의사항 (backend/agent/answer_compose)"},
     {"name": views.DATA_TAG, "description": "Record.source → parquet 재조회 (backend/data_engine)"},
 ]
 
@@ -36,8 +44,13 @@ app = FastAPI(
     version="1.0.0",
     openapi_tags=TAGS,
 )
-for r in (ingest.router, csv_index.router, query.router, views.router, judge.router, chat.router, views.data):
+for r in (ingest.router, csv_index.router, query.router, views.router, judge.router, chat.router,
+          chart.router, answer.router, views.data):
     app.include_router(r)
+
+# 정적 테스트 화면 (frontend/). 같은 주소에서 서빙해 CORS 설정 없이 /api/v1/* 를 부른다. API 경로와 겹치지 않게 /lab 아래
+if FRONTEND_DIR.exists():
+    app.mount("/lab", StaticFiles(directory=FRONTEND_DIR, html=True), name="lab")
 
 
 @app.get("/health", tags=["system"], summary="상태 확인")

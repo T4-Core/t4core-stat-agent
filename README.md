@@ -70,6 +70,10 @@ flowchart LR
         S --> V["② View 카드<br/>지연 정규화 → 슬롯대로 자르기"]
         V --> C["② Point 충돌 판정<br/>표마다 값이 다르면 선택"]
         C --> AN["③ 답변 (HCX)<br/>차트 · 출처 · 숫자 검증"]
+        C -.->|answer_mode=modules| M2["모듈 2 차트 계획"]
+        M2 --> M3["모듈 3 계산 · 차트 내용"]
+        M3 --> M5["모듈 5 차트 그림"]
+        M3 --> M6["모듈 6 답변 문장 · 근거 표"]
     end
     CI -.-> A
     TI -.-> S
@@ -133,6 +137,23 @@ flowchart LR
 
 Record 목록 → HCX 답변 1회. 조건을 모두 맞춘 View → 일부 → 빈 View 순으로 문맥에 넣고(검색 단위마다 최소 1개), `[자료]` 에 없는 숫자는 `unverified_numbers` 로 표시합니다. 차트 스펙(line/bar/table)과 출처를 함께 돌려줍니다.
 
+### ③ 모듈 2·3·5·6 — `backend/agent/{chart_decision, chart_calculate, draw_chart, answer_compose}`
+
+`/chat` 에 `answer_mode: "modules"` 를 주면 ③ 답변 대신 아래 순서로 갑니다 (기본 `default` 는 위의 답변 그대로).
+연결은 `backend/agent/modules.py` 한 곳에서 하고, 각 모듈 설명은 모듈 폴더의 README · 명세(md)에 있습니다.
+
+| 모듈 | 하는 일 | HCX |
+|---|---|---|
+| 2 chart_decision | 하위 질문마다 차트 유형 · measure · 쓸 View (세트) | 0~1회 (`use_llm`) |
+| 3 chart_calculate | 계산 계획 → 계산(증감률·비중·순위 …) → 차트 내용 구성 · 검증 | 1회 |
+| 5 draw_chart | 차트 그림 (plotly JSON) | 없음 |
+| 6 answer_compose | 계산 결과를 자리표시자로 채운 답변 문장 · 근거 표 · 주의사항 | 1~2회 |
+
+검색·View 와 모듈 사이의 약속 (`modules.py`)
+- View 는 충돌 선택이 끝난 카드(`ViewSet.records`)만 넘깁니다. 모듈 2·3 은 단위마다 순위가 가장 높은 View 를 씁니다.
+- 역할 단위(분모·조건, `query_analyzer/roles.py`)는 따로 답할 질문이 아니라서 모듈 2·3 의 질문에서 빼고, 그 View 를 모든 세트에 붙입니다.
+  모듈 3 은 세트 밖 View 를 분모로 쓰면 비중 계산을 보류하기 때문입니다.
+
 ### 판단 — `backend/rag/judge`
 
 View 가 질문 조건(슬롯)을 실제로 담았는지 규칙으로 판정합니다 (`pass/partial/fail` + 사유 코드). `/chat` 응답을 그대로 `POST /api/v1/rag/judge/from-chat` 에 넣으면 됩니다.
@@ -155,10 +176,17 @@ View 가 질문 조건(슬롯)을 실제로 담았는지 규칙으로 판정합�
 | | `POST /api/v1/rag/views` · `…/views/select` · `…/views/points` | 단위별 View + 충돌 판정 · 선택 반영 · Point 비교만 |
 | ②-1 판단 | `POST /api/v1/rag/judge` · `…/judge/from-chat` · `GET …/judge/config` | View ↔ 질문 조건 |
 | ③ 답변 | `POST /api/v1/agent/answer` | 질문 + Record 목록 → 답변 |
-| ★ | **`POST /api/v1/chat`** | ①→②→③ 한 번에 |
+| ③-1 차트 | `POST /api/v1/chart/decide` · `…/chart/calc` (+ `/trace`) · `GET …/chart/specs` | 모듈 2 차트 계획 · 모듈 3 계산 · 차트 15종 |
+| ③-2 답변·표 | `POST /api/v1/answer/compose` (+ `/trace`) | 모듈 6 답변 문장 · 근거 표 |
+| | `POST /api/v1/agent/modules` | `/rag/views` 응답 → 모듈 2→3→5→6 한 번에 |
+| ★ | **`POST /api/v1/chat`** | ①→②→③ 한 번에 (`answer_mode: modules` 면 ③ 대신 모듈 2→3→5→6) |
 | ④ | `POST /api/v1/data/source` | Record / source 좌표 → parquet 재조회 + 차트 |
 
 단계별로 이어 붙이기: `/rag/analyze` 응답 → `/rag/views` 의 `analysis` → 응답 `records` → `/agent/answer` 의 `records`.
+
+모듈 단계별: `/rag/views` 응답을 `/chart/decide` 의 `view_input` 에, 그 `view_bundle` 을 `query_bundle` 에 넣습니다 →
+응답 `charts` · `records` → `/chart/calc` → 응답 `calc_results` · `displays` · `chart_plan.answer_steps` → `/answer/compose`.
+`frontend/chart-lab` 이 있으면 `/lab/chart-lab/` 에서 같은 흐름을 화면으로 봅니다.
 
 ### `/chat` 상태와 이어서 하기
 
@@ -222,10 +250,14 @@ View 가 질문 조건(슬롯)을 실제로 담았는지 규칙으로 판정합�
 t4core-stat-agent/
 ├── backend/
 │   ├── main.py                 FastAPI 앱 (Swagger)
-│   ├── api/                    ingest · csv_index · query · views · judge · chat (+ deps: 예외 → HTTP)
-│   ├── schemas/                query · view · record · chat · judge · ingest (모듈 사이 계약)
+│   ├── api/                    ingest · csv_index · query · views · judge · chat · chart · answer (+ deps: 예외 → HTTP)
+│   ├── schemas/                query · view · record · chat · judge · ingest · chart · answer (모듈 사이 계약)
 │   ├── core/                   config(경로·.env) · settings(pipeline.yaml) · llm(HCX 대화·임베딩) · tracking · plugins · utils
-│   ├── agent/                  pipeline(run_chat) · answer · prompts · batch(일괄 실행) · __main__(CLI)
+│   ├── agent/                  pipeline(run_chat) · answer · modules(모듈 2·3·5·6 연결) · prompts · batch · __main__(CLI)
+│   │   ├── chart_decision/     모듈 2 차트 계획 (LangGraph)
+│   │   ├── chart_calculate/    모듈 3 계산 · 차트 내용 (LangGraph)
+│   │   ├── draw_chart/         모듈 5 차트 그림 (plotly)
+│   │   └── answer_compose/     모듈 6 답변 문장 · 근거 표 (LangGraph)
 │   ├── data_engine/            duckdb_client(좌표 → parquet 재조회) · chart_generator
 │   └── rag/
 │       ├── ingestion/          collector(KOSIS 수집) · meta_profile · table_text · normalize · prepare
@@ -238,7 +270,7 @@ t4core-stat-agent/
 ├── synthetic_gold_pipeline/    합성 골든셋 생성기 (독립 패키지, 9절)
 ├── tests/                      HCX·네트워크 없이 가짜 KOSIS 데이터로 (11절)
 ├── storage/                    로컬 데이터 (git 제외)
-└── frontend/                   (예약)
+└── frontend/                   정적 테스트 화면 (있으면 /lab 으로 서빙)
 ```
 
 ---
@@ -385,6 +417,8 @@ pytest -q synthetic_gold_pipeline/tests      # 골든셋 생성기
 | `test_search_fixes.py` (`scenario_search_fixes.py` · `scenario_search_cli.py`) | 원문 표현 정리 · 형제 표 · 분모·조건 단위 · LLM 후보 위치·하위 단위 · 개념 카탈로그 / compare · tune · 상한 실험 · 점검표 · View |
 | `test_tuning.py` | dev/heldout 나누기 · 일상어 후보 캐기 · 개념 카탈로그 만들기 |
 | `judge/` | 판단 모듈 |
+| `test_agent_modules.py` (`scenario_agent_modules.py`) | 실제 `/rag/views` 결과 → `/chart/decide` → `/chart/calc` → `/answer/compose` · `/agent/modules`(그림 포함) · `/chat answer_mode` · 충돌 선택 · 역할 단위 세트 |
+| `chart/`, `chart_calculate/`, `answer_compose/` | 모듈 2 · 3 · 6 단위 (HCX 는 가짜 함수 또는 decision 직접 입력) |
 
 `tests/fake_kosis.py` 가 가짜 KOSIS 수집 결과(연간·5년 주기·월간 표 등)와 HCX 대역(`llm._post`)을 만듭니다. 시나리오는 저장소 위치를 환경변수로 바꾸려고 별도 프로세스로 실행하며, 되묻기 왕복을 확인하려고 `clarify_mode: strict`, 기준 해 고정(`base_year_mode: fixed`)으로 돕니다 (`tests/helpers.py`).
 
