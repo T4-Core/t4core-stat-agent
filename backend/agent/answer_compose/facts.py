@@ -210,7 +210,7 @@ class Facts:
         """'max' | 'min'. answer_steps 를 못 받았으면 None — 방향을 추측하면 '가장 적은 해'를 '가장 큰 값'으로 답한다.
         단계는 있는데 kind 가 없으면 모듈 3 기본값(max)"""
         st = self.steps.get(r.step_id)
-        return None if st is None else str((st.model_extra or {}).get("kind", "max"))
+        return None if st is None else str(st.kind or (st.model_extra or {}).get("kind", "max"))
 
     def agg_name(self, r: CalcResult) -> str:
         st = self.steps.get(r.step_id)

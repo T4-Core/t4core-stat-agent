@@ -60,6 +60,7 @@ def _pick(roles):
 _ARGS = {
     "from": {"type": "string"}, "to": {"type": "string"}, "base": {"type": "string"},
     "agg": {"type": "string", "enum": ["", "sum", "mean"]}, "top_n": {"type": "integer"},
+    "kind": {"type": "string", "enum": ["", "max", "min"]}, "order": {"type": "string", "enum": ["", "desc", "asc"]},
     "join_on": {"type": "array", "items": {"type": "string"}},
     "denominator": {"type": "object", "properties": {
         "scope": {"type": "string", "enum": ["", "question", "selected"]}, "basis": {"type": "string"},
@@ -98,7 +99,7 @@ CHART_PLAN_SYS = """너는 한국 공식통계(KOSIS) 답변을 위한 계산 �
 3. item 에는 지표 이름 하나를 적는다 (예: 혼인건수(건), 출생아수(명)). 지표 이름은 '항목' 열에 있을 수도 있고
    분류 열(종류별, 기본항목별 등)에 있을 수도 있다. 모든 행에 같은 값(표 이름 같은 것)은 지표가 아니다.
    열 이름(시점, 행정구역별 등)도 item 이 아니다. 범주 값(0세, 서울특별시, 남자 등)도 item 이 아니다 — conditions 에 적는다.
-4. 쓰지 않는 칸은 문자열이면 "", 목록이면 [], top_n 이면 0 으로 둔다.
+4. 쓰지 않는 칸은 문자열이면 "", 목록이면 [], top_n 이면 0 으로 둔다 (kind 는 extreme, order 는 rank 일 때만 적는다).
    [세트 …] 블록이 있으면 질문·차트·자료가 한 덩어리다. 그 블록의 [자료]에 적힌 record_id 만 쓰고 다른 세트의 자료는 쓰지 않는다.
    [자료]가 '(없음 …)'인 세트는 계산하지 않는다 (charts 에도 answers 에도 넣지 않는다).
 
@@ -120,8 +121,8 @@ CHART_PLAN_SYS = """너는 한국 공식통계(KOSIS) 답변을 위한 계산 �
    growth_rate  증감률 % (from 대비 to)   1개, role "value"
    cagr         연평균 증감률 %           1개, role "value"
    index        지수 (base 시점 = 100)    1개, role "value"
-   rank         순위                     1개, role "value"
-   extreme      최댓값                   1개, role "value"
+   rank         순위                     1개, role "value"  (큰 값부터면 order "desc", 작은 값부터면 "asc")
+   extreme      최댓값·최솟값             1개, role "value"  (가장 많은·큰·높은 → kind "max", 가장 적은·작은·낮은 → kind "min")
    aggregate    합계(agg "sum")·평균(agg "mean")  1개, role "value"
    share        구성비 %                 1개, role "part"
    diff         두 값의 차 (a − b)        2개, role "a", "b" + join_on
@@ -136,8 +137,11 @@ CHART_PLAN_SYS = """너는 한국 공식통계(KOSIS) 답변을 위한 계산 �
    여러 범주를 합친 하나의 값을 물으면(예: '미취학아동수' = 0~5세 인구, '청년 인구' = 19~34세 인구) 범주마다 raw 로
    나열하지 말고 op 를 aggregate, agg 를 "sum" 으로 한다. 범주별 값을 물을 때(예: '나이별 인구')만 raw.
 8. change·growth_rate·cagr 는 operands 를 시점별로 나누지 않는다.
-   증감·증감률(change·growth_rate)은 시점마다 직전 시점 대비로 계산한다: base 를 "prev" 로, conditions 의 '시점' 에
-   [고정 조건]의 시점을 모두 넣고 from·to 는 비운다 (시점이 둘이면 결과가 하나, 다섯이면 넷이 된다).
+   증감·증감률(change·growth_rate)은 질문에 따라 둘 중 하나로 정한다.
+   - 처음부터 끝까지 얼마나 변했는지(예: '최근 5년 얼마나 변했어', '2021년 대비 2025년 몇 % 늘었어')를 물으면
+     from·to 에 처음과 끝 시점을 적고 base 는 비운다. 결과는 값 하나다.
+   - 해마다의 변화(예: '매년', '전년 대비', '해마다 증감률')를 물으면 base 를 "prev" 로 하고 from·to 는 비운다.
+   conditions 의 '시점' 에는 [고정 조건]의 시점을 모두 넣는다.
    cagr 는 from·to 에 처음과 끝 시점. index 는 base 에 기준 시점, rank 에서 상위 몇 개만 필요하면 top_n.
 9. join_on 은 피연산자가 아니다. operands 에 role "join_on" 이나 item "시점" 을 넣지 않는다.
 10. share 일 때만 denominator 를 채운다. 질문이 분모를 정했으면(예: '전국 대비') scope 는 "question", basis 에 질문의 그 표현,
@@ -146,11 +150,11 @@ CHART_PLAN_SYS = """너는 한국 공식통계(KOSIS) 답변을 위한 계산 �
 
 [예시] 자료 view::A (열: 시점 2021~2025, 행정구역별 전국·서울특별시, 종류별 혼인건수(건)·출생아수(명), 항목 인구동향)
 질문 "2021~2025년 전국 혼인건수 증감과 증감률, 서울과 전국 출생아수 차이", [고정 조건] 시점 2021, 2022, 2023, 2024, 2025
-answers 의 일부 (빈 칸은 생략해 보였다. 증감·증감률은 시점마다 직전 시점 대비라 결과가 시점 4개씩):
-{"sub_question_id": "q-1", "op": "change", "base": "prev",
+answers 의 일부 (빈 칸은 생략해 보였다. 처음부터 끝까지의 변화를 묻는 질문이라 from·to 로 두 시점, 결과는 값 하나씩):
+{"sub_question_id": "q-1", "op": "change", "from": "2021", "to": "2025",
  "operands": [{"role": "value", "record_id": "view::A", "item": "혼인건수(건)",
                "conditions": [{"column": "행정구역별", "values": ["전국"]}, {"column": "시점", "values": ["2021", "2022", "2023", "2024", "2025"]}]}]}
-{"sub_question_id": "q-1", "op": "growth_rate", "base": "prev",
+{"sub_question_id": "q-1", "op": "growth_rate", "from": "2021", "to": "2025",
  "operands": [{"role": "value", "record_id": "view::A", "item": "혼인건수(건)",
                "conditions": [{"column": "행정구역별", "values": ["전국"]}, {"column": "시점", "values": ["2021", "2022", "2023", "2024", "2025"]}]}]}
 {"sub_question_id": "q-2", "op": "diff", "join_on": ["시점"],

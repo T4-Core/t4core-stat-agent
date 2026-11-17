@@ -1,0 +1,226 @@
+{
+  "raw": {
+    "charts": [
+      {
+        "chart_id": "c1",
+        "title": "2021~2025년 혼인건수 연도별 추이",
+        "record_id": "view::101_DT_1B8000G::Y::27077dec-1-1::trend",
+        "conditions": [
+          {
+            "column": "행정구역별",
+            "values": [
+              "전국"
+            ]
+          },
+          {
+            "column": "시점",
+            "values": [
+              "2021",
+              "2022",
+              "2023",
+              "2024",
+              "2025"
+            ]
+          }
+        ],
+        "series": [
+          {
+            "role": "y",
+            "record_id": "view::101_DT_1B8000G::Y::27077dec-1-1::trend",
+            "item": "혼인건수(건)",
+            "conditions": [
+              {
+                "column": "행정구역별",
+                "values": [
+                  "전국"
+                ]
+              },
+              {
+                "column": "시점",
+                "values": [
+                  "2021",
+                  "2022",
+                  "2023",
+                  "2024",
+                  "2025"
+                ]
+              }
+            ],
+            "sign": "+",
+            "unit": "건"
+          }
+        ],
+        "from": "",
+        "to": "",
+        "base": "",
+        "agg": "",
+        "top_n": 0,
+        "join_on": [],
+        "denominator": {
+          "scope": "",
+          "basis": "",
+          "label": "",
+          "record_id": "",
+          "item": "",
+          "conditions": []
+        }
+      },
+      {
+        "chart_id": "c2",
+        "title": "2021~2025년 출생아수 연도별 추이",
+        "record_id": "view::101_DT_1B8000G::Y::27077dec-2-1::trend",
+        "conditions": [
+          {
+            "column": "행정구역별",
+            "values": [
+              "전국"
+            ]
+          },
+          {
+            "column": "시점",
+            "values": [
+              "2021",
+              "2022",
+              "2023",
+              "2024",
+              "2025"
+            ]
+          }
+        ],
+        "series": [
+          {
+            "role": "y",
+            "record_id": "view::101_DT_1B8000G::Y::27077dec-2-1::trend",
+            "item": "출생아수(명)",
+            "conditions": [
+              {
+                "column": "행정구역별",
+                "values": [
+                  "전국"
+                ]
+              },
+              {
+                "column": "시점",
+                "values": [
+                  "2021",
+                  "2022",
+                  "2023",
+                  "2024",
+                  "2025"
+                ]
+              }
+            ],
+            "sign": "+",
+            "unit": "명"
+          }
+        ],
+        "from": "",
+        "to": "",
+        "base": "",
+        "agg": "",
+        "top_n": 0,
+        "join_on": [],
+        "denominator": {
+          "scope": "",
+          "basis": "",
+          "label": "",
+          "record_id": "",
+          "item": "",
+          "conditions": []
+        }
+      }
+    ],
+    "answers": [
+      {
+        "sub_question_id": "27077dec-1",
+        "op": "raw",
+        "operands": [
+          {
+            "role": "value",
+            "record_id": "view::101_DT_1B8000G::Y::27077dec-1-1::trend",
+            "item": "혼인건수(건)",
+            "conditions": [
+              {
+                "column": "행정구역별",
+                "values": [
+                  "전국"
+                ]
+              },
+              {
+                "column": "시점",
+                "values": [
+                  "2021",
+                  "2022",
+                  "2023",
+                  "2024",
+                  "2025"
+                ]
+              }
+            ],
+            "sign": "",
+            "unit": "건"
+          }
+        ],
+        "from": "2021",
+        "to": "2025",
+        "base": "",
+        "agg": "",
+        "top_n": 0,
+        "join_on": [],
+        "denominator": {
+          "scope": "",
+          "basis": "",
+          "label": "",
+          "record_id": "",
+          "item": "",
+          "conditions": []
+        }
+      },
+      {
+        "sub_question_id": "27077dec-2",
+        "op": "raw",
+        "operands": [
+          {
+            "role": "value",
+            "record_id": "view::101_DT_1B8000G::Y::27077dec-2-1::trend",
+            "item": "출생아수(명)",
+            "conditions": [
+              {
+                "column": "행정구역별",
+                "values": [
+                  "전국"
+                ]
+              },
+              {
+                "column": "시점",
+                "values": [
+                  "2021",
+                  "2022",
+                  "2023",
+                  "2024",
+                  "2025"
+                ]
+              }
+            ],
+            "sign": "",
+            "unit": "명"
+          }
+        ],
+        "from": "2021",
+        "to": "2025",
+        "base": "",
+        "agg": "",
+        "top_n": 0,
+        "join_on": [],
+        "denominator": {
+          "scope": "",
+          "basis": "",
+          "label": "",
+          "record_id": "",
+          "item": "",
+          "conditions": []
+        }
+      }
+    ]
+  }
+}

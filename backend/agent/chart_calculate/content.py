@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.agent.chart_calculate.axis import axis_range, group_sums
-from backend.agent.chart_calculate.calculate import TIME_COL, Calc, run_steps
+from backend.agent.chart_calculate.calculate import TIME_COL, Calc, period_index, run_steps
 from backend.agent.chart_calculate.display import format_value, strip_unit, unit_of
 from backend.agent.chart_calculate.select import ITEM_COL, REGION_HINTS, VALUE_COL  # noqa: F401  (REGION_HINTS: 예전 위치 호환)
 from backend.agent.chart_calculate.specs import SPECS, requirements_for
@@ -37,6 +37,11 @@ PERIOD_NAME = {"Y": "연도별", "H": "반기별", "Q": "분기별", "M": "월�
 MEASURE_NAME = {"change": "증감", "growth_rate": "증감률", "cagr": "연평균 증감률", "index": "지수", "share": "비중",
                 "diff": "차이", "ratio": "비율", "rank": "순위", "extreme": "최댓값", "aggregate": "합계", "combine": "합산"}
 _TIME_X = {"line", "area", "combo"}
+
+
+def measure_name(op: str, agg: str | None = None) -> str | None:
+    """연산의 표시 이름. aggregate 는 agg 에 따라 평균 · 합계 (이전에는 평균도 '합계' 로 표시됐다. 검수 7)"""
+    return "평균" if op == "aggregate" and agg == "mean" else MEASURE_NAME.get(op)
 _NO_AXIS = {"pie", "donut", "treemap", "map", "radar"}
 
 
@@ -46,11 +51,16 @@ class _Branch:
     role: str | None          # output 이 정한 역할 (y, y2, x, size, start, end). 갈래가 하나면 None
     step: Step
     calc: Calc
+    tag: str = ""             # [NEW 11-16] 이름이 같은 갈래끼리 구분하는 고정 좌표 ('서울특별시'). _branches 가 채운다
+
+    @property
+    def base_label(self) -> str:
+        name = strip_unit(self.calc.item) if self.calc.item else VALUE_COL
+        return name if self.step.op == "raw" else f"{name} {measure_name(self.step.op, self.step.agg)}"
 
     @property
     def label(self) -> str:
-        name = strip_unit(self.calc.item) if self.calc.item else VALUE_COL
-        return name if self.step.op == "raw" else f"{name} {MEASURE_NAME[self.step.op]}"
+        return f"{self.base_label} ({self.tag})" if self.tag else self.base_label
 
 
 def _branches(plan: Plan, calcs: dict[str, Calc]) -> tuple[list[_Branch], list[str]]:
@@ -68,7 +78,23 @@ def _branches(plan: Plan, calcs: dict[str, Calc]) -> tuple[list[_Branch], list[s
         if all(p.value is None for p in calc.points):      # 결과가 하나도 없음 (points 가 비어도 True)
             errors += calc.notes or [f"{sid}: 계산 결과 없음"]
         out.append(_Branch(role, steps[sid], calc))
+    _tell_apart(out)
     return out, list(dict.fromkeys(errors))
+
+
+def _tell_apart(branches: list["_Branch"]) -> None:
+    """[NEW 11-16] 이름이 같은 갈래(서울 View 의 인구수 · 부산 View 의 인구수)는 값이 달라지는 고정 좌표를 이름에 붙인다.
+    안 붙이면 두 갈래가 같은 범례 · 같은 시점에 값 둘이 되어 선이 섞인다 (검수 M3-08)"""
+    groups: dict[str, list[_Branch]] = {}
+    for b in branches:
+        groups.setdefault(b.base_label, []).append(b)
+    for same in groups.values():
+        if len(same) < 2:
+            continue
+        cols = [c for c in dict.fromkeys(c for b in same for c in b.calc.fixed) if c != ITEM_COL
+                and len({str(b.calc.fixed.get(c)) for b in same}) > 1]
+        for b in same:
+            b.tag = " ".join(str(b.calc.fixed[c]) for c in cols if c in b.calc.fixed)
 
 
 def _scale(unit: str | None) -> str:
@@ -89,18 +115,30 @@ def _is_region(col: str) -> bool:
 
 
 # ── long 형식 ────────────────────────────────────────────────────
-def _long(branches: list[_Branch]) -> tuple[list[str], list[list], list[str]]:
-    """갈래들을 [분류 열…, 항목, 값] 한 표로 합친다. 값이 None 인 점은 빼고 경고에 남긴다"""
+def _long(branches: list[_Branch], keep_missing: bool = False) -> tuple[list[str], list[list], list[str]]:
+    """갈래들을 [분류 열…, 항목, 값] 한 표로 합친다.
+
+    keep_missing: 시간이 가로축인 차트(꺾은선 · 면적 · 복합)는 계산할 수 없는 점도 값 None 인 행으로 넘겨 선이 그 시점에서 끊기게 한다.
+                  행을 빼면 그 시점이 가로축에서 사라져 앞뒤 점이 이어진다 (검수 9). 그 밖의 차트는 점을 뺀다.
+    행은 시점 순서로 정렬한다 (시점 라벨을 모두 읽을 수 있을 때. 같은 시점은 갈래 순서 유지). 계열마다 기간이 다르면 가로축이 뒤섞였다.
+    """
     dims = list(dict.fromkeys(c for b in branches for p in b.calc.points for c in p.key if c != ITEM_COL))
     rows, skipped = [], 0
     for b in branches:
         for p in b.calc.points:
             if p.value is None:
                 skipped += 1
-                continue
+                if not keep_missing:
+                    continue
             name = strip_unit(str(p.key[ITEM_COL])) if ITEM_COL in p.key else b.label
             rows.append([p.key.get(c) for c in dims] + [name, p.value])
-    return dims + [ITEM_COL, VALUE_COL], rows, ([f"계산할 수 없는 값 {skipped}개 제외"] if skipped else [])
+    if TIME_COL in dims:
+        ti = dims.index(TIME_COL)
+        idx = [period_index(r[ti]) for r in rows]
+        if rows and all(idx) and len({k for k, _ in idx}) == 1:
+            rows = [r for _, r in sorted(zip((i for _, i in idx), rows), key=lambda t: t[0])]
+    more = (f"계산할 수 없는 시점 {skipped}개는 선을 끊어 표시" if keep_missing else f"계산할 수 없는 값 {skipped}개 제외") if skipped else None
+    return dims + [ITEM_COL, VALUE_COL], rows, [more] if more else []
 
 
 def _merge_series(cols: list[str], rows: list[list], used: list[str]) -> str | None:
@@ -290,12 +328,18 @@ def _dual_axis(branches: list[_Branch]) -> dict[str, str] | None:
 
 
 def _title(plan: Plan, branches: list[_Branch], names: list[str], category: str | None, prd_se: str | None) -> str:
-    times = list(dict.fromkeys(str(p.key[TIME_COL]) for b in branches for p in b.calc.points if TIME_COL in p.key))
+    # 제목의 기간은 실제로 표시되는(값이 있는) 점의 시점에서 구한다. 계산을 보류한 점까지 넣으면 그려진 행과 기간이 어긋난다 (검수 7)
+    shown = [p for b in branches for p in b.calc.points if TIME_COL in p.key and p.value is not None]
+    times = list(dict.fromkeys(str(p.key[TIME_COL]) for p in (shown or [p for b in branches for p in b.calc.points if TIME_COL in p.key])))
     step = branches[0].step if branches else None
     if not times and step:        # 두 시점을 하나로 줄인 계산(증감률 등)은 결과에 시점이 없다
         times = [t for t in (step.from_, step.to) if t]
+    # [CHANGED 11-17] 이전: times[0]~times[-1] (처음 나온 시점 ~ 마지막에 나온 시점) — 지역마다 기간이 다르면 2023~2020 처럼 뒤집혔다 (검수 8)
+    parsed = [(period_index(t), t) for t in times]
+    if len(times) > 1 and all(i for i, _ in parsed) and len({i[0] for i, _ in parsed}) == 1:
+        times = [min(parsed, key=lambda x: x[0][1])[1], max(parsed, key=lambda x: x[0][1])[1]]
     period = f"{times[0]}~{times[-1]}" if len(times) > 1 else (times[0] if times else "")
-    what = MEASURE_NAME.get(plan.measure)
+    what = measure_name(plan.measure, step.agg if step else None)
     if category == TIME_COL:
         tail = f"{PERIOD_NAME.get(prd_se, '시점별')} {what or '추이'}"
     elif category and category not in (ITEM_COL, VALUE_COL, SERIES_COL):
@@ -341,7 +385,7 @@ def _compose(chart_type: str, plan: Plan, branches: list[_Branch], displays: dic
     if SPECS[chart_type].rows == "joined":
         cols, rows, enc, axis, more = _joined(chart_type, live)
     else:
-        cols, rows, more = _long(live)
+        cols, rows, more = _long(live, keep_missing=chart_type in _TIME_X)
         enc = _assign(chart_type, cols, rows) if rows else {}
         dual = _dual_axis(live) if chart_type == "line" and rows else None
         axis = _long_axis(chart_type, enc, cols, rows, live, dual) if rows else {}

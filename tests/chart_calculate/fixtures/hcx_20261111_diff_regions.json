@@ -1,0 +1,358 @@
+{
+ "question": "최근 5년 서울과 부산 인구 차이",
+ "date": "2026-11-11",
+ "note": "테스트 화면과 같은 경로(run: query-rewrite → views/detail → 모듈 2 대역 → calc/trace)에서 받은 실제 입력과 HCX 원 응답",
+ "query_bundle": {
+  "query_id": "c9e74e4a",
+  "original": "최근 5년 서울과 부산 인구 차이",
+  "rewritten": "2021~2025년 서울특별시 부산광역시 인구수 증감",
+  "intent": "증감",
+  "filters": {
+   "시점": [
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+   ],
+   "지역": [
+    "서울특별시",
+    "부산광역시"
+   ],
+   "대상": [
+    "인구"
+   ],
+   "성별": null,
+   "연령": null,
+   "지표": [
+    "인구수"
+   ],
+   "비교축": null,
+   "의도": "추이"
+  },
+  "sub_questions": [],
+  "sub_filters": null,
+  "search_text": "2021~2025년 서울특별시 부산광역시 인구수 증감"
+ },
+ "charts": [
+  {
+   "chart_id": "c1",
+   "sub_question_ids": [
+    "c9e74e4a-1"
+   ],
+   "chart_type": "line",
+   "measure": "raw",
+   "requirements": [
+    "time_axis_required",
+    "min_points_3"
+   ],
+   "fallback_chart": "bar"
+  }
+ ],
+ "records": [
+  {
+   "id": "view::101_DT_1B04006::Y::c9e74e4a-1::trend",
+   "lexical_text": "행정구역(시군구)별/1세별 주민등록인구 주민등록인구현황 시점 2021~2025 행정구역(시군구)별 서울특별시 부산광역시 연령별 계 총인구수 명",
+   "table": {
+    "columns": [
+     "시점",
+     "행정구역(시군구)별",
+     "연령별",
+     "항목",
+     "값"
+    ],
+    "rows": [
+     [
+      "2021",
+      "서울특별시",
+      "계",
+      "총인구수",
+      9509458.0
+     ],
+     [
+      "2021",
+      "부산광역시",
+      "계",
+      "총인구수",
+      3350380.0
+     ],
+     [
+      "2022",
+      "서울특별시",
+      "계",
+      "총인구수",
+      9428372.0
+     ],
+     [
+      "2022",
+      "부산광역시",
+      "계",
+      "총인구수",
+      3317812.0
+     ],
+     [
+      "2023",
+      "서울특별시",
+      "계",
+      "총인구수",
+      9386034.0
+     ],
+     [
+      "2023",
+      "부산광역시",
+      "계",
+      "총인구수",
+      3293362.0
+     ],
+     [
+      "2024",
+      "서울특별시",
+      "계",
+      "총인구수",
+      9331828.0
+     ],
+     [
+      "2024",
+      "부산광역시",
+      "계",
+      "총인구수",
+      3266598.0
+     ],
+     [
+      "2025",
+      "서울특별시",
+      "계",
+      "총인구수",
+      9299548.0
+     ],
+     [
+      "2025",
+      "부산광역시",
+      "계",
+      "총인구수",
+      3241600.0
+     ]
+    ]
+   },
+   "doc_type": "view",
+   "parent_id": "table::101_DT_1B04006",
+   "metadata": {
+    "survey_nm": "주민등록인구현황",
+    "category": "주민등록인구현황",
+    "survey_type": "구분없음(전체집계)",
+    "view_type": "trend",
+    "prd_se": "Y",
+    "prd_from": "2021",
+    "prd_to": "2025",
+    "is_latest": true,
+    "unit": "명",
+    "geo_level": "시도",
+    "n_points": 10,
+    "items": [
+     "총인구수"
+    ],
+    "dims": [
+     "행정구역(시군구)별"
+    ]
+   },
+   "source": {
+    "table_key": "101_DT_1B04006",
+    "file": "processed/101_DT_1B04006.parquet",
+    "org_id": "101",
+    "tbl_id": "DT_1B04006",
+    "prd_se": "Y",
+    "itm_id": [
+     "T2"
+    ],
+    "dims": {
+     "c1": {
+      "codes": [
+       "11",
+       "26"
+      ]
+     },
+     "c2": {
+      "codes": [
+       "000"
+      ]
+     }
+    },
+    "period": {
+     "in": [
+      "2021",
+      "2022",
+      "2023",
+      "2024",
+      "2025"
+     ]
+    },
+    "kosis_url": "https://kosis.kr/statHtml/statHtml.do?orgId=101&tblId=DT_1B04006"
+   },
+   "notes": [],
+   "match": {
+    "rank": 1,
+    "cover": 1.0,
+    "unmet": []
+   }
+  }
+ ],
+ "hcx_reply": {
+  "charts": [
+   {
+    "chart_id": "c1",
+    "record_id": "view::101_DT_1B04006::Y::c9e74e4a-1::trend",
+    "conditions": [
+     {
+      "column": "행정구역(시군구)별",
+      "values": [
+       "서울특별시",
+       "부산광역시"
+      ]
+     },
+     {
+      "column": "시점",
+      "values": [
+       "2021",
+       "2022",
+       "2023",
+       "2024",
+       "2025"
+      ]
+     }
+    ],
+    "series": [
+     {
+      "role": "y",
+      "record_id": "view::101_DT_1B04006::Y::c9e74e4a-1::trend",
+      "item": "총인구수",
+      "conditions": [
+       {
+        "column": "행정구역(시군구)별",
+        "values": [
+         "서울특별시"
+        ]
+       },
+       {
+        "column": "시점",
+        "values": [
+         "2021",
+         "2022",
+         "2023",
+         "2024",
+         "2025"
+        ]
+       }
+      ]
+     },
+     {
+      "role": "y2",
+      "record_id": "view::101_DT_1B04006::Y::c9e74e4a-1::trend",
+      "item": "총인구수",
+      "conditions": [
+       {
+        "column": "행정구역(시군구)별",
+        "values": [
+         "부산광역시"
+        ]
+       },
+       {
+        "column": "시점",
+        "values": [
+         "2021",
+         "2022",
+         "2023",
+         "2024",
+         "2025"
+        ]
+       }
+      ]
+     }
+    ],
+    "from": "2021",
+    "to": "2025",
+    "base": "",
+    "agg": "",
+    "top_n": 0,
+    "join_on": [],
+    "denominator": {
+     "scope": "",
+     "basis": "",
+     "label": "",
+     "record_id": "",
+     "item": "",
+     "conditions": []
+    }
+   }
+  ],
+  "answers": [
+   {
+    "sub_question_id": "c9e74e4a-1",
+    "op": "diff",
+    "operands": [
+     {
+      "role": "a",
+      "record_id": "view::101_DT_1B04006::Y::c9e74e4a-1::trend",
+      "item": "총인구수",
+      "conditions": [
+       {
+        "column": "행정구역(시군구)별",
+        "values": [
+         "서울특별시"
+        ]
+       },
+       {
+        "column": "시점",
+        "values": [
+         "2021",
+         "2022",
+         "2023",
+         "2024",
+         "2025"
+        ]
+       }
+      ]
+     },
+     {
+      "role": "b",
+      "record_id": "view::101_DT_1B04006::Y::c9e74e4a-1::trend",
+      "item": "총인구수",
+      "conditions": [
+       {
+        "column": "행정구역(시군구)별",
+        "values": [
+         "부산광역시"
+        ]
+       },
+       {
+        "column": "시점",
+        "values": [
+         "2021",
+         "2022",
+         "2023",
+         "2024",
+         "2025"
+        ]
+       }
+      ]
+     }
+    ],
+    "from": "2021",
+    "to": "2025",
+    "base": "",
+    "agg": "",
+    "top_n": 0,
+    "join_on": [
+     "시점"
+    ],
+    "denominator": {
+     "scope": "",
+     "basis": "",
+     "label": "",
+     "record_id": "",
+     "item": "",
+     "conditions": []
+    }
+   }
+  ]
+ }
+}

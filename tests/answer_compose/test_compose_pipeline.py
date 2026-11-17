@@ -99,7 +99,9 @@ def test_trace_has_attempts_and_same_output():
 def test_after_module3_end_to_end():
     """모듈 3 의 실제 출력(시점별 값 목록 포함)을 이어 붙여도 돈다"""
     m3_req = Module3Request(records=[view()], query_bundle=BUNDLE, charts=CHARTS)
-    m3 = run_module3(m3_req, chat=lambda messages, schema=None, **kw: REPLY)
+    # 시점별 목록 결과를 만들려면 HCX 가 해마다의 변화(base "prev")를 적은 응답이어야 한다 (from·to 는 값 하나, 결정 D-1)
+    yearly = {**REPLY, "answers": [{**a, "from": "", "to": "", "base": "prev"} for a in REPLY["answers"]]}
+    m3 = run_module3(m3_req, chat=lambda messages, schema=None, **kw: yearly)
     req = Module6Request(query_bundle=BUNDLE, records=m3_req.records, calc_results=m3.calc_results, displays=m3.displays,
                          answer_steps=m3.chart_plan.answer_steps)
     answer = " ".join(f"{{{r.step_id}.r{n}.key}}: {{{r.step_id}.r{n}}}" for r in m3.calc_results for n in range(len(r.value)))

@@ -69,12 +69,16 @@ def axis_range(values, rule: str = "free", *, pad: float = PAD, ticks: int = TAR
         if span == 0:                                   # 값이 모두 0
             return base_lo, 1.0
         step = nice_step(span, ticks, integer)
+        if hi <= 0:          # [NEW 11-16] 값이 모두 0 이하면 여백 때문에 max 가 0 위로 올라가지 않는다 (검수 M3-21)
+            return _snap(base_lo - pad * span, step, up=False) if rule == "include_zero" and lo < 0 else base_lo, 0.0
         return base_lo, _snap(base_hi + pad * span, step, up=True)
 
     # free
     span = hi - lo
     if span == 0:                                       # 값이 모두 같다 → 그 값 둘레로 넓힌다
-        delta = max(abs(hi) * pad, 1.0)
+        delta = abs(hi) * pad if hi else 1.0      # [CHANGED 11-16] 이전: max(…, 1.0) — 0.72 같은 비율 값이 0 ~ 2 로 넓어졌다 (검수 M3-22)
+        if integer:
+            delta = max(delta, 1.0)
         step = nice_step(2 * delta, ticks, integer)
         low, high = lo - delta, hi + delta
     else:

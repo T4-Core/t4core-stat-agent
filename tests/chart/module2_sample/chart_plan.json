@@ -1,0 +1,25 @@
+{
+  "query_id": "27077dec",
+  "charts": [
+    {
+      "chart_id": "c1",
+      "sub_question_ids": ["27077dec-1"],
+      "view_ids": ["view::101_DT_1B8000G::Y::27077dec-1-1::trend"],
+      "chart_type": "line",
+      "requirements": ["time_axis_required", "min_points_3"],
+      "fallback_charts": ["bar"],
+      "measure": "raw",
+      "reason": "혼인건수 연도별 추이"
+    },
+    {
+      "chart_id": "c2",
+      "sub_question_ids": ["27077dec-2"],
+      "view_ids": ["view::101_DT_1B8000G::Y::27077dec-2-1::trend"],
+      "chart_type": "line",
+      "requirements": ["time_axis_required", "min_points_3"],
+      "fallback_charts": ["bar"],
+      "measure": "raw",
+      "reason": "출생아수 연도별 추이"
+    }
+  ]
+}

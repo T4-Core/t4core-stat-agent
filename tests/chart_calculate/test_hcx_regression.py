@@ -69,19 +69,19 @@ def test_chart_survives(trace):
 
 
 def test_change_with_split_operands_is_computed(trace):
-    """a(2024)·b(2021) 로 쪼갠 같은 항목 + 피연산자가 아닌 '시점' → 혼인건수 하나로, View 의 시점마다 직전 대비 증감"""
+    """a(2024)·b(2021) 로 쪼갠 같은 항목 + 피연산자가 아닌 '시점' → 혼인건수 하나로, HCX 의 from·to 두 시점 증감 (값 하나)
+    [CHANGED 11-16] 이전: View 의 시점마다 직전 대비 증감 목록 (결정 D-1: 질문용은 두 시점)"""
     a1 = trace.output.calc_results[0]
     assert (a1.op, a1.unit, a1.note) == ("change", "건", None)
-    assert [(v["key"]["시점"], v["value"]) for v in a1.value] == [("2022", -817.0), ("2023", 1967.0), ("2024", 28755.0),
-                                                                   ("2025", 17914.0)]
-    assert [i.key["시점"] for i in a1.inputs] == YEARS
+    assert a1.value == 240326.0 - 192507.0
+    assert [i.key["시점"] for i in a1.inputs] == ["2021", "2025"]
 
 
 def test_growth_rate_with_narrowed_period_is_computed(trace):
-    """conditions 의 시점을 2024 하나로 좁혔어도 증감률은 View 의 시점마다 계산된다"""
+    """conditions 의 시점을 2024 하나로 좁혔어도 증감률은 HCX 의 from·to 두 시점(2021 → 2025)으로 계산된다 (결정 D-1)"""
     a2 = trace.output.calc_results[1]
-    assert a2.note is None and a2.value[0]["value"] == pytest.approx((191690 - 192507) / 192507 * 100)
-    assert [c.display_text for c in trace.calcs] == [["-817건", "1,967건", "28,755건", "17,914건"], ["-0.4%", "1.0%", "14.8%", "8.1%"]]
+    assert a2.note is None and a2.value == pytest.approx((240326 - 192507) / 192507 * 100)
+    assert [c.display_text for c in trace.calcs] == ["47,819건", "24.8%"]
 
 
 def test_corrections_are_visible_to_qa(trace):
@@ -90,7 +90,7 @@ def test_corrections_are_visible_to_qa(trace):
     assert not any("항목 없음: 시점" in n for n in notes)          # 피연산자가 아닌 것은 검사 전에 버린다
     assert any("피연산자가 아님" in n for n in notes)
     assert any("피연산자를 하나로 합침" in n for n in notes)
-    assert any("시점마다 직전 시점 대비" in n for n in notes)
+    assert any("처음 → 끝 두 시점으로 계산" in n for n in notes)
 
 
 # ── 2026-11-11 재실행 (프롬프트·스키마 개선 후) ───────────────────
@@ -112,15 +112,15 @@ HCX_REPLY_20261111 = {
 
 
 def test_improved_reply_needs_no_correction():
-    """개선된 프롬프트의 응답: 피연산자 실수는 없다. 증감률 방식만 시점마다 직전 대비로 바뀐다"""
+    """개선된 프롬프트의 응답: 피연산자 실수는 없다. 증감률은 HCX 가 준 2021→2025 두 시점 그대로 값 하나 (결정 D-1)"""
     record = RECORD.model_copy(update={"id": VID2})
     charts = [CHARTS[0].model_copy(update={"sub_question_ids": ["64c693a0-1"]})]
     t = run_module3_trace(Module3Request(records=[record], query_bundle=BUNDLE.model_copy(update={"query_id": "64c693a0"}),
                                          charts=charts), chat=lambda *a, **k: HCX_REPLY_20261111)
-    # HCX 는 증감률을 2021→2025 두 시점(from·to)으로 골랐다 → 시점마다 직전 대비로 바로잡는다 (2026-11-11 사용자 요구)
-    assert t.chart_plan.notes == ["64c693a0-1: growth_rate: 시점마다 직전 시점 대비로 계산 (View 의 모든 시점)",
+    # HCX 는 증감률을 2021→2025 두 시점(from·to)으로 골랐다 → 질문용은 그대로 값 하나 (2026-11-16 결정 D-1. 11-11 에는 직전 대비로 바로잡았다)
+    assert t.chart_plan.notes == ["64c693a0-1: growth_rate: 처음 → 끝 두 시점으로 계산 (2021 → 2025)",
                                   "64c693a0-1: 질문용 연산 growth_rate ≠ 모듈 2 measure raw (c1)"]
-    assert [c.display_text for c in t.calcs] == [["192,507건", "191,690건", "193,657건", "222,412건", "240,326건"], ["-0.4%", "1.0%", "14.8%", "8.1%"]]
+    assert [c.display_text for c in t.calcs] == [["192,507건", "191,690건", "193,657건", "222,412건", "240,326건"], "24.8%"]
     (c1,) = t.output.chart_contents
     assert (c1.chart_type, c1.title, len(c1.rows)) == ("line", "2021~2025 혼인건수 연도별 추이", 5)
 
@@ -241,7 +241,7 @@ def test_hcx_unit_checked_against_view_unit_list():
     assert "9866c642-1: HCX 단위 '건' 은 View 단위 목록 '명 가임여자 1명당 명' 의 단위로 확인되지 않음 → 단위 없음" in t.chart_plan.notes
 
 
-# ── GPT 2차 검토 (2026-11-11) P1. HCX 단위는 표시에만, 단위 호환 검사에는 쓰지 않는다 ──
+# ── 2차 검수 (2026-11-11) P1. HCX 단위는 표시에만, 단위 호환 검사에는 쓰지 않는다 ──
 def test_hcx_unit_not_trusted_for_compatibility():
     """합계출산율에 HCX 가 '명' 을 붙이면 출생아수(명)와 계산됐다 (238,317 − 0.748 = 238,316.252명). 원본 DT_1B81A23 2024 전국 값"""
     vid = "view::101_DT_1B81A23::Y::r2-1::value"

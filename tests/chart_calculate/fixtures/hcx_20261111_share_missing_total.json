@@ -1,0 +1,299 @@
+{
+ "question": "2024년 전국 출생아수 중 서울 비중",
+ "date": "2026-11-11",
+ "note": "테스트 화면과 같은 경로(run: query-rewrite → views/detail → 모듈 2 대역 → calc/trace)에서 받은 실제 입력과 HCX 원 응답",
+ "query_bundle": {
+  "query_id": "08f90dc1",
+  "original": "2024년 전국 출생아수 중 서울 비중",
+  "rewritten": "2024년 전국 서울특별시 출생아수 지역별",
+  "intent": "구성비",
+  "filters": {
+   "시점": [
+    2024
+   ],
+   "지역": [
+    "서울특별시"
+   ],
+   "대상": [
+    "출생아"
+   ],
+   "성별": null,
+   "연령": null,
+   "지표": [
+    "출생아수"
+   ],
+   "비교축": "지역",
+   "의도": "비교"
+  },
+  "sub_questions": [],
+  "sub_filters": null,
+  "search_text": "2024년 전국 서울특별시 출생아수 지역별"
+ },
+ "charts": [
+  {
+   "chart_id": "c1",
+   "sub_question_ids": [
+    "08f90dc1-1"
+   ],
+   "chart_type": "pie",
+   "measure": "share",
+   "requirements": [
+    "non_negative",
+    "parts_sum_to_total",
+    "max_categories_5"
+   ],
+   "fallback_chart": "bar"
+  }
+ ],
+ "records": [
+  {
+   "id": "view::101_DT_1BB0006::Y::08f90dc1-1::breakdown",
+   "lexical_text": "지역별 다문화 출생 인구동향조사 시점 2024 시군구별 서울특별시 전체 출생아수(명) 다문화 출생아수(명) 명",
+   "table": {
+    "columns": [
+     "시점",
+     "시군구별",
+     "항목",
+     "값"
+    ],
+    "rows": [
+     [
+      "2024",
+      "서울특별시",
+      "전체 출생아수(명)",
+      41605.0
+     ],
+     [
+      "2024",
+      "서울특별시",
+      "다문화 출생아수(명)",
+      2343.0
+     ]
+    ]
+   },
+   "doc_type": "view",
+   "parent_id": "table::101_DT_1BB0006",
+   "metadata": {
+    "survey_nm": "인구동향조사",
+    "category": "인구동향조사",
+    "survey_type": "구분없음(전체집계)",
+    "view_type": "breakdown",
+    "prd_se": "Y",
+    "prd_from": "2024",
+    "prd_to": "2024",
+    "is_latest": true,
+    "unit": "명",
+    "geo_level": "시도",
+    "n_points": 2,
+    "items": [
+     "전체 출생아수(명)",
+     "다문화 출생아수(명)"
+    ],
+    "dims": []
+   },
+   "source": {
+    "table_key": "101_DT_1BB0006",
+    "file": "processed/101_DT_1BB0006.parquet",
+    "org_id": "101",
+    "tbl_id": "DT_1BB0006",
+    "prd_se": "Y",
+    "itm_id": [
+     "T00",
+     "T01"
+    ],
+    "dims": {
+     "c1": {
+      "codes": [
+       "11"
+      ]
+     }
+    },
+    "period": {
+     "in": [
+      "2024"
+     ]
+    },
+    "kosis_url": "https://kosis.kr/statHtml/statHtml.do?orgId=101&tblId=DT_1BB0006"
+   },
+   "notes": [],
+   "match": {
+    "rank": 1,
+    "cover": 1.0,
+    "unmet": []
+   }
+  },
+  {
+   "id": "view::101_DT_1B8000G::Y::08f90dc1-2::breakdown",
+   "lexical_text": "월.분기.연간 인구동향(출생,사망,혼인,이혼) 인구동향조사 시점 2024 행정구역별 서울특별시 종류별 출생아수(명) 출생사망혼인이혼 명 건",
+   "table": {
+    "columns": [
+     "시점",
+     "행정구역별",
+     "종류별",
+     "항목",
+     "값"
+    ],
+    "rows": [
+     [
+      "2024",
+      "서울특별시",
+      "출생아수(명)",
+      "출생사망혼인이혼",
+      41605.0
+     ]
+    ]
+   },
+   "doc_type": "view",
+   "parent_id": "table::101_DT_1B8000G",
+   "metadata": {
+    "survey_nm": "인구동향조사",
+    "category": "인구동향조사",
+    "survey_type": "구분없음(전체집계)",
+    "view_type": "breakdown",
+    "prd_se": "Y",
+    "prd_from": "2024",
+    "prd_to": "2024",
+    "is_latest": false,
+    "unit": "명 건",
+    "geo_level": "시도",
+    "n_points": 1,
+    "items": [
+     "출생사망혼인이혼"
+    ],
+    "dims": []
+   },
+   "source": {
+    "table_key": "101_DT_1B8000G",
+    "file": "processed/101_DT_1B8000G.parquet",
+    "org_id": "101",
+    "tbl_id": "DT_1B8000G",
+    "prd_se": "Y",
+    "itm_id": [
+     "T1"
+    ],
+    "dims": {
+     "c1": {
+      "codes": [
+       "11"
+      ]
+     },
+     "c2": {
+      "codes": [
+       "10"
+      ]
+     }
+    },
+    "period": {
+     "in": [
+      "2024"
+     ]
+    },
+    "kosis_url": "https://kosis.kr/statHtml/statHtml.do?orgId=101&tblId=DT_1B8000G"
+   },
+   "notes": [],
+   "match": {
+    "rank": 2,
+    "cover": 1.0,
+    "unmet": []
+   }
+  }
+ ],
+ "hcx_reply": {
+  "charts": [
+   {
+    "chart_id": "c1",
+    "record_id": "view::101_DT_1BB0006::Y::08f90dc1-1::breakdown",
+    "conditions": [
+     {
+      "column": "시점",
+      "values": [
+       "2024"
+      ]
+     }
+    ],
+    "series": [],
+    "from": "",
+    "to": "",
+    "base": "",
+    "agg": "",
+    "top_n": 0,
+    "join_on": [],
+    "denominator": {
+     "scope": "question",
+     "basis": "2024년 전국 출생아수",
+     "label": "2024년 전국 출생아수 중 서울 비중",
+     "record_id": "view::101_DT_1B8000G::Y::08f90dc1-2::breakdown",
+     "item": "출생아수(명)",
+     "conditions": [
+      {
+       "column": "시점",
+       "values": [
+        "2024"
+       ]
+      },
+      {
+       "column": "행정구역별",
+       "values": [
+        "전국"
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "answers": [
+   {
+    "sub_question_id": "08f90dc1-1",
+    "op": "share",
+    "operands": [
+     {
+      "role": "part",
+      "record_id": "view::101_DT_1B8000G::Y::08f90dc1-2::breakdown",
+      "item": "출생아수(명)",
+      "conditions": [
+       {
+        "column": "시점",
+        "values": [
+         "2024"
+        ]
+       },
+       {
+        "column": "행정구역별",
+        "values": [
+         "서울특별시"
+        ]
+       }
+      ]
+     }
+    ],
+    "from": "2024",
+    "to": "2024",
+    "base": "",
+    "agg": "",
+    "top_n": 0,
+    "join_on": [],
+    "denominator": {
+     "scope": "question",
+     "basis": "2024년 전국 출생아수",
+     "label": "2024년 전국 출생아수 중 서울 비중",
+     "record_id": "view::101_DT_1B8000G::Y::08f90dc1-2::breakdown",
+     "item": "출생아수(명)",
+     "conditions": [
+      {
+       "column": "시점",
+       "values": [
+        "2024"
+       ]
+      },
+      {
+       "column": "행정구역별",
+       "values": [
+        "전국"
+       ]
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

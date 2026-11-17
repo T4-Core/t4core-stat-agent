@@ -19,6 +19,11 @@ def _load(rel):
     return json.loads((HERE / rel).read_text(encoding="utf-8"))
 
 
+def _problems(res):
+    """errors 중 안내(level=info: 모듈 2 의 겹쳐 그리기 설명 등)를 뺀 것 — 입력 문제와 경고만"""
+    return [e for e in res["errors"] if e.get("level") != "info"]
+
+
 def _body(use_llm=False):
     """/views/detail 응답 모양(ViewResult)으로 맞춘 요청. 시험 자료에 없는 필수 필드만 채운다"""
     vi = _load("module2_sample/view_input.json")
@@ -34,8 +39,12 @@ def test_decide_runs_module2_and_returns_its_plan():
     r = client.post("/api/v1/chart/decide", json=_body())
     assert r.status_code == 200, r.text
     res = r.json()
-    assert res["errors"] == []
-    assert res["chart_plan"] == _load("module2_sample/chart_plan.json")      # 모듈 2 원본 그대로
+    assert _problems(res) == []
+    # 모듈 2 원본 그대로. 표본을 뜬 뒤 모듈 2 가 새 키(overlays · charts[].warnings)를 더했으므로 표본에 있는 키만 비교한다
+    sample, plan = _load("module2_sample/chart_plan.json"), res["chart_plan"]
+    assert {k: plan[k] for k in sample if k != "charts"} == {k: v for k, v in sample.items() if k != "charts"}
+    assert [{k: c[k] for k in s} for c, s in zip(plan["charts"], sample["charts"])] == sample["charts"]
+    assert len(plan["charts"]) == len(sample["charts"])
 
 
 def test_decide_charts_are_adapted_for_module3():
@@ -81,22 +90,23 @@ def test_decide_rejects_missing_input(missing):
     assert client.post("/api/v1/chart/decide", json=body).status_code == 422
 
 
-def test_decide_maps_main_when_there_are_no_sub_questions():
-    """하위 질문이 없으면 모듈 2 는 'main' 을 낸다. 모듈 3 입력에서는 '{query_id}-1' 로 바뀌고 원본은 chart_plan 에 그대로 있다"""
+def test_decide_keeps_query_id_ids_when_there_are_no_sub_questions():
+    """하위 질문이 없으면 모듈 2 는 이제 'main' 이 아니라 '{query_id}-1' 을 직접 낸다 (커밋 1a347c7). 모듈 3 입력에서도 같다.
+    예전 'main' 입력을 바꾸는 어댑터는 tests/chart/test_from_module2.py 가 따로 확인한다"""
     body = _body()
     body["query_bundle"] = copy.deepcopy(body["query_bundle"])
     body["query_bundle"]["sub_questions"], body["query_bundle"]["sub_filters"] = [], []
     body["view_input"]["units"] = [u for u in body["view_input"]["units"] if u["unit_id"] == "main"]
     res = client.post("/api/v1/chart/decide", json=body).json()
-    assert res["chart_plan"]["charts"][0]["sub_question_ids"] == ["main"]       # 모듈 2 원본
-    assert res["charts"][0]["sub_question_ids"] == ["27077dec-1"]               # 모듈 3 입력
+    assert res["chart_plan"]["charts"][0]["sub_question_ids"] == ["27077dec-1"]     # 모듈 2 원본
+    assert res["charts"][0]["sub_question_ids"] == ["27077dec-1"]                   # 모듈 3 입력
 
 
 def test_decide_passes_module2_view_ids_through_as_the_set():
     res = client.post("/api/v1/chart/decide", json=_body()).json()
     assert [c["view_ids"] for c in res["charts"]] == [c["view_ids"] for c in res["chart_plan"]["charts"]]
     assert res["charts"][0]["view_ids"] == ["view::101_DT_1B8000G::Y::27077dec-1-1::trend"]
-    assert res["errors"] == []                                  # 세트의 View 가 모두 records 에 있다
+    assert _problems(res) == []                                  # 세트의 View 가 모두 records 에 있다
 
 
 def test_swagger_example_carries_a_set_and_the_schema_documents_view_ids():
@@ -110,4 +120,4 @@ def test_decide_returns_records_that_contain_every_set_view():
     res = client.post("/api/v1/chart/decide", json=_body()).json()
     ids = {r["id"] for r in res["records"]}
     assert {v for c in res["charts"] for v in c["view_ids"]} <= ids
-    assert res["errors"] == []
+    assert _problems(res) == []

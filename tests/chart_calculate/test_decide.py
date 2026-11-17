@@ -12,7 +12,8 @@ CHARTS = [ChartRequest(chart_id="c1", sub_question_ids=["27077dec-1"], chart_typ
           ChartRequest(chart_id="c9", sub_question_ids=["27077dec-2"], chart_type=None)]
 YEARS = ["2021", "2022", "2023", "2024", "2025"]
 EMPTY_DEN = {"scope": "", "basis": "", "label": "", "record_id": "", "item": "", "conditions": []}
-EMPTY = {"from": "", "to": "", "base": "", "agg": "", "top_n": 0, "join_on": [], "denominator": EMPTY_DEN}
+EMPTY = {"from": "", "to": "", "base": "", "agg": "", "top_n": 0, "kind": "", "order": "", "join_on": [],
+         "denominator": EMPTY_DEN}
 
 
 def cond(**kw):
@@ -80,9 +81,10 @@ def test_reply_flows_into_plan():
     decision, _ = decide(BUNDLE, [view()], CHARTS, chat=fake(REPLY))
     cp, displays = make_plan(CHARTS, [view()], decision)
     assert [p.chart_id for p in cp.plans] == ["c1"] and [s.step_id for s in cp.answer_steps] == ["a1", "a2"]
-    assert cp.notes == ["27077dec-1: growth_rate: 시점마다 직전 시점 대비로 계산 (View 의 모든 시점)",
+    # [CHANGED 11-16] 이전: 시점마다 직전 시점 대비 — 질문용 증감률은 HCX 가 준 from·to 두 시점으로 값 하나 (결정 D-1)
+    assert cp.notes == ["27077dec-1: growth_rate: 처음 → 끝 두 시점으로 계산 (2021 → 2025)",
                         "27077dec-1: 질문용 연산 growth_rate ≠ 모듈 2 measure raw (c1)",       # c9 는 차트가 없어 대조하지 않는다
-                        "27077dec-2: growth_rate: 시점마다 직전 시점 대비로 계산 (View 의 모든 시점)"]
+                        "27077dec-2: growth_rate: 처음 → 끝 두 시점으로 계산 (2021 → 2025)"]
     assert set(displays) == {"d1", "d2"}
 
 
@@ -182,3 +184,40 @@ def test_unit_parsed_and_view_unit_list_in_prompt():
     assert [p.unit for p in decision.answers[0].operands] == ["명", None]
     text = build_prompt(QueryBundle(original="q"), [view(unit="명 가임여자 1명당 명")], [])
     assert "  단위: 명 가임여자 1명당 명  (표 전체의 단위 목록. 항목마다 맞는 것을 고른다)" in text
+
+
+# ── [NEW 11-16] 검수 M3-01: 최솟값(kind)·오름차순(order) 이 HCX 응답에서 계산까지 전달된다 ───
+def _answer_reply(**args):
+    return {"charts": [], "answers": [{"sub_question_id": "27077dec-1", "op": "extreme",
+                                       "operands": [pick("혼인건수(건)")], **{**EMPTY, **args}}]}
+
+
+def test_kind_min_reaches_the_step_and_picks_the_minimum():
+    from backend.agent.chart_calculate.calculate import run_answer_steps
+    decision, notes = decide(BUNDLE, [view()], CHARTS, chat=fake(_answer_reply(kind="min")))
+    assert notes == [] and decision.answers[0].kind == "min"
+    cp, _ = make_plan([], [view()], decision)
+    assert cp.answer_steps[0].kind == "min"
+    value = run_answer_steps(cp.answer_steps, [view()])[0].value
+    assert [(p["key"]["시점"], p["value"]) for p in value] == [("2022", 191690.0)]       # 가장 적은 해 (최댓값은 2025)
+
+
+def test_kind_defaults_to_max_and_unknown_kind_is_ignored():
+    from backend.agent.chart_calculate.calculate import run_answer_steps
+    for reply in (_answer_reply(), _answer_reply(kind="median")):
+        decision, _ = decide(BUNDLE, [view()], CHARTS, chat=fake(reply))
+        cp, _ = make_plan([], [view()], decision)
+        assert cp.answer_steps[0].kind is None
+        assert [p["key"]["시점"] for p in run_answer_steps(cp.answer_steps, [view()])[0].value] == ["2025"]
+
+
+def test_order_asc_reaches_rank():
+    from backend.agent.chart_calculate.calculate import run_answer_steps
+    regions = view([["2025", r, "인구수(명)", float(n)] for r, n in (("서울", 9), ("부산", 3), ("대구", 2), ("인천", 5))],
+                   ["시점", "행정구역별", "항목", "값"])
+    reply = _answer_reply(order="asc", top_n=2)
+    reply["answers"][0].update(op="rank", operands=[{**pick("인구수(명)", 행정구역별=["서울", "부산", "대구", "인천"]), "record_id": regions.id}])
+    decision, _ = decide(BUNDLE, [regions], CHARTS, chat=fake(reply))
+    cp, _ = make_plan([], [regions], decision)
+    value = run_answer_steps(cp.answer_steps, [regions])[0].value
+    assert [(p["rank"], p["key"]["행정구역별"]) for p in value] == [(1, "대구"), (2, "부산")]    # 작은 값부터
