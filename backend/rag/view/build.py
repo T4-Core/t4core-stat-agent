@@ -9,6 +9,8 @@ View 카드 만들기 — 검색으로 찾은 표 + 슬롯 dict → Record (doc_
 
 원칙
   - 표에 없는 조건은 억지로 맞추지 않고 notes 에 남긴다 → 판단 모듈이 "조건을 못 맞춘 View" 를 알 수 있게
+  - 지표를 나누는 분류('기본항목별: 출생아수(명)·사망자수(명)…')에 요청 지표가 없으면 첫 코드로 바꿔치기하지 않는다
+    → notes 에 missing, metadata.indicator_missing 에 그 분류 이름. 이 View 는 답변으로 넘기지 않는다 (view/viewset.py)
   - 숫자는 parquet 에서만 꺼낸다 (설명문·요약에 숫자를 지어 넣지 않음)
   - 슬롯 → 코드 매칭 규칙은 메타데이터 초안 기준이라 바뀔 수 있음 (규칙은 이 파일의 match_* 함수에만 둠)
 """
@@ -169,6 +171,21 @@ def match_regions(codes, regions, axis_level=None):
     return uniq, miss, dup
 
 
+UNIT_TAIL_RE = re.compile(r"\((?:[^()]*?(?:명|건|가구|호|세대|세|%|‰|원|개|천|만|율|률|당|배|년|㎡|㎢))[^()]*\)\s*$")
+MEASURE_END_RE = re.compile(r"(?:수|율|률|비|액|량|비율|구성비|지수|연령|기간)$")
+
+
+def measure_like(names):
+    """값들이 지표 이름인가 ('출생아수(명)'·'조출생률(천명당)'·'혼인건수(건)') — 이 분류·항목이 지표를 나눈다.
+    '미혼·유배우·사별'(혼인상태) · '1인·2인'(가구원수) · '단독주택·아파트' 는 지표가 아님"""
+    names = [str(n or "").strip() for n in names if str(n or "").strip()]
+    if len(names) < 2:
+        return False
+    hit = sum(bool(UNIT_TAIL_RE.search(n)) or bool(MEASURE_END_RE.search(re.sub(r"\s*\(.*\)\s*$", "", n)))
+              for n in names)
+    return hit / len(names) >= 0.6
+
+
 def match_name_ctx(name, stems, context=""):
     """분류 값 + 분류 이름으로 맞추기: 값이 질문 단어의 앞부분이고 나머지가 분류 이름에 있으면 같은 것
     예) 질문 '1인가구', 분류 '가구원수별' 의 값 '1인' → '1인' + '가구'(분류 이름에 있음) = '1인가구'
@@ -271,7 +288,8 @@ def age_codes(codes, rng, notes, what):
     return sel
 
 
-def match_level(l, f, stems, notes):
+def match_level(l, f, stems, notes, miss=None):
+    """miss: 요청 지표가 없는 '지표 분류' 이름을 담을 목록 (build_view 가 metadata.indicator_missing 으로)"""
     kind, codes = l["kind"], l["codes"]
     if kind == "ages" and not any(c.get("age_from") is not None for c in codes):
         kind = "other"
@@ -346,7 +364,16 @@ def match_level(l, f, stems, notes):
             if any(match_name(n, extra) for n in full) else []
         if sel:
             return sel
-    return [c for c in codes if c["is_total"]] or fallback("지표·대상과 맞는 코드 없음")
+    total = [c for c in codes if c["is_total"]]
+    if not total and stems and l["default_reason"] == "첫 코드" and measure_like(full):
+        # 이 분류가 지표를 나누는데 요청 지표가 없음 → 첫 코드(다른 지표)는 답이 아니다
+        if miss is not None:
+            miss.append(name)
+        note(notes, "지표", "missing", f"{name}: 요청 지표 {requested_of('지표', f)} 가 이 표에 없음 "
+                                       f"(있는 지표: {', '.join(full[:4])}{' …' if len(full) > 4 else ''} — 대신 쓰지 않음)",
+             dim=name, requested=requested_of("지표", f), applied=[])
+        return default
+    return total or fallback("지표·대상과 맞는 코드 없음")
 
 
 def has_sex(name, sex):
@@ -367,7 +394,8 @@ def pick_sex(rows, sexes):
     return plain or rows
 
 
-def match_items(prof, f, stems, sex_done, notes):
+def match_items(prof, f, stems, sex_done, notes, miss=None, level_hit=False):
+    """level_hit: 다른 분류에서 지표·대상을 이미 맞춤 (그러면 항목은 단위·종류만 나누는 것)"""
     items = prof["items"]
     names = [i["name"] for i in items]
     sel = [i for i in items if match_name(i["name"], narrow_stems(names, stems))]
@@ -397,7 +425,15 @@ def match_items(prof, f, stems, sex_done, notes):
         note(notes, "지표", "default", "항목: 지표·대상과 맞는 항목 없음 → 항목 전체",
              dim="항목", requested=requested_of("지표", f), applied=[i["name"] for i in items])
         return items
-    tot = [i for i in items if i["is_total"]] or items[:1]
+    tot = [i for i in items if i["is_total"]]
+    if not tot and stems and not level_hit and measure_like(names):
+        if miss is not None:
+            miss.append("항목")
+        note(notes, "지표", "missing", f"항목: 요청 지표 {requested_of('지표', f)} 가 이 표에 없음 "
+                                       f"(있는 지표: {', '.join(names[:4])} … — 대신 쓰지 않음)",
+             dim="항목", requested=requested_of("지표", f), applied=[])
+        return items[:1]
+    tot = tot or items[:1]
     note(notes, "지표", "default", f"항목: 지표·대상과 맞는 항목 없음 → '{tot[0]['name']}'",
          dim="항목", requested=requested_of("지표", f), applied=[tot[0]["name"]])
     return tot
@@ -417,9 +453,9 @@ def build_view(tbl_id, f, num, con=None):
             raise FileNotFoundError(f"원본 CSV 없음: {tbl_id}")
         stems = term_stems((f.get("지표") or []) + (f.get("대상") or []))
         se, years = match_period(prof, f, notes)
-        dims = {}
+        dims, miss = {}, []
         for l in prof["levels"]:
-            sel = match_level(l, f, stems, notes)
+            sel = match_level(l, f, stems, notes, miss)
             dims[l["level"]] = (l, sel)
         # 지역을 물었는데 이 표에 지역 분류가 없으면 메모 (
         # → 답변이 전국 값을 요청 지역 값처럼 말함). 메모가 있으면 답변 문맥 정렬에서 뒤로 가고, LLM 에도 경고로 전달됨
@@ -437,7 +473,10 @@ def build_view(tbl_id, f, num, con=None):
             if picked and len(picked) < len(sel):
                 dims[i] = (l, picked)
                 sex_done = sex_done or bool(sexes)
-        items = match_items(prof, f, stems, sex_done, notes)
+        level_hit = bool(stems) and any(l["kind"] in ("other", "nationality") and l["obj_nm"] not in miss
+                                        and any(not c["is_total"] and match_name(c["name"], stems) for c in sel)
+                                        for l, sel in dims.values())
+        items = match_items(prof, f, stems, sex_done, notes, miss, level_hit)
 
         where = [f"prd_se = {sql_str(se)}", f"itm_id IN ({', '.join(sql_str(i['itm_id']) for i in items)})"]
         for i, (l, sel) in dims.items():
@@ -498,7 +537,8 @@ def build_view(tbl_id, f, num, con=None):
                      "unit": " ".join(units), "geo_level": geo[0] if len(geo) == 1 else (geo or None),
                      "n_points": int(df["값"].notna().sum()) if not df.empty else 0,
                      "items": item_names,
-                     "dims": [l["obj_nm"] for l, sel in dims.values() if len(sel) > 1]},
+                     "dims": [l["obj_nm"] for l, sel in dims.values() if len(sel) > 1],
+                     **({"indicator_missing": miss} if miss else {})},
         "source": {"table_key": prof["table_key"], "file": prof["file"], "org_id": prof["org_id"],
                    "tbl_id": prof["tbl_id"], "prd_se": se, "itm_id": [i["itm_id"] for i in items],
                    "dims": {f"c{i}": {"codes": [c["code"] for c in sel]} for i, (l, sel) in dims.items()},

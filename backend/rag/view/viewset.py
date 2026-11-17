@@ -16,7 +16,7 @@ import uuid
 
 from backend.core.tracking import maybe_step
 from backend.rag.view import selection
-from backend.rag.view.conflict import detect
+from backend.rag.view.conflict import detect, indicator_missing
 
 
 def _settings(overrides=None):
@@ -170,6 +170,8 @@ def build_viewset(source, *, today=None, top_k=None, n_views=None, overrides=Non
         units.append(unit)
     for unit in units:
         records += unit_records(unit)
+        if (msg := missing_indicator_note(unit)) and msg not in unit["notes"]:
+            unit["notes"].append(msg)
     status = "needs_selection" if pending else "ok"
     return {**base, "status": status, "query_id": vb["query_id"], "original": vb.get("original"), "units": units,
             "records": records, "pending": pending, "view_bundle": vb,
@@ -177,18 +179,32 @@ def build_viewset(source, *, today=None, top_k=None, n_views=None, overrides=Non
 
 
 def unit_records(unit):
-    """단위 하나가 답변 모듈로 넘길 Record: 선택이 끝났거나 충돌이 없으면 View 전부 (선택된 무리 + 충돌과 무관한 View)"""
+    """단위 하나가 답변 모듈로 넘길 Record: 선택이 끝났거나 충돌이 없으면 View 전부 (선택된 무리 + 충돌과 무관한 View)
+    요청 지표가 없는 표의 View(첫 코드 = 다른 지표)는 keep_unusable 과 관계없이 넘기지 않는다"""
     c = unit["conflict"]
     if c["status"] == "ambiguous" and not unit.get("selected"):
         return []
     drop = set(unit["selected"]["dropped_ids"]) if unit.get("selected") else set()
+    drop |= {v["record"]["id"] for v in unit["views"] if indicator_missing(v["record"])}
     if not unit.get("keep_unusable", True) and any(v["usable"] for v in c["views"]):
         drop |= {v["record_id"] for v in c["views"] if not v["usable"]}  # 다 맞은 View 가 있을 때만 못 쓴 View 를 뺌
     recs = [v["record"] for v in unit["views"] if v["record"]["id"] not in drop]
     if unit.get("selected"):
         have = {r["id"] for r in recs}
-        recs += [r for r in unit["selected"]["records"] if r["id"] not in have]
+        recs += [r for r in unit["selected"]["records"] if r["id"] not in have and not indicator_missing(r)]
     return recs
+
+
+def missing_indicator_note(unit):
+    """단위의 View 가 모두 '요청 지표 없음' 이면 그 사실을 한 줄로 (없으면 None)"""
+    views = unit.get("views") or []
+    if not views or not all(indicator_missing(v["record"]) for v in views):
+        return None
+    f = unit.get("filters") or {}
+    want = ", ".join(f"'{w}'" for w in (f.get("지표") or f.get("대상") or [])) or "요청한 값"
+    name = {c["tbl_id"]: c.get("tbl_nm") or c["tbl_id"] for c in unit.get("candidates") or []}
+    tables = ", ".join(dict.fromkeys(f"「{name.get(v['tbl_id'], v['tbl_id'])}」" for v in views))
+    return f"요청한 지표 {want} 를 담은 통계표를 찾지 못함 (검색 상위 표 {tables} 에는 다른 지표만 있음)"
 
 
 def _apply(unit, sel):

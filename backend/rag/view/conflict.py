@@ -56,7 +56,17 @@ def view_usage(record, filters, allow_partial=("시점",)):
     empty = not rows or n_points == 0 and not any(r and r[-1] is not None for r in rows)
     if empty:
         notes.append("값이 없는 View")
+    lost = indicator_missing(rec)
+    if lost:
+        used["지표"] = False
+        notes.append(f"요청 지표가 없는 표 ({', '.join(lost)}): 다른 지표 값이라 비교·답변에 쓰지 않음")
     return {"usable": all(used.values()) and not empty, "used": used, "checks": info, "notes": notes}
+
+
+def indicator_missing(record):
+    """View 를 만들 때 요청 지표가 그 표에 없었던 분류 이름들 (view/build.py · metadata.indicator_missing)"""
+    rec = record if isinstance(record, dict) else record.model_dump(mode="json")
+    return list((rec.get("metadata") or {}).get("indicator_missing") or [])
 
 
 def target_redundant(targets, indicators):

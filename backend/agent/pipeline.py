@@ -31,8 +31,17 @@ def _first_option(conf):
     return conf["options"][0]["option_id"] if conf.get("options") else None
 
 
+def _missing_notes(vs):
+    from backend.rag.view.viewset import missing_indicator_note
+    return [m for u in vs.get("units") or [] if (m := missing_indicator_note(u))]
+
+
 def _answer(question, analysis, vs, max_rows):
     units = vs.get("units") or []
+    missing = _missing_notes(vs)
+    if missing and not vs.get("records"):          # 요청 지표가 어느 표에도 없음 → 다른 지표 값으로 답하지 않음
+        return {**OUT_OF_SCOPE_RESULT, "answer": f"{missing[0]}. 다른 지표의 값으로 대신 답하지 않았습니다.",
+                "caveats": missing}
     by_view = {v["record"]["id"]: (u, v) for u in units for v in u["views"]}
     tbl_nm = {c["tbl_id"]: c.get("tbl_nm") for u in units for c in u.get("candidates") or []}
     records = vs.get("records") or []
@@ -87,6 +96,8 @@ def run_chat(question, today=None, top_k=None, n_views=None, max_rows=40, auto_s
         from backend.agent.modules import as_answer_result, run_modules
         out["modules"] = run_modules(vs, draw=draw, max_rows=max_rows)
         out["result"] = as_answer_result(out["modules"])
+        if missing := _missing_notes(vs):
+            out["result"]["caveats"] = list(dict.fromkeys(missing + out["result"]["caveats"]))
         out["notes"] += out["modules"]["notes"]
     else:
         out["result"] = _answer(question, analysis, vs, max_rows)

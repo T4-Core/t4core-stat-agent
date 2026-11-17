@@ -132,6 +132,9 @@ flowchart LR
   - 값이 같으면 `ok`, 다르면 `ambiguous` → 선택지(표 설명·주석·산출 기준·값 미리보기) + 서명된 **선택 토큰**
   - `auto_select` 면 검색 순위가 가장 높은 선택지로 바로 진행, 아니면 `needs_selection` 으로 멈춤
 - 선택 토큰은 서버 세션 없이 동작합니다 (토큰 안에 좌표가 있어 다른 서버·CLI 에서도 같은 View 를 다시 만듦).
+- 지표를 나누는 분류(`기본항목별: 출생아수(명)·사망자수(명)…`, 합계 없음)에 요청 지표가 없으면 첫 코드로 바꿔치기하지 않습니다.
+  그 View 는 `metadata.indicator_missing` 이 붙고 답변으로 넘기지 않으며, 단위의 View 가 모두 그렇다면
+  "요청한 지표를 담은 통계표를 찾지 못함" 으로 답합니다 (다른 지표 값으로 답하지 않음).
 
 ### ③ 답변 — `backend/agent`
 
@@ -417,6 +420,7 @@ pytest -q synthetic_gold_pipeline/tests      # 골든셋 생성기
 | `test_search_fixes.py` (`scenario_search_fixes.py` · `scenario_search_cli.py`) | 원문 표현 정리 · 형제 표 · 분모·조건 단위 · LLM 후보 위치·하위 단위 · 개념 카탈로그 / compare · tune · 상한 실험 · 점검표 · View |
 | `test_tuning.py` | dev/heldout 나누기 · 일상어 후보 캐기 · 개념 카탈로그 만들기 |
 | `judge/` | 판단 모듈 |
+| `test_indicator_missing.py` (`scenario_indicator_missing.py`) | 요청 지표가 없는 표(인구동태 표에 '외국인 인구수')의 첫 코드로 답하지 않음 · 있는 지표는 그대로 · 다른 표가 있으면 그 표만 |
 | `test_agent_modules.py` (`scenario_agent_modules.py`) | 실제 `/rag/views` 결과 → `/chart/decide` → `/chart/calc` → `/answer/compose` · `/agent/modules`(그림 포함) · `/chat answer_mode` · 충돌 선택 · 역할 단위 세트 |
 | `chart/`, `chart_calculate/`, `answer_compose/` | 모듈 2 · 3 · 6 단위 (HCX 는 가짜 함수 또는 decision 직접 입력) |
 
