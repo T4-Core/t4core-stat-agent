@@ -1,4 +1,4 @@
-"""[NEW v4] 2-3 View(Record) → Point 목록 — 표가 달라도 같은 '교차점' 이면 같은 key
+"""View(Record) → Point 목록 — 표가 달라도 같은 '교차점' 이면 같은 key
 
   key  = 시점 + 지역 + 성별 + 연령 + 지표 + 기본 단위 (+ 질문에 없던 분류가 합계가 아니면 그 분류 값)
   value = 기본 단위로 바꾼 값 (천명 → 명 ×1000)
@@ -18,9 +18,9 @@ import re
 from dataclasses import asdict, dataclass, field
 
 from backend.core.utils import norm_space
-from backend.rag.ingestion.build_view import has_sex, squash, term_stems
 from backend.rag.ingestion.normalize import level_kind, parse_age
 from backend.rag.judge.extract import ITEM_COL, PERIOD_COL, VALUE_COL, is_total, region_std
+from backend.rag.view.build import has_sex, squash, term_stems
 
 KEY_ORDER = ("시점", "지역", "성별", "연령", "지표", "단위")
 
@@ -64,13 +64,13 @@ def age_key(label):
 @dataclass
 class Point:
     key: dict
-    value: float | None               # 기본 단위로 바꾼 값
+    value: float | None  # 기본 단위로 바꾼 값
     raw_value: float | None
-    unit: str                         # 표의 단위 (바꾸기 전)
+    unit: str  # 표의 단위 (바꾸기 전)
     record_id: str
     tbl_id: str
-    row: int                          # View 표의 몇 번째 행인지 (0부터)
-    labels: dict = field(default_factory=dict)   # 원래 라벨 (사람이 읽기용)
+    row: int  # View 표의 몇 번째 행인지 (0부터)
+    labels: dict = field(default_factory=dict)  # 원래 라벨 (사람이 읽기용)
 
     def key_str(self):
         return key_str(self.key)
@@ -150,7 +150,7 @@ def record_points(record, filters=None):
             if k == "regions":
                 key["지역"] = region_std(str(lb))
             elif is_total(str(lb)):
-                continue                                        # 합계 = 구분 없음
+                continue  # 합계 = 구분 없음
             elif k == "sex":
                 key["성별"] = sex_of(lb) or norm_space(lb)
             elif k == "ages":

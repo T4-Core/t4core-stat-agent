@@ -3,8 +3,16 @@ from __future__ import annotations
 
 import pytest
 
-from synthetic_gold_pipeline.schemas.planning import (FilterSpec, HopType, Operand, OperationGraph, OperationPlan,
-                                                       OperationStep, ReasoningType, SampledCluster)
+from synthetic_gold_pipeline.schemas.planning import (
+    FilterSpec,
+    HopType,
+    Operand,
+    OperationGraph,
+    OperationPlan,
+    OperationStep,
+    ReasoningType,
+    SampledCluster,
+)
 from synthetic_gold_pipeline.tests.conftest import find_view
 from synthetic_gold_pipeline.tools.calculation_tool import TableCalculationEngine
 from synthetic_gold_pipeline.tools.statistical_validation_tool import StatisticalValidator
@@ -121,9 +129,9 @@ def test_weighted_mean_requires_justified_pair(sv, demo_env):
 
 def test_narrower_denominator_rejected(sv, demo_env):
     idx = demo_env["index"]
-    a = find_view(idx, "101_DT_DEMO_HH", "T2", "2020", {"C2": ["2"]})       # 여자 가구주 1인가구
-    b = find_view(idx, "101_DT_DEMO_HH", "T1", "2020", {"C2": ["1"]})       # 남자 가구주 일반가구
-    c = find_view(idx, "101_DT_DEMO_HH", "T1", "2020", {"C2": ["2"]})       # 여자 가구주 일반가구
+    a = find_view(idx, "101_DT_DEMO_HH", "T2", "2020", {"C2": ["2"]})  # 여자 가구주 1인가구
+    b = find_view(idx, "101_DT_DEMO_HH", "T1", "2020", {"C2": ["1"]})  # 남자 가구주 일반가구
+    c = find_view(idx, "101_DT_DEMO_HH", "T1", "2020", {"C2": ["2"]})  # 여자 가구주 일반가구
     st = [OperationStep(step_id="s", op="SHARE_RATIO", inputs=["A", "B"])]
     rep = sv.validate_plan(plan([scalar("A", a, "T2", "2020"), scalar("B", b, "T1", "2020")], st, "s"),
                            cluster([a, b], hop=HopType.SINGLE_TABLE_MULTI_VIEW))

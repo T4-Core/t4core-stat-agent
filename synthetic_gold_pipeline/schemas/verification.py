@@ -10,7 +10,7 @@ class CheckState(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"
     NOT_APPLICABLE = "NOT_APPLICABLE"
-    NOT_RUN = "NOT_RUN"      # 검증하지 않음 — PASS 로 취급하지 않는다
+    NOT_RUN = "NOT_RUN"  # 검증하지 않음 — PASS 로 취급하지 않는다
 
 
 class Severity(str, Enum):
@@ -44,8 +44,8 @@ class StatisticalValidationReport(BaseModel):
 
 
 class AblationOutcome(str, Enum):
-    NECESSARY = "NECESSARY"              # 제거하면 필수 근거를 다른 View 에서 얻을 수 없음
-    REPLACEABLE = "REPLACEABLE"          # 남은 View 가 같은 Fact 를 제공 → 필수 아님
+    NECESSARY = "NECESSARY"  # 제거하면 필수 근거를 다른 View 에서 얻을 수 없음
+    REPLACEABLE = "REPLACEABLE"  # 남은 View 가 같은 Fact 를 제공 → 필수 아님
     NOT_CONTRIBUTING = "NOT_CONTRIBUTING"  # 연산 계획에서 이 View 의 값을 쓰지 않음
 
 

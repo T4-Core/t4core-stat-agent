@@ -8,7 +8,7 @@
                    지역_제외 {시도 표기: [뒤에 오면 지역이 아닌 말]}  ('경기 침체')
   term_dict.json : 일상어 → 통계어 사전. 범위가 넓거나 여러 뜻으로 읽히는 말 (영유아 = 0세~5세, 유아, 아기 …)
   term_dict.json : 일상어 → 통계어 사전. 뜻을 풀어야 하는 표현 (2-1 → 2-3 HCX 힌트, 2-4 대표 용어 통일)
-                   형식 {대표 용어: [일상어, ...]}  → 노트북 load_term_dict(path, fmt="term") 로 바로 읽힘
+                   형식 {대표 용어: [일상어, ...]}  → terms.py 가 그대로 읽음
 
 원본은 고치지 않음. 원본을 고친 뒤 다시 실행하면 두 파일이 이 폴더에 새로 만들어짐
     python backend/rag/query_analyzer/dictionary/build_dicts.py
@@ -26,13 +26,13 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-OUT_DIR = Path(__file__).resolve().parent                   # backend/rag/query_analyzer/dictionary
-PROJECT_ROOT = OUT_DIR.parents[3]                           # 저장소 루트
+OUT_DIR = Path(__file__).resolve().parent  # backend/rag/query_analyzer/dictionary
+PROJECT_ROOT = OUT_DIR.parents[3]  # 저장소 루트
 SRC = next((p for p in [PROJECT_ROOT / "dictionary_0" / "test2" / "results" / "dictionary_표명.json",
-                        PROJECT_ROOT / "dictionary" / "test2" / "results" / "dictionary_표명.json",   # 예전 폴더 이름
+                        PROJECT_ROOT / "dictionary" / "test2" / "results" / "dictionary_표명.json",
                         OUT_DIR / "dictionary_표명.json"] if p.exists()),
            OUT_DIR / "dictionary_표명.json")
-MIN_ALIAS_LEN = 2          # 노트북과 같은 기준. 한 글자 표현은 다른 단어 안에서 잘못 잡힘
+MIN_ALIAS_LEN = 2  # 한 글자 표현은 다른 단어 안에서 잘못 잡힘
 
 # ---- 섹션 → 어느 사전, 어느 슬롯 ----
 TERM_SECTIONS = ["TARGET_ALIASES", "INDICATOR_ALIASES"]
@@ -63,7 +63,7 @@ TO_TERM = {
     ("AXIS_ALIASES", "혼인지속기간"): ["결혼생활기간", "동거기간"],
     ("AXIS_ALIASES", "가구주와의 관계"): ["가족관계"],
     ("AXIS_ALIASES", "출입국항"): ["공항", "항구"],
-    ("AXIS_ALIASES", "주거면적"): ["연면적"],                     # 연면적은 건물 전체 바닥 면적이라 같지 않음
+    ("AXIS_ALIASES", "주거면적"): ["연면적"],  # 연면적은 건물 전체 바닥 면적이라 같지 않음
     # 유입·유출은 국내(전입·전출)와 국제(입국·출국) 둘 다로 읽힘
     ("MOVE_ALIASES", "전입"): ["이사 온", "들어온", "유입"],
     ("MOVE_ALIASES", "전출"): ["이사 간", "빠져나간", "떠난", "유출"],
@@ -85,7 +85,7 @@ EXCLUDE = {
     ("TARGET_ALIASES", "세대"): {a: "'21대 국회', '1대 1' 등에서 잡힘" for a in ["1대", "2대", "3대"]},
     ("TARGET_ALIASES", "청소년"): {"학생": "'대학생', '초등학생' 안에서 잡힘"},
     ("AXIS_ALIASES", "자녀수"): {a: "자녀수의 일부만 세는 다른 지표" for a in ["미성년자녀수", "취학자녀수", "아동수"]},
-    ("REGION_LEVEL_ALIASES", "전국"): {"전국": "축이 아니라 지역 값. 노트북 SIDO 대응표가 처리"},
+    ("REGION_LEVEL_ALIASES", "전국"): {"전국": "축이 아니라 지역 값. SIDO 대응표가 처리"},
     ("TARGET_ALIASES", "자녀"): {"아이": "아동에만 둠"},
     ("TARGET_ALIASES", "영유아"): {"어린 아이": "아동에만 둠",
                                    "0-5세": "AGE_WORD_TERMS 의 '0세~5세' 로 대신함",
@@ -95,12 +95,12 @@ EXCLUDE = {
 
 # ---- term_dict 대표 용어 합치기 {없앨 대표 용어: 남길 대표 용어}. 없앤 대표 용어는 남길 쪽의 일상어가 됨 ----
 MERGE_TERM = {
-    "65세 이상": "고령자",         # 노인·어르신·노년층·65세 이상 → 고령자
-    "15~64세": "생산연령인구",     # 고령자와 같은 방식 (말이 대표 용어, 숫자 연령은 일상어)
+    "65세 이상": "고령자",  # 노인·어르신·노년층·65세 이상 → 고령자
+    "15~64세": "생산연령인구",  # 고령자와 같은 방식 (말이 대표 용어, 숫자 연령은 일상어)
 }
 
 # ---- 연령을 뜻하는 넓은 말 → term_dict {대표 용어: [일상어]} ----
-# 노트북 2-2 AGE_WORDS 단어를 대표 용어에 붙임. 숫자 연령(1세 …)은 사용자 요청으로 영유아에 넣음
+# 코드 추출 AGE_WORDS 단어를 대표 용어에 붙임. 숫자 연령(1세 …)은 사용자 요청으로 영유아에 넣음
 AGE_WORD_TERMS = {
     "고령자": ["노인", "어르신", "고령", "노년", "노령", "실버"],
     "영유아": ["0세~5세", "1세", "2세", "3세", "4세", "5세", "신생아", "영아", "유아", "미취학"],
@@ -113,21 +113,21 @@ AGE_WORD_TERMS = {
     "생산연령인구": ["생산연령", "생산가능"],
 }
 
-# ---- 노트북 2-2 대응표 (2026-11-05 기준 복사). 이제 이 파일이 원본 → 노트북은 rule_dict.json 을 읽게 바꿀 것 ----
+# ---- 코드 추출 대응표 (이 파일이 원본 → rule_dict.json) ----
 SIDO_ALIASES = {
     "서울특별시": ["서울시", "서울"], "부산광역시": ["부산시", "부산"], "대구광역시": ["대구시", "대구"],
     "인천광역시": ["인천시", "인천"],
-    "광주광역시": ["광주"],                       # '광주시'는 경기도 광주시 → 넣지 않음
+    "광주광역시": ["광주"],  # '광주시'는 경기도 광주시 → 넣지 않음
     "대전광역시": ["대전시", "대전"], "울산광역시": ["울산시", "울산"], "세종특별자치시": ["세종시", "세종"],
-    "경기도": ["경기"],                           # '경기 침체' 등은 지역_제외
+    "경기도": ["경기"],  # '경기 침체' 등은 지역_제외
     "강원특별자치도": ["강원도", "강원"], "충청북도": ["충북"], "충청남도": ["충남"],
     "전북특별자치도": ["전라북도", "전북"], "전라남도": ["전남"], "경상북도": ["경북"], "경상남도": ["경남"],
-    "제주특별자치도": ["제주도", "제주"],         # '제주시'는 시군구 → 넣지 않음
+    "제주특별자치도": ["제주도", "제주"],  # '제주시'는 시군구 → 넣지 않음
     "전국": ["전체 지역", "우리나라", "국내 전체"],
 }
 _CAPITAL = ["서울특별시", "인천광역시", "경기도"]
 _ALL_SIDO = [s for s in SIDO_ALIASES if s != "전국"]
-SIDO_GROUPS = {   # {이름: ([표기], [시도])}
+SIDO_GROUPS = {  # {이름: ([표기], [시도])}
     "수도권": (["수도권"], _CAPITAL),
     "비수도권": (["비수도권"], [s for s in _ALL_SIDO if s not in _CAPITAL]),
     "충청권": (["충청권", "충청"], ["대전광역시", "세종특별자치시", "충청북도", "충청남도"]),
@@ -151,7 +151,7 @@ COMPOUND_TERMS = {
 SEX_BOTH = ["남녀", "남여", "여남", "남·여", "남/여", "남,여", "남과 여"]
 KOR_TENS = {"90": ["구십"], "80": ["팔십"], "70": ["칠십"], "60": ["육십"], "50": ["오십"], "40": ["사십"],
             "30": ["삼십"], "20": ["이십"], "10": ["십"]}
-COUNTRY_ALIASES = {   # 넣지 않은 이름: 이란·오만·가나·말리·차드·기니 (일반 단어와 겹침)
+COUNTRY_ALIASES = {  # 넣지 않은 이름: 이란·오만·가나·말리·차드·기니 (일반 단어와 겹침)
     "중국": ["중국인"], "한국계 중국": ["한국계중국", "조선족", "중국동포", "중국 동포"],
     "일본": ["일본인"], "대만": ["타이완"], "홍콩": [], "몽골": [],
     "베트남": [], "필리핀": [], "태국": [], "인도네시아": [], "캄보디아": [], "미얀마": ["버마"], "라오스": [],
@@ -163,7 +163,7 @@ COUNTRY_ALIASES = {   # 넣지 않은 이름: 이란·오만·가나·말리·�
     "영국": [], "프랑스": [], "독일": [], "이탈리아": [], "스페인": [], "네덜란드": [],
     "튀르키예": ["터키"], "이집트": [], "나이지리아": [], "남아프리카공화국": ["남아공"],
 }
-# 노트북 대응표 중 한 글자도 그대로 둘 것 (KOR_TENS '십'은 '삼십대' 같은 숫자 패턴 안에서만 씀)
+# 대응표 중 한 글자도 그대로 둘 것 (KOR_TENS '십'은 '삼십대' 같은 숫자 패턴 안에서만 씀)
 KEEP_SHORT = {"십"}
 # 여러 뜻으로 읽힐 수 있어 확인이 필요한 표기 (규칙 사전에 두되 보고서에 표시)
 REVIEW = {
@@ -174,11 +174,11 @@ REVIEW = {
 
 # ---- 대표 용어 이름 바꾸기 ----
 RENAME = {
-    ("MOVE_ALIASES", "이동"): "인구이동",                     # 노트북 TERM_DICT 와 맞춤
+    ("MOVE_ALIASES", "이동"): "인구이동",  # TERM_DICT 와 맞춤
     ("CONDITION_ALIASES", "자료=장래인구추계"): "장래인구추계",  # term_dict 쪽만. HCX 힌트에 '자료=' 가 보이지 않게
 }
 
-# ---- 노트북 2-1 TERM_DICT (2026-11-05 기준 복사). 원본 사전과 겹치면 원본이 우선 ----
+# ---- 기본 TERM_DICT. 원본 사전과 겹치면 원본이 우선 ----
 NOTEBOOK_TERM_DICT = {
     "65세 이상": ["노인", "어르신", "늙은이", "노년층", "고령자"],
     "고령인구비율": ["노인 비율", "고령자 비율", "늙은이 비율", "고령화율", "고령화"],
@@ -235,11 +235,11 @@ def add_rule(d, key, alias):
 
 def build():
     src = json.loads(SRC.read_text(encoding="utf-8"))
-    rule = defaultdict(dict)        # {슬롯: {대표값: [표기]}}
-    term = {}                       # {대표 용어: [일상어]}
-    log = defaultdict(list)         # 보고서
+    rule = defaultdict(dict)  # {슬롯: {대표값: [표기]}}
+    term = {}  # {대표 용어: [일상어]}
+    log = defaultdict(list)  # 보고서
 
-    # ---- 노트북 2-2 대응표 → rule_dict (앞쪽 섹션) ----
+    # ---- 코드 추출 대응표 → rule_dict (앞쪽 섹션) ----
     for slot, table in [("지역", SIDO_ALIASES), ("성별", SEX), ("국적", COUNTRY_ALIASES), ("연령_한글숫자", KOR_TENS)]:
         for v, al in table.items():
             rule[slot].setdefault(v, [v])
@@ -262,14 +262,14 @@ def build():
         for key, aliases in entries.items():
             k = (sec, key)
             excl, to_term = EXCLUDE.get(k, {}), set(TO_TERM.get(k, []))
-            if key in excl:                    # 대표값 자체를 뺌 → 항목 전체 제외
+            if key in excl:  # 대표값 자체를 뺌 → 항목 전체 제외
                 log["제외한 항목"].append(f"{sec}.{key} — {excl[key]}")
                 continue
             whole_to_term = sec in TERM_SECTIONS or k in MOVE_ENTRY_TO_TERM
             if k in MOVE_ENTRY_TO_TERM:
                 log["항목째 term_dict 로"].append(f"{sec}.{key}: {MOVE_ENTRY_TO_TERM[k]}")
             term_key = RENAME.get(k, key)
-            rule_key = key                     # RENAME 은 term_dict 쪽만
+            rule_key = key  # RENAME 은 term_dict 쪽만
 
             if whole_to_term:
                 term.setdefault(term_key, [])
@@ -291,18 +291,18 @@ def build():
             for a in to_term - set(aliases):
                 log["TO_TERM 에 있지만 원본에 없는 표현"].append(f"{key}: '{a}'")
 
-    # ---- 노트북 TERM_DICT 합치기 (원본이 이미 다른 대표 용어로 쓰는 일상어는 건너뜀) ----
+    # ---- TERM_DICT 합치기 (원본이 이미 다른 대표 용어로 쓰는 일상어는 건너뜀) ----
     owner = {ns(a): t for t, al in term.items() for a in [t, *al]}
     in_rule = {ns(a): f"{slot}:{v}" for slot, d in rule.items() for v, al in d.items() for a in [v, *al]}
     for t, al in NOTEBOOK_TERM_DICT.items():
         term.setdefault(t, [])
         for a in al:
             if ns(a) in in_rule:
-                log["노트북 TERM_DICT 에서 건너뜀 (rule_dict 에 이미 있음)"].append(f"'{a}' → {in_rule[ns(a)]}")
+                log["TERM_DICT 에서 건너뜀 (rule_dict 에 이미 있음)"].append(f"'{a}' → {in_rule[ns(a)]}")
                 continue
             o = owner.get(ns(a))
             if o and o != t:
-                log["노트북 TERM_DICT 에서 건너뜀 (원본 우선)"].append(f"'{a}': 노트북 {t} / 원본 {o}")
+                log["TERM_DICT 에서 건너뜀 (원본 우선)"].append(f"'{a}': TERM_DICT {t} / 원본 {o}")
                 continue
             add(term, t, a)
             owner.setdefault(ns(a), t)
@@ -331,7 +331,7 @@ def build():
         log["대표 용어 합침"].append(f"{old} → {new}: {term[new]}")
 
     # ---- 검사 ----
-    seen = defaultdict(set)                                  # term_dict 안: 일상어 → 대표 용어들
+    seen = defaultdict(set)  # term_dict 안: 일상어 → 대표 용어들
     for t, al in term.items():
         for a in al:
             seen[ns(a)].add(t)
@@ -342,7 +342,7 @@ def build():
                 f"'{a}' → {', '.join(sorted(ts))}")
     rule_seen = defaultdict(set)
     for slot, d in rule.items():
-        if slot == "지역_제외":                               # 표기가 아니라 '뒤에 오는 말' 목록
+        if slot == "지역_제외":  # 표기가 아니라 '뒤에 오는 말' 목록
             continue
         for v, al in d.items():
             al = al["표기"] if isinstance(al, dict) else al

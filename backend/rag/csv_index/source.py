@@ -1,5 +1,5 @@
 """
-[NEW v4] 데이터 소스 인터페이스 — CSV 값 사전이 '어디서 표를 읽는가'를 갈아끼울 수 있게
+데이터 소스 인터페이스 — CSV 값 사전이 '어디서 표를 읽는가'를 갈아끼울 수 있게
 
   DataSource (Protocol)
     list_tables(scope)  → [TableRef]       scope = "selected" (catalog.csv selected) | "all" (raw 폴더 전체)
@@ -9,7 +9,7 @@
   구현
     KosisRawCsvSource   지금 쓰는 수집 결과 (storage/kosis_data: catalog.csv · meta/*.json · raw/<조사>/<기관>_<표>.csv)
                         기존 코드와 같은 방식: 표 목록은 catalog.csv(normalize.load_targets 와 같은 규칙), 원본 위치는 normalize.raw_path
-    (예정) 정제 데이터 소스  타 파트의 정제 데이터가 나오면 같은 3개 메서드만 구현해 get_source("이름") 으로 교체
+    다른 데이터 소스는 같은 3개 메서드만 구현해 get_source("이름") 으로 교체
 """
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -23,8 +23,8 @@ class TableRef:
     tbl_id: str
     tbl_nm: str
     org_id: str
-    category: str                  # 조사 폴더 이름
-    menu_path: str                 # catalog.csv path (KOSIS 메뉴 경로)
+    category: str  # 조사 폴더 이름
+    menu_path: str  # catalog.csv path (KOSIS 메뉴 경로)
     raw_path: str
     meta_path: str | None
     selected: bool
@@ -97,7 +97,6 @@ class KosisRawCsvSource:
         return [r for r in refs if scope == "all" or r.selected]
 
     def signature(self, ref):
-        # [CHANGED v4] 분류 판정 규칙 버전을 서명에 넣음 → 규칙이 바뀌면 다음 build 때 다시 스캔 (이전: 원본·메타만)
         from backend.rag.ingestion.normalize import KIND_RULES_VERSION
         return f"{_sig(ref.raw_path, ref.meta_path)}|kind{KIND_RULES_VERSION}"
 

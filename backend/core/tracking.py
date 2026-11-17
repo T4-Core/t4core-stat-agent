@@ -1,5 +1,5 @@
 """
-[NEW v4] 단계별 실행 기록 — 파라미터(모수)·입력 요약·출력·소요 시간을 남겨 평가 파이프라인이 그대로 읽게 함
+단계별 실행 기록 — 파라미터·출력 요약·소요 시간 (API 응답 trace, 선택 시 RUNS_DIR 에 저장)
 
   tr = Tracer(run_name="analyze")                       # 저장하지 않으려면 save=False (기본: 저장 안 함)
   with tr.step("lexicon", fuzzy_cutoff=0.8) as s:       # params 는 키워드 인자로
@@ -8,8 +8,6 @@
       s.notes.append("…")
   tr.traces        → [StepTrace, …]  (API 응답 trace 에 그대로)
   tr.save()        → RUNS_DIR/<run_id>/params.json · steps.jsonl
-
-노트북에서는 단계 함수를 직접 부르고 Tracer 없이도 됨 (모든 단계 함수는 tracer=None 을 받음)
 """
 import json
 import time
@@ -23,9 +21,9 @@ from typing import Any
 
 @dataclass
 class StepTrace:
-    step: str                                     # 단계 이름 (예: "1-2 lexicon")
+    step: str  # 단계 이름 (예: "1-2 lexicon")
     params: dict[str, Any] = field(default_factory=dict)
-    output: Any = None                            # 출력 요약
+    output: Any = None  # 출력 요약
     notes: list[str] = field(default_factory=list)
     seconds: float = 0.0
     error: str | None = None
@@ -37,7 +35,7 @@ class StepTrace:
 class Tracer:
     def __init__(self, run_name="run", params=None, save=False, runs_dir=None):
         self.run_id = f"{datetime.now():%Y%m%d_%H%M%S}_{run_name}_{uuid.uuid4().hex[:6]}"
-        self.params = dict(params or {})          # 실행 전체 설정 (settings 등)
+        self.params = dict(params or {})  # 실행 전체 설정 (settings 등)
         self.traces: list[StepTrace] = []
         self._save = save
         self._dir = Path(runs_dir) if runs_dir else None
@@ -77,7 +75,7 @@ class Tracer:
 
 @contextmanager
 def maybe_step(tracer, name, **params):
-    """tracer 가 None 이면 기록 없이 실행 (노트북에서 단계 함수를 단독으로 부를 때)"""
+    """tracer 가 None 이면 기록 없이 실행 (단계 함수를 단독으로 부를 때)"""
     if tracer is None:
         yield StepTrace(step=name, params=params)
     else:

@@ -31,26 +31,26 @@ class Facet:
     tbl_nm: str = ""
     survey_nm: str = ""
     path: str = ""
-    items: list = field(default_factory=list)            # 항목 이름
-    dims: list = field(default_factory=list)             # [(분류 이름, 종류, [값 이름…])] — 지역 분류 제외
+    items: list = field(default_factory=list)  # 항목 이름
+    dims: list = field(default_factory=list)  # [(분류 이름, 종류, [값 이름…])] — 지역 분류 제외
     units: list = field(default_factory=list)
-    years: frozenset | None = None                       # 실제 수록 연도 (값 사전이 있을 때)
-    spans: list = field(default_factory=list)            # [(시작, 끝)] 정의된 기간
-    cycles: set = field(default_factory=set)             # {"Y", "M", "Q", "H"}
-    geo: set = field(default_factory=set)                # {"시도", "시군구", "읍면동", "동읍면부"}
-    sido: set = field(default_factory=set)               # 시도 짧은 이름 ('서울', '경기')
-    regions: set = field(default_factory=set)            # 시도 아래 지역 이름 (norm)
-    regions_full: bool = False                           # regions 가 그 표의 지역 전부인가
+    years: frozenset | None = None  # 실제 수록 연도 (값 사전이 있을 때)
+    spans: list = field(default_factory=list)  # [(시작, 끝)] 정의된 기간
+    cycles: set = field(default_factory=set)  # {"Y", "M", "Q", "H"}
+    geo: set = field(default_factory=set)  # {"시도", "시군구", "읍면동", "동읍면부"}
+    sido: set = field(default_factory=set)  # 시도 짧은 이름 ('서울', '경기')
+    regions: set = field(default_factory=set)  # 시도 아래 지역 이름 (norm)
+    regions_full: bool = False  # regions 가 그 표의 지역 전부인가
     source: str = "none"
-    has_age: bool = False                                # 연령 분류(또는 연령이 이름에 든 항목)가 있는가
-    has_sex: bool = False                                # 성별 분류(또는 남·여가 이름에 든 항목)가 있는가
+    has_age: bool = False  # 연령 분류(또는 연령이 이름에 든 항목)가 있는가
+    has_sex: bool = False  # 성별 분류(또는 남·여가 이름에 든 항목)가 있는가
 
     def finish(self):
         """분류·항목에서 구조 표시 계산 (만든 뒤 한 번)"""
         names = list(self.items) + [n for _, _, ns in self.dims for n in ns[:200]]
         self.has_age = any(k == "ages" for _, k, _ in self.dims) or sum(bool(AGE_NAME.search(str(n))) for n in names) >= 3
         self.has_sex = any(k == "sex" for _, k, _ in self.dims) or any(SEX_NAME.search(str(n)) for n in names) \
-            or bool(re.search(r"\((?:남|여|남자|여자)\)", self.tbl_nm or ""))   # [NEW 11-16] '…(여)' 처럼 성별로 나눈 형제 표
+            or bool(re.search(r"\((?:남|여|남자|여자)\)", self.tbl_nm or ""))  # '…(여)' 처럼 성별로 나눈 형제 표
         return self
 
     def year_cover(self, want) -> float:
@@ -67,13 +67,13 @@ class Facet:
 
 
 def sido_short(name):
-    from backend.rag.ingestion.resolve import short
+    from backend.rag.search.resolve import short
     return short(name)
 
 
 def _is_sido(name):
     from backend.rag.ingestion.normalize import SIDO_ALIAS
-    from backend.rag.ingestion.resolve import OLD_SIDO_RE
+    from backend.rag.search.resolve import OLD_SIDO_RE
     n = norm(name)
     return bool(SIDO_ALIAS.get(n) or OLD_SIDO_RE.search(n))
 
@@ -86,7 +86,7 @@ def _add_region(f: Facet, name):
         f.sido.add(sido_short(name))
         f.geo.add("시도")
         return
-    last = norm(str(name).split()[-1])                    # '수원시 권선구' → 권선구 (앞의 시도·시는 따로 등록)
+    last = norm(str(name).split()[-1])  # '수원시 권선구' → 권선구 (앞의 시도·시는 따로 등록)
     for part in {n, last}:
         f.regions.add(part)
     if last in URBAN:
@@ -99,7 +99,7 @@ def _add_region(f: Facet, name):
 
 def from_profile(p: dict) -> Facet:
     """메타 프로필(또는 카드 프로필) → Facet"""
-    from backend.rag.ingestion.build_view import full_names
+    from backend.rag.view.build import full_names
     f = Facet(p["tbl_id"], p.get("tbl_nm") or "", p.get("survey_nm") or "", p.get("path") or "", source="meta")
     f.items = full_names([i["name"] for i in p.get("items") or []])
     f.units = list(p.get("units") or [])
@@ -117,7 +117,7 @@ def from_profile(p: dict) -> Facet:
                 _add_region(f, n)
         else:
             f.dims.append((lv.get("obj_nm") or "", lv.get("kind") or "other", full_names(names)))
-            if sum(_is_sido(n) for n in names) >= 3:      # 지역으로 판정되지 않은 옛 표의 시도 목록
+            if sum(_is_sido(n) for n in names) >= 3:  # 지역으로 판정되지 않은 옛 표의 시도 목록
                 for n in names:
                     _add_region(f, n)
     return f
@@ -165,7 +165,7 @@ def build_facets(docs, source="auto", log=None) -> dict:
                 raise
         except Exception as e:  # noqa: BLE001  (값 사전이 깨져 있어도 메타로 계속)
             if log:
-                log(f"[v5] CSV 값 사전을 읽지 못해 메타 프로필만 씀: {e.__class__.__name__}: {e}")
+                log(f"[search] CSV 값 사전을 읽지 못해 메타 프로필만 씀: {e.__class__.__name__}: {e}")
     rest = want - set(out)
     if rest:
         try:
@@ -175,13 +175,13 @@ def build_facets(docs, source="auto", log=None) -> dict:
             prof = {}
         for d in docs:
             if d.id in rest:
-                p = d.meta.get("profile") or prof.get(d.id)   # 문서가 직접 들고 온 프로필이 먼저 (같은 tbl_id 의 메타 파일보다)
+                p = d.meta.get("profile") or prof.get(d.id)  # 문서가 직접 들고 온 프로필이 먼저 (같은 tbl_id 의 메타 파일보다)
                 out[d.id] = from_profile(p) if p else Facet(d.id, d.meta.get("tbl_nm", ""), d.meta.get("survey_nm", ""))
     for f in out.values():
         f.finish()
     if log:
         from collections import Counter
-        log(f"[v5] 표 단면 {len(out)}개 · 출처 {dict(Counter(f.source for f in out.values()))}")
+        log(f"[search] 표 단면 {len(out)}개 · 출처 {dict(Counter(f.source for f in out.values()))}")
     return out
 
 

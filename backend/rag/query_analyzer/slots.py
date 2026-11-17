@@ -1,28 +1,27 @@
-"""2-3. HCX 슬롯 추출 (질문당 1회)
-노트북 user_question_rewrite_v3.ipynb '2-3' 셀의 코드를 그대로 옮김 (질문 여러 개 실행 부분은 뺌 → bundle.run_pipeline)"""
-from .config import chat                                              # 베이스 코드 chat() (backend.core.llm)
-from .extract import rule_extract                                     # 2-2
-from .terms import build_term_block, lookup_terms                     # 2-1
+"""HCX 슬롯 추출 (질문당 1회)
 
-# ============= 2-3. HCX 슬롯 추출 (질문당 1회) ================
-# 2-1 용어 사전 + 2-2 코드 추출 결과를 힌트로 넣어 HCX에 슬롯을 받음. 검증·정리는 2-4에서 함
-# 호출은 베이스 코드의 chat() (구조화 출력 미지원 모델이면 chat()이 알아서 일반 응답 + JSON 파싱으로 바꿈)
+용어 사전 + 코드 추출 결과를 힌트로 넣어 HCX에 슬롯을 받음. 검증·정리는 validate.py
+chat() 은 구조화 출력 미지원 모델이면 일반 응답 + JSON 파싱으로 바꿈
+"""
 import json
 import re
 import time
 from datetime import date
 
+from .config import chat
+from .extract import rule_extract
+from .terms import build_term_block, lookup_terms
+
 SLOT_KEYS = ["시점", "지역", "전출지", "전입지", "국적", "대상", "성별", "연령", "조건", "이동", "지표", "비교축"]
 INTENTS = ["값 조회", "추이", "비교", "순위", "구성비", "증감", "증감률", "범위 밖", "합계"]
 
 
-
 # ---- 출력 스키마: slots(12개 슬롯 + 의도) + sub_questions(하위 슬롯 목록) ----
 _ARR = {"type": "array", "items": {"type": "string"}}
-SLOT_OBJ = {"type": "object",                                   # 원 질문: 의도 여러 개 (목록)
+SLOT_OBJ = {"type": "object",  # 원 질문: 의도 여러 개 (목록)
             "properties": {**{k: _ARR for k in SLOT_KEYS}, "의도": _ARR},
             "required": SLOT_KEYS + ["의도"]}
-SUB_OBJ = {"type": "object",                                    # 하위 질문: 의도 하나 (문자열)
+SUB_OBJ = {"type": "object",  # 하위 질문: 의도 하나 (문자열)
            "properties": {**{k: _ARR for k in SLOT_KEYS}, "의도": {"type": "string"}},
            "required": SLOT_KEYS + ["의도"]}
 SLOT_SCHEMA = {"type": "object",
@@ -101,32 +100,32 @@ SLOT_FEW_SHOT = [
      "slots": {"국적": ["베트남"], "대상": ["결혼이민자"], "지표": ["인구수"], "비교축": ["시도"], "의도": ["비교"]}},
     {"q": "갈라서는 부부 늘었어?", "terms": [("갈라서", ["이혼건수"])],
      "slots": {"대상": ["이혼"], "지표": ["이혼건수"], "의도": ["추이"]}},
-    {"q": "충북이랑 충남 출생아 수 비교",                                  # 규칙 2: 지역만 여러 개 → 나누지 않음
+    {"q": "충북이랑 충남 출생아 수 비교",  # 규칙 2: 지역만 여러 개 → 나누지 않음
      "hint": {"지역": ["충청북도", "충청남도"]},
      "slots": {"지역": ["충청북도", "충청남도"], "대상": ["출생아"], "지표": ["출생아수"], "의도": ["비교"]}},
-    {"q": "2022년 대전 노인 인구랑 다문화가구 수",                         # 규칙 1·3: 지표 2개, 연령은 인구 쪽에만
+    {"q": "2022년 대전 노인 인구랑 다문화가구 수",  # 규칙 1·3: 지표 2개, 연령은 인구 쪽에만
      "terms": [("노인", ["65세 이상 인구"])], "hint": {"시점": ["2022년"], "지역": ["대전광역시"]},
      "slots": {"시점": ["2022년"], "지역": ["대전광역시"], "대상": ["인구", "다문화가구"], "연령": ["65세 이상"],
                "지표": ["인구수", "가구수"], "의도": ["값 조회"]},
      "sub": [{"시점": ["2022년"], "지역": ["대전광역시"], "대상": ["인구"], "연령": ["65세 이상"], "지표": ["인구수"], "의도": "값 조회"},
              {"시점": ["2022년"], "지역": ["대전광역시"], "대상": ["다문화가구"], "지표": ["가구수"], "의도": "값 조회"}]},
-    {"q": "2020년 광주 인구랑 2023년 울산 인구",                           # 규칙 2 단서: 연도·지역이 짝지어 다름 → 나눔
+    {"q": "2020년 광주 인구랑 2023년 울산 인구",  # 규칙 2 단서: 연도·지역이 짝지어 다름 → 나눔
      "hint": {"시점": ["2020년", "2023년"], "지역": ["광주광역시", "울산광역시"]},
      "slots": {"시점": ["2020년", "2023년"], "지역": ["광주광역시", "울산광역시"], "대상": ["인구"], "지표": ["인구수"], "의도": ["값 조회"]},
      "sub": [{"시점": ["2020년"], "지역": ["광주광역시"], "대상": ["인구"], "지표": ["인구수"], "의도": "값 조회"},
              {"시점": ["2023년"], "지역": ["울산광역시"], "대상": ["인구"], "지표": ["인구수"], "의도": "값 조회"}]},
-    {"q": " ".join([f"{y}년" for y in range(2010, 2016)]) + " 대구와 광주 각각 연도별 사망자 수",       # 규칙 2: 모든 연도 × 모든 지역 → 나누지 않음
+    {"q": " ".join([f"{y}년" for y in range(2010, 2016)]) + " 대구와 광주 각각 연도별 사망자 수",  # 규칙 2: 모든 연도 × 모든 지역 → 나누지 않음
      "hint": {"시점": [f"{y}년" for y in range(2010, 2016)], "지역": ["대구광역시", "광주광역시"]},
      "slots": {"시점": [f"{y}년" for y in range(2010, 2016)], "지역": ["대구광역시", "광주광역시"], "대상": ["사망자"], "지표": ["사망자수"],
                "비교축": ["연도"], "의도": ["추이"]}},
-    # [NEW 11-12] 규칙 1: 지표 3개 + 기간 추이 → 지표별 하위 질문 3개 (시점은 모두 같이). 지표 이름을 지역 칸에 넣지 않음
+    # 규칙 1: 지표 3개 + 기간 추이 → 지표별 하위 질문 3개 (시점은 모두 같이). 지표 이름을 지역 칸에 넣지 않음
     {"q": " ".join(f"{y}년" for y in range(2016, 2020)) + " 이혼건수와 출생아 수 그리고 사망자 수 흐름",
      "hint": {"시점": [f"{y}년" for y in range(2016, 2020)]},
      "slots": {"시점": [f"{y}년" for y in range(2016, 2020)], "지역": ["전국"], "대상": ["이혼", "출생아", "사망자"],
                "지표": ["이혼건수", "출생아수", "사망자수"], "의도": ["추이"]},
      "sub": [{"시점": [f"{y}년" for y in range(2016, 2020)], "지역": ["전국"], "대상": [d], "지표": [m], "의도": "추이"}
              for d, m in (("이혼", "이혼건수"), ("출생아", "출생아수"), ("사망자", "사망자수"))]},
-    {"q": "2023년 충남 인구랑 시군구별 고령인구비율 순위",               # 의도 여러 개: 하위 질문마다 하나, slots에는 모두
+    {"q": "2023년 충남 인구랑 시군구별 고령인구비율 순위",  # 의도 여러 개: 하위 질문마다 하나, slots에는 모두
      "hint": {"시점": ["2023년"], "지역": ["충청남도"]},
      "slots": {"시점": ["2023년"], "지역": ["충청남도"], "대상": ["인구"], "지표": ["인구수", "고령인구비율"],
                "비교축": ["시군구"], "의도": ["값 조회", "순위"]},
@@ -136,7 +135,7 @@ SLOT_FEW_SHOT = [
 
 
 def build_hint_block(rule_found):
-    """2-2 코드 추출 결과를 user 프롬프트 조각으로 (없으면 빈 문자열)"""
+    """코드 추출 결과를 user 프롬프트 조각으로 (없으면 빈 문자열)"""
     if not rule_found:
         return ""
     return "[코드가 질문에서 찾은 값] 맞는 슬롯에 그대로 넣는다.\n" + \
@@ -165,11 +164,11 @@ SLOT_FORMAT = ('[출력 형식] JSON 객체 하나만 출력한다. 다른 설�
 
 
 def build_slot_messages(question, today=None):
-    """반환: (messages, info). info = 2-2·2-1 결과 (2-4 검증에서 다시 씀)"""
-    q2, found, notes = rule_extract(question, today)          # 2-2 코드 추출 (상대 시점 변환 포함)
-    hits = lookup_terms(q2)                                     # 2-1 용어 사전
+    """반환: (messages, info). info = 코드 추출·용어 사전 결과 (검증에서 다시 씀)"""
+    q2, found, notes = rule_extract(question, today)  # 코드 추출 (상대 시점 변환 포함)
+    hits = lookup_terms(q2)  # 용어 사전
     system = "\n\n".join([SLOT_SYS, build_slot_few_shot(), SLOT_FORMAT])
-    user = "\n\n".join(p for p in [f"[오늘 날짜] {today or date.today()}",   # 시점 규칙('요즘'·'최신') 기준
+    user = "\n\n".join(p for p in [f"[오늘 날짜] {today or date.today()}",  # 시점 규칙('요즘'·'최신') 기준
                                      build_term_block(hits), build_hint_block(found), wrap_question(q2)] if p)
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     return messages, {"input_question": q2, "rule_found": found, "time_notes": notes, "term_hits": hits}
@@ -181,7 +180,7 @@ def call_slots(question, today=None, max_tokens=1200):
     t0, err = time.time(), ""
     try:
         out = chat(messages, schema=SLOT_SCHEMA, max_tokens=max_tokens)
-    except (Exception, SystemExit) as e:                       # noqa: BLE001  (HcxError, 네트워크, 키 없음)
+    except (Exception, SystemExit) as e:  # noqa: BLE001  (HcxError, 네트워크, 키 없음)
         out, err = {}, f"{e.__class__.__name__}: {e}"
     ok = isinstance(out, dict) and isinstance(out.get("slots"), dict)
     return {"question": question, **info, "messages": messages, "hcx_out": out,

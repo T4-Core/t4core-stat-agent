@@ -6,7 +6,7 @@ import json
 import pytest
 
 from synthetic_gold_pipeline.diagnose import main as diagnose_main
-from synthetic_gold_pipeline.schemas.calculation import CalcErrorCode, RETRYABLE_CODES
+from synthetic_gold_pipeline.schemas.calculation import RETRYABLE_CODES, CalcErrorCode
 from synthetic_gold_pipeline.schemas.planning import Operand, OperationStep
 from synthetic_gold_pipeline.tests.conftest import find_view
 from synthetic_gold_pipeline.tests.test_calculation import _plan
@@ -17,7 +17,7 @@ def test_empty_strings_in_optional_fields_become_none():
     o = Operand.model_validate({"operand_id": "A", "view_id": "v", "itm_id": "T1", "prd_de": "2024",
                                 "group_by_level": "", "depth": "null", "include_codes": "", "label": ""})
     assert o.group_by_level is None and o.depth is None and o.include_codes is None
-    assert o.label == ""                                   # None 을 허용하지 않는 칸은 그대로
+    assert o.label == ""  # None 을 허용하지 않는 칸은 그대로
 
 
 def test_unknown_group_by_level_is_retryable_not_crash(demo_env):
@@ -49,6 +49,7 @@ def test_diagnose_summarizes_rejections(tmp_path, capsys):
 def _isolated(demo_env, blank):
     """공용 index·graph 를 건드리지 않게 복사본 (graph 는 간선을 캐시하므로 새로 만듦)"""
     import copy
+
     from synthetic_gold_pipeline.sampler.compatibility_graph import CompatibilityGraph
     idx = copy.copy(demo_env["index"])
     idx.views = dict(idx.views)
@@ -78,7 +79,7 @@ def test_view_without_unit_is_rejected_not_crash(demo_env):
 def test_sampler_never_returns_unitless_views(demo_env):
     from synthetic_gold_pipeline.sampler.view_cluster_sampler import ViewClusterSampler
     from synthetic_gold_pipeline.schemas.planning import ReasoningType
-    idx, graph = _isolated(demo_env, lambda views: [v for v in views if "DT_DEMO_POP::" in v])   # 한 표의 단위를 전부 비움
+    idx, graph = _isolated(demo_env, lambda views: [v for v in views if "DT_DEMO_POP::" in v])  # 한 표의 단위를 전부 비움
     s = ViewClusterSampler(idx, graph, demo_env["cfg"]["sampler"], base_seed=7)
     for i in range(40):
         for rt in (ReasoningType.CROSS_TABLE_RATIO, ReasoningType.TIME_SERIES_COMPARISON, ReasoningType.CONDITIONAL_AGGREGATION):
@@ -99,7 +100,7 @@ class _FrameIndex:
         base = idx.view(vid)
         codes = {lv: list({c.code: c for v in vids for c in idx.view(v).dimension_codes.get(lv, [])}.values())
                  for lv in base.dimension_codes}
-        self.vm = base.model_copy(update={"dimension_codes": codes})     # 실제 View 처럼 자유 분류의 코드(총계 포함)를 가짐
+        self.vm = base.model_copy(update={"dimension_codes": codes})  # 실제 View 처럼 자유 분류의 코드(총계 포함)를 가짐
 
     def view(self, v):
         return self.vm if v == self.vid else self.idx.view(v)
@@ -117,11 +118,11 @@ def test_repair_fixes_free_level_to_total(demo_env):
     vid = _hh(demo_env, 2)
     fi = _FrameIndex(demo_env["index"], vid, [_hh(demo_env, 0), _hh(demo_env, 1)])
     pl = _plan([Operand(operand_id="A", view_id=vid, itm_id="T2", prd_de="2020", group_by_level="C1",
-                        coordinates={"C1": "11"})],                                     # ② 그룹 레벨이 coordinates 에도
+                        coordinates={"C1": "11"})],  # ② 그룹 레벨이 coordinates 에도
                [OperationStep(step_id="s", op="SUM", inputs=["A"])], "s")
     new, notes = repair_plan(pl, fi)
     op = new.operands[0]
-    assert op.coordinates == {"C2": "0"}                       # ① 고정 안 된 '가구주의 성별' → 총계 '0'
+    assert op.coordinates == {"C2": "0"}  # ① 고정 안 된 '가구주의 성별' → 총계 '0'
     assert any("총계" in n for n in notes) and any("coordinates 에서 뺌" in n for n in notes)
 
 
@@ -129,7 +130,7 @@ def test_repair_maps_wrong_codes(demo_env):
     from synthetic_gold_pipeline.tools.plan_repair import match_code
     cm = demo_env["index"].view(_hh(demo_env, 2)).code_map("C1")
     seoul = next(c for c, d in cm.items() if d.name.startswith("서울"))
-    assert match_code("000", cm) == "00"                       # 0 채움 차이 (실데이터 S000003: C1=000)
+    assert match_code("000", cm) == "00"  # 0 채움 차이 (실데이터 S000003: C1=000)
     assert match_code("전국", cm) == "00" and match_code(cm[seoul].name, cm) == seoul
     assert match_code("없는코드", cm) is None
 
@@ -163,7 +164,7 @@ def test_drop_unused_views(tmp_path):
     new = pipe._drop_unused_views(cl, pl)
     assert new.view_ids == [a] and new.hop_type == HopType.SINGLE_TABLE_SINGLE_VIEW
     cr = cl.model_copy(update={"reasoning_type": ReasoningType.CROSS_TABLE_RATIO})
-    assert pipe._drop_unused_views(cr, pl) is None              # 표 사이 비율은 표 하나로 줄이지 않음
+    assert pipe._drop_unused_views(cr, pl) is None  # 표 사이 비율은 표 하나로 줄이지 않음
 
 
 def _hh_ids(idx):
@@ -174,6 +175,7 @@ def _hh_ids(idx):
 def test_table_balance_gives_each_table_equal_anchor_weight(demo_env):
     """View 가 많은 표가 더 자주 뽑히지 않게: 표별 View 가중치 합이 모두 같음"""
     from collections import defaultdict
+
     from synthetic_gold_pipeline.sampler.view_cluster_sampler import ViewClusterSampler
     idx = demo_env["index"]
     s = ViewClusterSampler(idx, demo_env["graph"], demo_env["cfg"]["sampler"])
@@ -185,7 +187,7 @@ def test_table_balance_gives_each_table_equal_anchor_weight(demo_env):
     per2 = defaultdict(float)
     for v in idx.views.values():
         per2[v.parent_table_id] += s2._w(v)
-    assert max(per2.values()) > 2 * min(per2.values())        # 균형을 끄면 View 수만큼 쏠림 (예전 동작)
+    assert max(per2.values()) > 2 * min(per2.values())  # 균형을 끄면 View 수만큼 쏠림
 
 
 def test_report_has_table_coverage(tmp_path):
@@ -204,7 +206,7 @@ def test_oversized_prompt_fails_fast_without_waiting():
     from synthetic_gold_pipeline.agents.llm_client import BaseLLMClient, LLMResponseError
 
     class C(BaseLLMClient):
-        async def _raw(self, *a):                                     # 호출되면 안 됨
+        async def _raw(self, *a):  # 호출되면 안 됨
             raise AssertionError("보내지 말아야 함")
 
     c = C({"rate_limit": {"tokens_per_minute": 60000}})
@@ -226,8 +228,8 @@ def test_planner_caps_common_join_codes(demo_env):
 
 
 def test_count_without_filter_is_rejected(demo_env):
-    from synthetic_gold_pipeline.tools.statistical_validation_tool import StatisticalValidator
     from synthetic_gold_pipeline.tests.test_statistical_validation import cluster
+    from synthetic_gold_pipeline.tools.statistical_validation_tool import StatisticalValidator
     a, b = _hh_ids(demo_env["index"])
     pl = _plan([Operand(operand_id="A", view_id=a, itm_id="T2", prd_de="2020", group_by_level="C1", exclude_totals=True),
                 Operand(operand_id="B", view_id=b, itm_id="T2", prd_de="2020", group_by_level="C1", exclude_totals=True)],
@@ -308,7 +310,7 @@ def test_rate_per_denominator_must_be_population_base(demo_env):
     s = ViewClusterSampler(demo_env["index"], demo_env["graph"], demo_env["cfg"]["sampler"])
     den = lambda nm: NS(units=["명"], indicator_definitions=[NS(itm_nm=nm)])  # noqa: E731
     assert s._denominator_ok(den("총인구수"), same_family=False)
-    assert not s._denominator_ok(den("외국인 입국자"), same_family=False)    # 실데이터: 혼인건수 ÷ 외국인 입국자
+    assert not s._denominator_ok(den("외국인 입국자"), same_family=False)  # 실데이터: 혼인건수 ÷ 외국인 입국자
     assert not s._denominator_ok(den("계"), same_family=False)
 
 
@@ -319,7 +321,7 @@ def test_time_series_needs_same_split(demo_env):
     same = next(v for v in vs if "Y2020::C2=1::" in v)
     other = next(v for v in vs if "Y2020::C2=2::" in v)
     assert g.edge(a, same).allowed["TIME_SERIES"]
-    assert not g.edge(a, other).allowed["TIME_SERIES"]                    # 남자 2015 vs 여자 2020 은 시계열 아님
+    assert not g.edge(a, other).allowed["TIME_SERIES"]  # 남자 2015 vs 여자 2020 은 시계열 아님
 
 
 def test_complex_views_are_skipped(demo_env):
@@ -336,8 +338,7 @@ def test_complex_views_are_skipped(demo_env):
 
 def test_paraphrase_length_limit(demo_env):
     from synthetic_gold_pipeline.agents.llm_client import MockLLMClient
-    from synthetic_gold_pipeline.agents.reverse_qa_agent import ReverseQAGeneratorAgent
-    from synthetic_gold_pipeline.agents.reverse_qa_agent import ReverseQAOutput
+    from synthetic_gold_pipeline.agents.reverse_qa_agent import ReverseQAGeneratorAgent, ReverseQAOutput
     qa = ReverseQAGeneratorAgent(MockLLMClient(), demo_env["index"], {"max_question_paraphrased_chars": 20})
     bundle = {"llm_input": {"operands": [], "scalar_facts": [], "thresholds": [], "entities": [], "k": None},
               "values": {"FINAL": "1"}}
@@ -366,7 +367,7 @@ def test_fill_removes_duplicated_units():
     assert fill("증감률은 {FINAL}%입니다.", v) == "증감률은 13.9%입니다."
     assert fill("모두 {C}개입니다.", v) == "모두 306개입니다."
     assert fill("{R} 건/천명입니다.", v) == "638.9건/천명입니다."
-    assert fill("{V1}가구주", v) == "58,678가구가구주"                      # 단위 뒤에 글자가 이어지면 건드리지 않음
+    assert fill("{V1}가구주", v) == "58,678가구가구주"  # 단위 뒤에 글자가 이어지면 건드리지 않음
 
 
 def test_formula_answer_template_is_rejected(demo_env):

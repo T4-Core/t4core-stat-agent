@@ -1,5 +1,5 @@
 """
-[NEW v4] CSV 값 사전 만들기·저장·조회
+CSV 값 사전 만들기·저장·조회
 
 산출물 (CSV_INDEX_DIR = storage/csv_index/)
   tables.jsonl     표마다 TableScan (열·분류(종류·값)·항목·단위·기간·연도·주석·selected) + sig(원본 크기·수정시각)
@@ -161,8 +161,8 @@ class CsvIndex:
         self.tables = {r["tbl_id"]: r for r in _read_jsonl(d / "tables.jsonl")}
         self.v = pd.read_parquet(d / "values.parquet")
         self.summary = json.loads((d / "summary.json").read_text(encoding="utf-8")) if (d / "summary.json").exists() else {}
-        self._exact = defaultdict(list)          # norm → 행 번호
-        self._variant = defaultdict(list)        # 변형 norm → 행 번호 (항목·분류·열 이름만)
+        self._exact = defaultdict(list)  # norm → 행 번호
+        self._variant = defaultdict(list)  # 변형 norm → 행 번호 (항목·분류·열 이름만)
         for i, (nm, name, kind) in enumerate(zip(self.v["norm"], self.v["name"], self.v["kind"])):
             self._exact[nm].append(i)
             if kind in ("item", "dim", "obj"):
@@ -214,7 +214,7 @@ class CsvIndex:
         return [(key, rows) for _, _, key, rows in self.scan_spans(text, slots, scope, min_len, max_len)]
 
     def scan_spans(self, text, slots=None, scope="selected", min_len=2, max_len=24):
-        """[NEW 11-16] scan_text 와 같고 위치까지 → [(시작, 끝, 표현, 행 목록)] (위치는 norm(text) 기준)
+        """scan_text 와 같고 위치까지 → [(시작, 끝, 표현, 행 목록)] (위치는 norm(text) 기준)
         낱말 경계를 보려는 쪽(lexicon.token_terms)이 '표현이 낱말 처음부터 이어지는가' 를 확인할 때 씀"""
         t = norm(text)
         out, i = [], 0
@@ -232,7 +232,7 @@ class CsvIndex:
         return out
 
     def latest_year(self, scope="selected", share=0.25, upto=None):
-        """[NEW 11-16] 자료의 '최신 연도' — 표 수가 가장 많은 연도의 share 이상 표가 가진 연도 중 가장 늦은 해
+        """자료의 '최신 연도' — 표 수가 가장 많은 연도의 share 이상 표가 가진 연도 중 가장 늦은 해
         (장래 추계 표의 2030~2070 은 표 수가 적어 빠짐). upto 를 주면 그 해 이하만"""
         c = self.years(scope=scope)
         if upto is not None:

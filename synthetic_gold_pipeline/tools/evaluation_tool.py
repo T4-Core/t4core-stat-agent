@@ -20,8 +20,13 @@ from synthetic_gold_pipeline.schemas.calculation import CalculationResult, Inter
 from synthetic_gold_pipeline.schemas.dataset import ExpectedClaim, GoldenRecord
 from synthetic_gold_pipeline.schemas.metadata import ViewMetadata
 from synthetic_gold_pipeline.schemas.planning import OperationPlan, SampledCluster
-from synthetic_gold_pipeline.schemas.verification import (AblationOutcome, AblationResult, NumericCheck, ViewJudgement,
-                                                           ViewLabel)
+from synthetic_gold_pipeline.schemas.verification import (
+    AblationOutcome,
+    AblationResult,
+    NumericCheck,
+    ViewJudgement,
+    ViewLabel,
+)
 from synthetic_gold_pipeline.tools.units import conversion_factor, parse_value
 
 # ═════════════════════════════ 숫자 추출 ═════════════════════════════
@@ -118,7 +123,7 @@ def extract_numbers(text: str) -> list[NumberMention]:
             v = -v
         unit = m.group("unit")
         unit = UNIT_ALIASES.get(unit, unit)
-        start = m.start("sign") if sign else m.start("num")     # 앞 공백을 빼고 실제 숫자 위치로 문장을 정함
+        start = m.start("sign") if sign else m.start("num")  # 앞 공백을 빼고 실제 숫자 위치로 문장을 정함
         sid = next((i for i, (a, b) in enumerate(sents) if a <= start < max(b, a + 1)), len(sents) - 1)
         out.append(NumberMention(v, unit, m.group(0).strip(), start, m.end(), sid, dec, is_period))
     return out

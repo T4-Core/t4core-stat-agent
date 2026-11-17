@@ -16,8 +16,17 @@ from datetime import date
 from synthetic_gold_pipeline import __version__
 from synthetic_gold_pipeline.agents.reverse_qa_agent import josa, region_short
 from synthetic_gold_pipeline.sampler.metadata_index import MetadataIndex
-from synthetic_gold_pipeline.schemas.dataset import (GenerationEval, GoldenRecord, M1Eval, M2Eval, M3Eval, ModuleEval,
-                                                      Provenance, RetrievalEval, VerificationMetrics)
+from synthetic_gold_pipeline.schemas.dataset import (
+    GenerationEval,
+    GoldenRecord,
+    M1Eval,
+    M2Eval,
+    M3Eval,
+    ModuleEval,
+    Provenance,
+    RetrievalEval,
+    VerificationMetrics,
+)
 from synthetic_gold_pipeline.schemas.metadata import DimensionType, ObservationType
 from synthetic_gold_pipeline.schemas.planning import AnswerabilityType, ReasoningType
 from synthetic_gold_pipeline.schemas.verification import VerificationStatus
@@ -122,7 +131,7 @@ class UnanswerableBuilder:
             return None
         cs = [c for c in t.dimension_codes.get(d.level, []) if not c.is_total]
         names = [c.name for c in cs]
-        cs = [c for c in cs if names.count(c.name) == 1]       # 같은 이름이 여러 코드면 모호하므로 제외
+        cs = [c for c in cs if names.count(c.name) == 1]  # 같은 이름이 여러 코드면 모호하므로 제외
         return rng.choice(cs).name if cs else None
 
     def ambiguous(self, rng: random.Random, i: int):

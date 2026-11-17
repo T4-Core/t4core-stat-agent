@@ -5,8 +5,6 @@ services:
   backend:
     build:
       target: dev
-      args:
-        INSTALL_PLAYWRIGHT: "false"
     # distinct tag so the dev build never shadows the prod image
     image: t4core-backend:dev
     command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000",
@@ -20,7 +18,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./tests:/app/tests
-      - ./eval:/app/eval
+      - ./configs:/app/configs
       - ./pytest.ini:/app/pytest.ini
       # uncomment to run the collector in-container (overrides the :ro mount, same target path)
       # - ./storage/kosis_data:/app/storage/kosis_data

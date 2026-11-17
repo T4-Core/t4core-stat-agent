@@ -20,11 +20,18 @@ from pathlib import Path
 from typing import Any
 
 from synthetic_gold_pipeline.schemas.metadata import TableMetadata, ViewMetadata
-from synthetic_gold_pipeline.utils import (atomic_write_text, canonical_json, ensure_inside, resolve_path, safe_name,
-                                           sha256_file, stable_hash)
+from synthetic_gold_pipeline.utils import (
+    atomic_write_text,
+    canonical_json,
+    ensure_inside,
+    resolve_path,
+    safe_name,
+    sha256_file,
+    stable_hash,
+)
 
 log = logging.getLogger(__name__)
-CACHE_FORMAT_VERSION = 2          # 2: 벡터화 스냅샷 해시 (View ID 가 v1 과 다름)
+CACHE_FORMAT_VERSION = 2  # 2: 벡터화 스냅샷 해시 (View ID 가 v1 과 다름)
 
 
 def file_stat(p: Path | None) -> dict[str, Any] | None:

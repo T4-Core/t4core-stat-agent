@@ -17,8 +17,12 @@ from synthetic_gold_pipeline.sampler.metadata_index import MetadataIndex, norm_i
 from synthetic_gold_pipeline.schemas.calculation import CalculationResult
 from synthetic_gold_pipeline.schemas.metadata import ValueKind
 from synthetic_gold_pipeline.schemas.planning import AtomicOp, OperationPlan, SampledCluster
-from synthetic_gold_pipeline.schemas.verification import (CheckState, Severity, StatisticalValidationReport,
-                                                           ValidationIssue)
+from synthetic_gold_pipeline.schemas.verification import (
+    CheckState,
+    Severity,
+    StatisticalValidationReport,
+    ValidationIssue,
+)
 from synthetic_gold_pipeline.tools.plan_repair import leaf_depths
 from synthetic_gold_pipeline.tools.units import unit_info
 
@@ -233,7 +237,7 @@ class StatisticalValidator:
             if op == AtomicOp.GROWTH_RATE and plan.reasoning_type.value == "TIME_SERIES_COMPARISON":
                 pass
         elif op == AtomicOp.SHARE_RATIO or (op == AtomicOp.DIFFERENCE and not diff_period):
-            if len(va.units) != 1 or len(vb.units) != 1:      # 원본 UNIT_NM 이 비었거나 여러 개 → 단위 호환을 확인할 수 없음
+            if len(va.units) != 1 or len(vb.units) != 1:  # 원본 UNIT_NM 이 비었거나 여러 개 → 단위 호환을 확인할 수 없음
                 self._issue(rep, "UNIT_UNKNOWN", f"{op.value}: 단위를 확인할 수 없는 View "
                             f"({va.view_id}: {va.units}, {vb.view_id}: {vb.units})")
                 ck["ratio_compatible"] = CheckState.FAIL
@@ -333,7 +337,7 @@ def narrower_denominator(oa, ob, va, vb) -> list[str]:
             continue
         match = [lva for lva in sa if va.dim(lva) and va.dim(lva).dim_type == db.dim_type]
         if not match:
-            bad.append(f"{db.obj_nm}={code_b.name}")      # 분자에는 없는 제한이 분모에만 있음
+            bad.append(f"{db.obj_nm}={code_b.name}")  # 분자에는 없는 제한이 분모에만 있음
             continue
         ca = va.code_map(match[0]).get(sa[match[0]])
         if ca is None or ca.name.replace(" ", "") != code_b.name.replace(" ", ""):

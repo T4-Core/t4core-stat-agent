@@ -5,10 +5,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from synthetic_gold_pipeline.schemas.calculation import (FinalAnswer, IntermediateFact, NumericResult,
-                                                          SourceCoordinate, UnitConversionTrace)
-from synthetic_gold_pipeline.schemas.planning import (AnswerabilityType, ComparisonPolicy, HopType,
-                                                       ReasoningType)
+from synthetic_gold_pipeline.schemas.calculation import (
+    FinalAnswer,
+    IntermediateFact,
+    NumericResult,
+    SourceCoordinate,
+    UnitConversionTrace,
+)
+from synthetic_gold_pipeline.schemas.planning import AnswerabilityType, ComparisonPolicy, HopType, ReasoningType
 from synthetic_gold_pipeline.schemas.verification import AblationResult, QualityReview, VerificationStatus
 
 DATASET_VERSION = "synthetic-gold-v0.1"

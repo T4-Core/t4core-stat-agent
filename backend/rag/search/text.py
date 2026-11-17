@@ -24,7 +24,7 @@ def variants(name) -> set[str]:
             out.add(v[:-1])
         if v.endswith("수") and len(v) > 2:
             out.add(v[:-1])
-        if "_" in str(name):                              # '내국인_계' → 내국인
+        if "_" in str(name):  # '내국인_계' → 내국인
             head = norm(str(name).split("_")[0])
             if len(head) >= 2:
                 out.add(head)

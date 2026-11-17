@@ -1,4 +1,4 @@
-"""[NEW v4] 2-3 Point 충돌 판정 — 같은 검색 단위의 View 들이 같은 교차점에서 다른 값을 내는가
+"""Point 충돌 판정 — 같은 검색 단위의 View 들이 같은 교차점에서 다른 값을 내는가
 
   1) View 마다 필수 메타(시점·지역·대상/지표 + 질문에 있던 성별·연령)를 실제로 썼는지 — judge 의 슬롯 판정을 그대로
      - match · not_requested → 씀.  conflict_allow_partial 에 든 슬롯(기본 시점)은 partial(대체 적용)도 씀
@@ -47,8 +47,6 @@ def view_usage(record, filters, allow_partial=("시점",)):
         else:
             used[slot] = False
     # 대상·지표를 둘 다 물었으면 둘 다 적용돼야 함. 대상이 지표와 같은 말('인구'·'인구수')일 때만 지표로 갈음
-    # [CHANGED] 이전: 둘 중 하나만 맞으면 둘 다 썼다고 봄 → '1인가구 가구수' 에 전체 가구 수 View 가 '비교에 넣음' 이 되던 문제
-    #   (Step 2 의 '대상 또는 지표' 규칙은 질문에 대상이 있는지 확인하는 것이고, View 가 대상을 담았는지와는 다름)
     if used.get("지표") and used.get("대상") is False and target_redundant(f.get("대상"), f.get("지표")):
         used["대상"] = True
         notes.append("대상이 지표와 같은 말 → 지표로 확인")
@@ -63,7 +61,7 @@ def view_usage(record, filters, allow_partial=("시점",)):
 
 def target_redundant(targets, indicators):
     """대상이 지표와 같은 말인가: 대상 == 지표 또는 지표에서 끝 '수' 를 뗀 것 ('인구' · '인구수')"""
-    from backend.rag.ingestion.build_view import squash, term_stems
+    from backend.rag.view.build import squash, term_stems
     stems = term_stems(indicators or [])
     return bool(targets) and all(squash(t) in stems for t in targets)
 

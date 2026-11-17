@@ -1,71 +1,52 @@
 """
-(구 kosis_rag_builder.py — 업로드된 최신본 기준. 수집 로직은 그대로, 경로·.env·실행 방법만 바뀜)
+KOSIS OpenAPI 수집 — 주제(기본: 인구) → (표본 제외) 전수부문 통계표의 메타·수치 원본
 
-[CHANGED] 실행: 저장소 루트에서  python -m backend.rag.ingestion.collector <stage>
-          이전: python kosis_rag_builder.py <stage>   (아래 예시의 'python kosis_rag_builder.py' 는 이 명령으로 바꿔 읽으면 됨)
-[CHANGED] 출력 폴더: config.KOSIS_DATA_DIR (기본 storage/kosis_data, 없으면 ./kosis_data …) — --out 으로 바꿀 수 있음은 그대로
+  python -m backend.rag.ingestion.collector catalog    # 1) 목록 트리 탐색 → catalog.csv (전수/표본 판별)
+  python -m backend.rag.ingestion.collector schema     # 2) 선택된 표의 메타(분류·항목·시점·주석) → meta/*.json, table_schema.csv
+  python -m backend.rag.ingestion.collector download   # 3) 수치 → raw/<조사>/<기관>_<표>.csv (4만 셀 제한 자동 분할, 이어받기)
+  python -m backend.rag.ingestion.collector status     #    조사별 진행 현황 → status.csv
+  python -m backend.rag.ingestion.collector all        #    1~3
+  python -m backend.rag.ingestion.collector roots      #    주제별 최상위 목록 ID
 
-전용 사용법
-KOSIS 인구 카테고리 → (표본 제외) 전수부문 통계표만 수집 → 조사별 병합 CSV → RAG 문서 생성
+여러 주제 폴더를 한 catalog 로 (2015년 이후 주택총조사 표는 '주거' 주제 아래에 있음)
+  … catalog --root 인구 주거:주택총조사         # 루트는 ID(A) 또는 이름, ':정규식' 은 그 루트의 1단계 폴더 필터
+  … catalog --root 주거:주택총조사 --append      # 기존 catalog.csv 에 추가만
 
-단계별 실행 (앞 단계 결과는 캐시되어 재실행 시 이어서 진행됨
-  python kosis_rag_builder.py catalog    # 1) 목록 트리 전체 탐색 → catalog.csv (전수/표본 판별 포함)
-  python kosis_rag_builder.py schema     # 2) 선택된 표의 메타(분류·항목·시점·주석) → table_schema.csv
-  python kosis_rag_builder.py download   # 3) 수치 데이터 수집 (4만 셀 제한 자동 분할)
-  python kosis_rag_builder.py status     #    조사별 진행 현황 (남은 표, 대용량 건너뜀, 실패)
-  python kosis_rag_builder.py build      # 4) 조사별 병합 CSV + RAG 문서(csv/jsonl)
-  python kosis_rag_builder.py store      # 5) 에이전트용 저장소: 표 카드 + 분류 사전 + 표별 parquet + DuckDB
-  python kosis_rag_builder.py all
-  python kosis_rag_builder.py roots      #    주제별 최상위 목록 ID 확인 (인구 외 주제 수집 시 --root, --out)
-
-여러 주제 폴더를 한 catalog 로 (예: 인구 + 주거 > 주택총조사 — 2015년 이후 주택총조사 표는 '주거' 주제 아래에 있음)
-  python kosis_rag_builder.py catalog --root 인구 주거:주택총조사            # 루트는 ID(A) 또는 이름, ':정규식' 은 그 루트의 1단계 폴더 필터
-  python kosis_rag_builder.py catalog --root 주거:주택총조사 --append         # 기존 catalog.csv 에 추가만 (인구 다시 탐색 안 함)
-  python kosis_rag_builder.py schema  --surveys 주택총조사 && python kosis_rag_builder.py download --surveys 주택총조사
-
-옵션
-  --surveys 인구총조사 주민등록인구현황   # 특정 조사만
-  --max-tables 20                         # 테스트용 표 개수 제한
-  --recent 5                              # 표마다 최근 N개 시점만 수집 (생략 시 전체)
-
-필요 패키지: requirements.txt 동봉하였음
-.env : KOSIS_API_KEY=발급키
+옵션: --surveys 인구총조사 …(특정 조사) · --max-tables 20 · --recent 5(최근 N개 시점) · --max-cells N(큰 표 건너뜀)
+.env: KOSIS_API_KEY
 """
 import argparse
 import ast
+import hashlib
 import json
 import math
 import os
 import re
-import time
-import hashlib
 import shutil
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pandas as pd
 import requests
-from backend.core.config import KOSIS_DATA_DIR   # .env 는 config 가 import 될 때 읽음
 
-# [CHANGED] 이전: from dotenv import load_dotenv
-#                load_dotenv(dotenv_path=Path.cwd() / ".env")
+from backend.core.config import KOSIS_DATA_DIR
+
 API_KEY = os.getenv("KOSIS_API_KEY")
 
 BASE = "https://kosis.kr/openapi"
-URL_LIST = f"{BASE}/statisticsList.do"                     # 통계목록
-URL_META = f"{BASE}/statisticsData.do"                     # 메타자료 (method=getMeta)
-URL_DATA = f"{BASE}/Param/statisticsParameterData.do"      # 통계자료 (통계표선택 방식)
-URL_EXPL = f"{BASE}/statisticsExplData.do"                 # 통계설명
+URL_LIST = f"{BASE}/statisticsList.do"  # 통계목록
+URL_META = f"{BASE}/statisticsData.do"  # 메타자료 (method=getMeta)
+URL_DATA = f"{BASE}/Param/statisticsParameterData.do"  # 통계자료 (통계표선택 방식)
+URL_EXPL = f"{BASE}/statisticsExplData.do"  # 통계설명
 
-VW_CD = "MT_ZTITLE"      # 국내통계 > 주제별
-ROOT_LIST_ID = "A"       # 주제별 > 인구  (catalog 실행 시 루트 이름을 출력해 확인)
+VW_CD = "MT_ZTITLE"  # 국내통계 > 주제별
+ROOT_LIST_ID = "A"  # 주제별 > 인구  (catalog 실행 시 루트 이름을 출력해 확인)
 OUT = KOSIS_DATA_DIR
-# [CHANGED] 이전: OUT = Path("kosis_data")
-#                if not OUT.exists() and (Path(__file__).resolve().parent / "kosis_data").exists():
-#                    OUT = Path(__file__).resolve().parent / "kosis_data"
-#   → 경로 해석은 backend/core/config.py 한 곳에서 (환경변수 KOSIS_DATA_DIR → storage/kosis_data → ./kosis_data)
 
-CELL_LIMIT = 40_000      # 매뉴얼: 요청당 4만 셀 이하
-SLEEP = 0.35             # 매뉴얼: 분당 200건 제한 → 호출 간 간격
+CELL_LIMIT = 40_000  # 매뉴얼: 요청당 4만 셀 이하
+SLEEP = 0.35  # 매뉴얼: 분당 200건 제한 → 호출 간 간격
 
 # 경로(폴더명) 중 하나라도 매칭되면 '표본'으로 보고 제외
 SAMPLE_PATTERNS = [r"표본", r"\d+\s*%\s*부문", r"샘플"]
@@ -84,11 +65,9 @@ RELATED_HINT = {
     "주택총조사": "가구·주택 질문 보완용",
 }
 
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-WORKERS = 4                       # 동시 요청 수 (서버 응답 대기 시간을 겹쳐서 활용)
-MIN_INTERVAL = 60 / 180           # 분당 200건 제한보다 약간 낮게 (전체 스레드 합산)
+WORKERS = 4  # 동시 요청 수 (서버 응답 대기 시간을 겹쳐서 활용)
+MIN_INTERVAL = 60 / 180  # 분당 200건 제한보다 약간 낮게 (전체 스레드 합산)
 _tls = threading.local()
 _rate_lock = threading.Lock()
 _last_call = [0.0]
@@ -135,9 +114,9 @@ def call(url, params, retries=4):
                 data = ast.literal_eval(text)
             if isinstance(data, dict) and "err" in data:
                 code = str(data["err"])
-                if code == "30":                     # 조회결과 없음
+                if code == "30":  # 조회결과 없음
                     return []
-                if code == "40":                     # 분당 호출 제한 → 대기 후 재시도
+                if code == "40":  # 분당 호출 제한 → 대기 후 재시도
                     time.sleep(60)
                     continue
                 raise KosisError(code, data.get("errMsg", ""))
@@ -206,13 +185,13 @@ def resolve_root(spec):
     """'A' | '인구' | '주거:주택총조사' → (목록 ID, 이름, 1단계 폴더 정규식)"""
     root, _, only = str(spec).partition(":")
     root = root.strip()
-    if re.fullmatch(r"[A-Za-z0-9_]+", root):              # ID 로 지정
+    if re.fullmatch(r"[A-Za-z0-9_]+", root):  # ID 로 지정
         return root, root, only or None
     roots = list_roots()
     hit = [r for r in roots if str(r.get("LIST_NM", "")).strip() == root] or \
         [r for r in roots if root in str(r.get("LIST_NM", ""))]
     if not hit:
-        raise SystemExit(f"주제 '{root}' 를 최상위 목록에서 찾지 못했습니다 → python kosis_rag_builder.py roots 로 ID 확인")
+        raise SystemExit(f"주제 '{root}' 를 최상위 목록에서 찾지 못했습니다 → python -m backend.rag.ingestion.collector roots 로 ID 확인")
     return hit[0]["LIST_ID"], hit[0]["LIST_NM"], only or None
 
 
@@ -265,7 +244,7 @@ def load_selected(args):
         cat = cat[cat["category"].isin(args.surveys)]
     if getattr(args, "tables", None):
         ids = []
-        for t in args.tables:               # '@파일' 이면 파일의 줄 단위 tbl_id 목록
+        for t in args.tables:  # '@파일' 이면 파일의 줄 단위 tbl_id 목록
             ids += [x.strip() for x in Path(t[1:]).read_text(encoding="utf-8").split()] if t.startswith("@") else [t]
         cat = cat[cat["tbl_id"].isin(ids)]
     if args.max_tables:
@@ -342,7 +321,7 @@ def expand_range(se, start, end):
     start, end = str(start).strip(), str(end).strip()
     sy, ey = int(start[:4]), int(end[:4])
     per_year = {"M": 12, "Q": 4, "H": 2}.get(se)
-    if per_year is None:                       # Y, F(다년), IR 등 → 연 단위로 생성 (없는 해는 빈 결과)
+    if per_year is None:  # Y, F(다년), IR 등 → 연 단위로 생성 (없는 해는 빈 결과)
         return [str(y) for y in range(sy, ey + 1)]
     s_sub = int(start[4:6] or 1)
     e_sub = int(end[4:6] or per_year)
@@ -422,7 +401,7 @@ def chunks(lst, k):
         yield lst[i:i + k]
 
 
-MAX_CODES_PER_CALL = 100   # '+'로 묶을 코드 수 상한 (URL 길이 보호)
+MAX_CODES_PER_CALL = 100  # '+'로 묶을 코드 수 상한 (URL 길이 보호)
 
 
 def split_levels(levels, n_items, fixed):
@@ -436,8 +415,8 @@ def split_levels(levels, n_items, fixed):
     if est <= CELL_LIMIT or not free:
         yield list(fixed)
         return
-    i = max(free, key=lambda j: len(levels[j]["codes"]))   # 가장 큰 분류부터 분할
-    rest = est // len(levels[i]["codes"])                 # 이 분류 코드 1개당 셀 수
+    i = max(free, key=lambda j: len(levels[j]["codes"]))  # 가장 큰 분류부터 분할
+    rest = est // len(levels[i]["codes"])  # 이 분류 코드 1개당 셀 수
     k = max(1, min(MAX_CODES_PER_CALL, CELL_LIMIT // max(1, rest)))
     for grp in chunks([c["id"] for c in levels[i]["codes"]], k):
         f2 = list(fixed)
@@ -510,7 +489,7 @@ def real_periods(org, tbl, prd_se, levels, items, periods):
     각 분류의 첫 코드만 골라 전체 기간을 1회 조회 → 셀 수가 작아 빠름."""
     n_items = max(1, len(items))
     per_prd = n_items * math.prod(len(l["codes"]) for l in levels)
-    if per_prd <= CELL_LIMIT or len(periods) <= 1:      # 작은 표는 범위 요청이라 낭비 없음
+    if per_prd <= CELL_LIMIT or len(periods) <= 1:  # 작은 표는 범위 요청이라 낭비 없음
         return periods
     sel = [l["codes"][0]["id"] for l in levels]
     try:
@@ -541,7 +520,7 @@ def stage_download(args):
     fails, skipped = [], []
     for i, r in enumerate(cat.itertuples(), 1):
         out = OUT / "raw" / safe(r.category) / f"{r.org_id}_{r.tbl_id}.csv"
-        if out.exists() and getattr(args, "refresh", False):     # 최신 자료로 다시 받기
+        if out.exists() and getattr(args, "refresh", False):  # 최신 자료로 다시 받기
             out.unlink()
             shutil.rmtree(OUT / "parts" / f"{r.org_id}_{r.tbl_id}", ignore_errors=True)
             meta0 = {t: get_meta(r.org_id, r.tbl_id, t) for t in ("TBL", "ITM", "PRD", "CMMT", "SOURCE")}
@@ -603,8 +582,8 @@ def stage_download(args):
             df.to_csv(out, index=False, encoding="utf-8-sig")
             print(f"    → {len(df):,} rows, {time.time() - t0:.0f}s", flush=True)
             if not tbl_fails:
-                shutil.rmtree(part_dir, ignore_errors=True)   # 완료된 표의 조각 삭제
-        if tbl_fails:                       # 표 단위로 즉시 기록 (중단돼도 남도록)
+                shutil.rmtree(part_dir, ignore_errors=True)  # 완료된 표의 조각 삭제
+        if tbl_fails:  # 표 단위로 즉시 기록 (중단돼도 남도록)
             fails += tbl_fails
             fp = OUT / "failed.csv"
             pd.DataFrame(tbl_fails).to_csv(fp, mode="a", header=not fp.exists(), index=False,
@@ -616,268 +595,15 @@ def stage_download(args):
         print(f"실패 {len(fails)}건 → {OUT / 'failed.csv'}")
 
 
-# ─────────────────────────────── 4) 병합 + RAG 문서 ───────────────────────────────
-def fmt_value(dt, unit):
-    if dt is None or (isinstance(dt, float) and math.isnan(dt)) or str(dt).strip() in ("", "-"):
-        return "자료없음"
-    s = str(dt).replace(",", "")
-    try:
-        v = float(s)
-        s = f"{int(v):,}" if v.is_integer() else f"{v:,.2f}"
-    except ValueError:
-        pass
-    return f"{s}{(' ' + unit) if unit and str(unit) != 'nan' else ''}"
-
-
-def flatten(rows, skip=("_error",)):
-    parts = []
-    for r in rows or []:
-        for k, v in r.items():
-            if k in skip or v in (None, "", "nan"):
-                continue
-            parts.append(f"{k}: {v}")
-    return "; ".join(parts)
-
-
-def survey_docs(cat):
-    """통계설명(statisticsExplData)으로 조사 개요 문서 생성 — 용어/기준 질문 대응용."""
-    docs = []
-    for (category, stat_id), _ in cat.groupby(["category", "stat_id"], dropna=True):
-        try:
-            rows = call(URL_EXPL, {"method": "getList", "statId": stat_id, "metaItm": "All"})
-        except KosisError:
-            continue
-        text = flatten(rows)
-        if text:
-            docs.append({"doc_id": f"survey::{stat_id}", "doc_type": "survey_overview",
-                         "category": category, "text": f"[{category} 조사 설명]\n{text}"})
-    return docs
-
-
-def table_doc(r, meta):
-    levels, items = parse_itm(meta["ITM"])
-    prds = parse_prd(meta["PRD"])
-    dims = []
-    for l in levels:
-        sample = ", ".join(c["nm"] for c in l["codes"][:15])
-        more = f" 외 {len(l['codes']) - 15}개" if len(l["codes"]) > 15 else ""
-        dims.append(f"- {l['obj_nm']} ({len(l['codes'])}개): {sample}{more}")
-    item_txt = ", ".join("{}({})".format(it["nm"], it["unit"]) for it in items)
-    prd_txt = "; ".join("{} {}~{}".format(k, v[0], v[-1]) for k, v in prds.items() if v)
-    text = (
-        f"[통계표] {r.tbl_nm} ({r.org_id}/{r.tbl_id})\n"
-        f"분류경로: {r.path}\n"
-        + (f"함께 수록된 조사: {r.also_in}\n" if str(getattr(r, "also_in", "nan")) != "nan" and r.also_in else "")
-        + f"조사구분: {r.survey_type}\n"
-        f"분류축:\n" + "\n".join(dims) + "\n"
-        f"항목: {item_txt}\n"
-        f"수록기간: {prd_txt}\n"
-        f"주석: {flatten(meta.get('CMMT'))[:1500]}\n"
-        f"출처: {flatten(meta.get('SOURCE'))[:300]}"
-    )
-    return {"doc_id": f"table::{r.org_id}_{r.tbl_id}", "doc_type": "table_card",
-            "category": r.category, "section": r.section, "path": r.path,
-            "org_id": r.org_id, "tbl_id": r.tbl_id, "tbl_nm": r.tbl_nm, "text": text}
-
-
-def data_docs(r, df, max_lines):
-    """(시점, 1번째 분류값) 단위로 행을 묶어 자연어 문장 청크로 변환."""
-    docs = []
-    name_cols = [f"C{i}_NM" for i in range(2, 9) if f"C{i}_NM" in df.columns]
-    obj1 = df["C1_OBJ_NM"].iloc[0] if "C1_OBJ_NM" in df.columns else "분류"
-    group_cols = [c for c in ("PRD_DE", "C1_NM") if c in df.columns]
-    for keys, g in df.groupby(group_cols, sort=False):
-        keys = keys if isinstance(keys, tuple) else (keys,)
-        prd, c1 = (list(keys) + [""])[:2]
-        lines = []
-        for row in g.itertuples(index=False):
-            d = row._asdict()
-            sub = " ".join(str(d[c]) for c in name_cols if d.get(c) and str(d[c]) != "nan")
-            lines.append(f"- {sub + ' | ' if sub else ''}{d.get('ITM_NM')}: "
-                         f"{fmt_value(d.get('DT'), d.get('UNIT_NM'))}")
-        for part, ch in enumerate(chunks(lines, max_lines)):
-            header = (f"[{r.category} > {r.section}] {r.tbl_nm}\n"
-                      f"시점: {prd} / {obj1}: {c1}\n")
-            docs.append({"doc_id": f"data::{r.tbl_id}::{prd}::{c1}::{part}", "doc_type": "data_chunk",
-                         "category": r.category, "section": r.section, "path": r.path,
-                         "org_id": r.org_id, "tbl_id": r.tbl_id, "tbl_nm": r.tbl_nm,
-                         "prd_de": prd, "c1_nm": c1, "text": header + "\n".join(ch)})
-    return docs
-
-
-def stage_build(args):
-    cat = load_selected(args)
-    (OUT / "merged").mkdir(parents=True, exist_ok=True)
-    (OUT / "rag").mkdir(parents=True, exist_ok=True)
-    rag_csv, rag_jsonl = OUT / "rag" / "rag_documents.csv", OUT / "rag" / "rag_documents.jsonl"
-    for p in (rag_csv, rag_jsonl):
-        p.unlink(missing_ok=True)
-
-    def emit(docs):
-        if not docs:
-            return
-        d = pd.DataFrame(docs)
-        d.to_csv(rag_csv, mode="a", header=not rag_csv.exists(), index=False, encoding="utf-8-sig")
-        with rag_jsonl.open("a", encoding="utf-8") as f:
-            for doc in docs:
-                f.write(json.dumps(doc, ensure_ascii=False) + "\n")
-
-    emit(survey_docs(cat))
-    for category, sub in cat.groupby("category"):
-        merged = OUT / "merged" / f"{safe(category)}.csv"
-        merged.unlink(missing_ok=True)
-        n_rows = 0
-        for r in sub.itertuples():
-            raw = OUT / "raw" / safe(category) / f"{r.org_id}_{r.tbl_id}.csv"
-            mp = meta_path(r.org_id, r.tbl_id)
-            if mp.exists():
-                emit([table_doc(r, json.loads(mp.read_text(encoding="utf-8")))])
-            if not raw.exists():
-                continue
-            df = pd.read_csv(raw, dtype=str)
-            # 표준화된 병합 컬럼
-            df.insert(0, "category", category)
-            df.insert(1, "section", r.section)
-            df.insert(2, "path", r.path)
-            df.insert(3, "survey_type", r.survey_type)
-            df["VALUE"] = pd.to_numeric(df["DT"].str.replace(",", ""), errors="coerce")
-            df = df.reindex(columns=["category", "section", "path", "survey_type"] + KEEP_COLS + ["VALUE"])
-            df.to_csv(merged, mode="a", header=not merged.exists(), index=False, encoding="utf-8-sig")
-            n_rows += len(df)
-            if not args.no_data_docs:
-                emit(data_docs(r, df, args.chunk_lines))
-        print(f"{category}: {n_rows:,} rows → {merged}")
-    print(f"RAG 문서 → {rag_csv} / {rag_jsonl}")
-
-
-
-# ─────────────────────────────── 5) 에이전트용 저장소 ───────────────────────────────
-TOTAL_NAMES = re.compile(r"^(계|합계|총계|소계|전체|전국|총인구|총수|Total|전 ?연령)$")
-
-
-def dim_rows(tbl_key, levels):
-    """분류 코드 사전: 코드·이름·상위코드·깊이·합계여부 (차트/집계 시 이중합산 방지용)"""
-    rows = []
-    for k, l in enumerate(levels, 1):
-        parent = {c["id"]: c.get("up") for c in l["codes"]}
-
-        def depth(cid, seen=()):
-            up = parent.get(cid)
-            return 0 if not up or up not in parent or cid in seen else 1 + depth(up, seen + (cid,))
-        has_child = {c.get("up") for c in l["codes"] if c.get("up")}
-        for c in l["codes"]:
-            rows.append({"table_key": tbl_key, "level": k, "obj_id": l["obj_id"], "obj_nm": l["obj_nm"],
-                         "code": c["id"], "name": c["nm"], "parent_code": c.get("up") or "",
-                         "depth": depth(c["id"]), "has_children": c["id"] in has_child,
-                         "is_total": bool(TOTAL_NAMES.match(str(c["nm"]).strip()))})
-    return rows
-
-
-def chart_hint(levels, prds):
-    n_prd = sum(len(v) for v in prds.values())
-    hints = []
-    if n_prd > 2:
-        hints.append("시계열(line): 시점 축")
-    if any(len(l["codes"]) > 1 for l in levels):
-        hints.append("범주 비교(bar): " + ", ".join(l["obj_nm"] for l in levels if len(l["codes"]) > 1))
-    if any(any(TOTAL_NAMES.match(str(c["nm"]).strip()) for c in l["codes"]) for l in levels):
-        hints.append("구성비(stacked bar/pie): 합계 행 제외 후 하위 항목")
-    return " / ".join(hints)
-
-
-def tidy(df, tbl_key):
-    out = pd.DataFrame({"table_key": tbl_key, "prd_se": df.get("PRD_SE"), "prd_de": df.get("PRD_DE")})
-    for i in range(1, 9):
-        if f"C{i}" in df.columns:
-            out[f"c{i}_code"] = df[f"C{i}"]
-            out[f"c{i}_name"] = df.get(f"C{i}_NM")
-    out["itm_id"], out["itm_nm"], out["unit"] = df.get("ITM_ID"), df.get("ITM_NM"), df.get("UNIT_NM")
-    out["value_raw"] = df["DT"]
-    out["value"] = pd.to_numeric(df["DT"].astype(str).str.replace(",", ""), errors="coerce")
-    return out
-
-
-def save_table(df, path):
-    try:
-        df.to_parquet(path.with_suffix(".parquet"), index=False)
-        return path.with_suffix(".parquet")
-    except ImportError:
-        p = path.with_suffix(".csv.gz")
-        df.to_csv(p, index=False, compression="gzip", encoding="utf-8")
-        return p
-
-
-def stage_store(args):
-    """에이전트용 구조화 저장소
-    store/tables.csv      표 1개 = 1행 (검색·선택용 카드 + 차트 힌트)
-    store/dimensions.csv  표별 분류 코드 사전 (계층·합계 여부)
-    store/data/*.parquet  표별 tidy 수치 (표마다 컬럼 의미가 다르므로 표 단위로 분리 저장)
-    store/kosis.duckdb    (duckdb 설치 시) facts 뷰로 전체 SQL 조회
-    """
-    cat = load_selected(args)
-    st = OUT / "store"
-    (st / "data").mkdir(parents=True, exist_ok=True)
-    tables, dims = [], []
-    for i, r in enumerate(cat.itertuples(), 1):
-        key = f"{r.org_id}_{r.tbl_id}"
-        mp = meta_path(r.org_id, r.tbl_id)
-        if not mp.exists():
-            continue
-        meta = json.loads(mp.read_text(encoding="utf-8"))
-        levels, items = parse_itm(meta["ITM"])
-        prds = parse_prd(meta["PRD"])
-        dims += dim_rows(key, levels)
-        raw = OUT / "raw" / safe(r.category) / f"{key}.csv"
-        n_rows, data_path, real_prd = 0, "", ""
-        if raw.exists():
-            t = tidy(pd.read_csv(raw, dtype=str), key)
-            n_rows = len(t)
-            data_path = str(save_table(t, st / "data" / key).relative_to(st))
-            ps = sorted(t["prd_de"].dropna().unique())
-            real_prd = f"{ps[0]}~{ps[-1]} ({len(ps)}개 시점)" if ps else ""
-        also = getattr(r, "also_in", "")
-        also = "" if str(also) == "nan" else also
-        tables.append({
-            "table_key": key, "org_id": r.org_id, "tbl_id": r.tbl_id, "tbl_nm": r.tbl_nm,
-            "category": r.category, "section": r.section, "path": r.path, "also_in": also,
-            "survey_type": r.survey_type,
-            "dimensions": " | ".join(f"c{k}={l['obj_nm']}({len(l['codes'])})" for k, l in enumerate(levels, 1)),
-            "items": " | ".join(f"{it['nm']}[{it['unit']}]" for it in items[:40]),
-            "units": ", ".join(sorted({str(it["unit"]) for it in items if it.get("unit")})),
-            "periods_meta": "; ".join(f"{k}:{v[0]}~{v[-1]}" for k, v in prds.items() if v),
-            "periods_data": real_prd, "n_rows": n_rows, "data_path": data_path,
-            "chart_hint": chart_hint(levels, prds),
-            "note": flatten(meta.get("CMMT"))[:800],
-        })
-        if i % 100 == 0:
-            print(f"  {i}/{len(cat)}", flush=True)
-    tb = pd.DataFrame(tables)
-    tb.to_csv(st / "tables.csv", index=False, encoding="utf-8-sig")
-    pd.DataFrame(dims).to_csv(st / "dimensions.csv", index=False, encoding="utf-8-sig")
-    print(f"표 {len(tb)}개 (수치 있음 {int((tb['n_rows'] > 0).sum())}) → {st}")
-    try:
-        import duckdb
-        con = duckdb.connect(str(st / "kosis.duckdb"))
-        con.execute(f"CREATE OR REPLACE TABLE tables AS SELECT * FROM read_csv_auto('{(st / 'tables.csv').as_posix()}')")
-        con.execute(f"CREATE OR REPLACE TABLE dimensions AS SELECT * FROM read_csv_auto('{(st / 'dimensions.csv').as_posix()}')")
-        if list((st / "data").glob("*.parquet")):
-            con.execute(f"CREATE OR REPLACE VIEW facts AS SELECT * FROM read_parquet('{(st / 'data').as_posix()}/*.parquet', union_by_name=true)")
-        con.close()
-        print(f"DuckDB → {st / 'kosis.duckdb'}")
-    except ImportError:
-        print("(duckdb 미설치: pip install duckdb pyarrow 하면 SQL 저장소도 생성)")
-
-
-# ─────────────────────────────── main ───────────────────────────────
 def main():
     if not API_KEY:
         raise ValueError(".env 파일에서 KOSIS_API_KEY를 찾을 수 없습니다.")
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["roots", "catalog", "schema", "download", "status", "build", "store", "all"])
+    ap.add_argument("stage", choices=["roots", "catalog", "schema", "download", "status", "all"])
     ap.add_argument("--root", nargs="*", default=None,
                     help="수집할 주제: ID(A) 또는 이름(인구, 주거), ':정규식' 으로 1단계 폴더 제한 (예: 주거:주택총조사). 여러 개 가능")
     ap.add_argument("--append", action="store_true", help="catalog: 기존 catalog.csv 를 유지하고 새 표만 추가")
-    ap.add_argument("--out", default=None, help="출력 폴더 (기본 kosis_data, 다른 주제는 별도 폴더 권장)")
+    ap.add_argument("--out", default=None, help="출력 폴더 (기본 KOSIS_DATA_DIR)")
     ap.add_argument("--surveys", nargs="*", help="수집할 조사명 (catalog의 category 값)")
     ap.add_argument("--tables", nargs="*", help="tbl_id 지정. '@refresh_tables.txt' 처럼 파일도 가능")
     ap.add_argument("--refresh", action="store_true", help="download: 지정 표의 기존 raw·메타를 지우고 다시 받기")
@@ -888,8 +614,6 @@ def main():
     ap.add_argument("--exclude", default=None, help="표 이름 정규식으로 제외 (예: '읍면동')")
     ap.add_argument("--max-cells", type=int, default=None,
                     help="예상 셀 수가 이보다 큰 표는 건너뛰고 skipped_large.csv에 기록")
-    ap.add_argument("--chunk-lines", type=int, default=60, help="RAG 데이터 청크당 최대 줄 수")
-    ap.add_argument("--no-data-docs", action="store_true", help="수치 청크 없이 표 카드/조사설명만 생성")
     args = ap.parse_args()
     if args.refresh and args.recent:
         ap.error("--refresh 와 --recent 를 함께 쓰면 기존 과거 시점 데이터가 지워집니다. 둘 중 하나만 쓰세요.")
@@ -909,10 +633,6 @@ def main():
         stage_download(args)
     if args.stage == "status":
         stage_status(args)
-    if args.stage in ("build", "all"):
-        stage_build(args)
-    if args.stage in ("store", "all"):
-        stage_store(args)
 
 
 if __name__ == "__main__":

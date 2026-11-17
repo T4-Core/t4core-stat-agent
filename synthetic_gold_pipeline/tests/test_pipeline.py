@@ -14,8 +14,16 @@ import pandas as pd
 import pytest
 from pydantic import BaseModel
 
-from synthetic_gold_pipeline.agents.llm_client import (BaseLLMClient, HCXClient, LLMBudgetExceeded, LLMConfigError,
-                                                       LLMResponseError, LLMTransientError, MockLLMClient, extract_json)
+from synthetic_gold_pipeline.agents.llm_client import (
+    BaseLLMClient,
+    HCXClient,
+    LLMBudgetExceeded,
+    LLMConfigError,
+    LLMResponseError,
+    LLMTransientError,
+    MockLLMClient,
+    extract_json,
+)
 from synthetic_gold_pipeline.main_pipeline import Pipeline
 from synthetic_gold_pipeline.schemas.dataset import QUERY_CSV_COLUMNS, GoldenRecord
 from synthetic_gold_pipeline.schemas.planning import OperationPlan
@@ -51,7 +59,7 @@ def test_outputs_exist_and_counts(e2e):
     assert 0.10 <= n_un / len(recs) <= 0.15
     assert {r.hop_type.value for r in recs if r.hop_type} >= {"SINGLE_TABLE_MULTI_VIEW", "MULTI_TABLE_MULTI_VIEW"}
     assert rep["target_count_unit"] == "fact_records" and rep["final_question_count"] == 40
-    assert rep["planner_self_correction_retries"] > 0            # 주입된 구조 오류 → 재시도 경로 실제 통과
+    assert rep["planner_self_correction_retries"] > 0  # 주입된 구조 오류 → 재시도 경로 실제 통과
     assert rep["api"]["calls"] > 0 and rep["notes"]
 
 
@@ -117,7 +125,7 @@ def test_answerable_records_verified_and_honest_status(e2e):
             continue
         assert vm.deterministic_passed and vm.numeric_validation_passed and vm.statistical_validation_passed
         assert vm.ablation_passed and all(a.outcome.value == "NECESSARY" for a in vm.per_view_ablation_results)
-        assert vm.human_review_required and vm.verification_status.value == "NEEDS_HUMAN_REVIEW"   # Mock 검수
+        assert vm.human_review_required and vm.verification_status.value == "NEEDS_HUMAN_REVIEW"  # Mock 검수
         assert len(r.retrieval_eval.required_evidence_groups) == len(r.retrieval_eval.golden_view_ids) >= 2
         assert not set(r.retrieval_eval.hard_negative_view_ids) & set(r.retrieval_eval.golden_view_ids)
         assert r.module_eval.M2.expected_source_coordinates and r.generation_eval.executed_sql
@@ -125,7 +133,7 @@ def test_answerable_records_verified_and_honest_status(e2e):
                    for v in r.retrieval_eval.view_mapping_status.values())
         groups = list(r.retrieval_eval.required_evidence_groups.values())
         one_table = bool(set.intersection(*[set(g.acceptable_table_ids) for g in groups]))
-        assert (not one_table) == (r.hop_type.value == "MULTI_TABLE_MULTI_VIEW")   # 한 표로 다 채울 수 있으면 SINGLE
+        assert (not one_table) == (r.hop_type.value == "MULTI_TABLE_MULTI_VIEW")  # 한 표로 다 채울 수 있으면 SINGLE
 
 
 def test_generated_files_stay_inside_output_root(e2e):
@@ -202,9 +210,9 @@ def test_real_client_requires_key(monkeypatch):
         HCXClient({})
 
 
-# ── RAG 결과 채점 (review_v4 results.json 형식) ─────────────────────
+# ── RAG 결과 채점 (backend.agent.batch results.json 형식) ─────────────────────
 def _fake_rag(recs, *, drop_group=None, drop_code=False, fail_paraphrase=False, answer=True):
-    """Golden Set 으로 review_v4 형식의 가짜 RAG 결과를 만든다 (정상 + 의도된 실패)."""
+    """Golden Set 으로 backend.agent.batch 형식의 가짜 RAG 결과를 만든다 (정상 + 의도된 실패)."""
     out = []
     for r in recs:
         for kind, qid in r.question_ids.items():
@@ -268,7 +276,7 @@ def test_score_rag_results_perfect_and_failures(e2e, tmp_path):
         # 뺀 그룹의 허용 표가 다른 그룹의 표에도 있으면(같은 표·대체 표) 표 기준으로는 여전히 Hit 가 맞다
         still = bool(set(g[-1].acceptable_table_ids) & set().union(*[set(x.acceptable_table_ids) for x in g[:-1]]))
         assert row["Table_All_Hit@5"] == float(still), row["id"]
-        assert row["View_All_Hit"] == 0.0                                 # 좌표 기준으로는 항상 못 찾음
+        assert row["View_All_Hit"] == 0.0  # 좌표 기준으로는 항상 못 찾음
     assert s2["first_failure"].get("PARTIAL_RETRIEVAL", 0) > 0
     # 표는 맞는데 View 조건(분류 코드)이 빠짐 → VIEW_CONDITION_ERROR
     p3 = tmp_path / "cond" / "results.json"
@@ -284,8 +292,8 @@ def test_score_rag_results_perfect_and_failures(e2e, tmp_path):
     assert s4["by_variant"]["original"]["Table_All_Hit@5"] == 1.0 and s4["by_variant"]["paraphrased"]["Table_All_Hit@5"] == 0.0
 
 
-def test_answers_csv_is_readable_by_existing_review_tools(e2e):
-    """기존 eval/pipeline_review/review_80.expected_tables 와 같은 규칙으로 정답 표를 읽을 수 있어야 한다."""
+def test_answers_csv_table_ids_are_readable(e2e):
+    """정답 참고 CSV 의 표 ID 열을 일반 규칙(이름에 tbl/table_id 가 든 열)으로 읽을 수 있어야 한다."""
     tbl_col = re.compile(r"tbl|table_?ids?|표_?id|정답_?표", re.I)
     tbl_id = re.compile(r"^[A-Z]{2,4}_[A-Za-z0-9_]+$")
     with open(e2e["out"] / "datasets" / "synthetic_gold_answers_references.csv", encoding="utf-8-sig") as f:

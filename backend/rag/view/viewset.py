@@ -1,14 +1,12 @@
-"""[NEW v4] 2-2 ViewSet — 검색 단위(본 질의 + 서브쿼리)마다 View 묶음 + 2-3 Point 충돌 판정 + 선택
+"""ViewSet — 검색 단위(본 질의 + 서브쿼리)마다 View 묶음 + Point 충돌 판정 + 선택
 
-  vs = build_viewset(analysis)                         # v4 analyze 결과 (status=ok) 또는 view_bundle 또는 질문 문자열
+  vs = build_viewset(analysis)                         # analyze 결과 (status=ok) · view_bundle · 질문 문자열
   vs["status"]   ok | needs_selection | needs_clarification | out_of_scope
   vs["records"]  답변 모듈로 넘길 Record 목록 (선택이 필요한 단위는 고른 뒤에 들어감)
   vs["pending"]  [{unit_id, selection_token, options}]  ← 선택이 필요한 단위
   vs2 = apply_selections(vs, {"opt-1": token} 또는 [{selection_token, option_id}])
 
-  노트북·CLI 에서는 build_viewset(…, on_ambiguous=lambda conflict: "opt-1") 로 바로 고를 수 있음
-
-검색·View 생성은 기존 views.run_query 를 그대로 쓴다 (retrieval_config 를 주면 Step 3 검색 구성으로 검색)
+  CLI 에서는 build_viewset(…, on_ambiguous=lambda conflict: "opt-1") 로 바로 고를 수 있음
 """
 from __future__ import annotations
 
@@ -22,7 +20,7 @@ from backend.rag.view.conflict import detect
 
 
 def _settings(overrides=None):
-    from backend.core.settings_v4 import with_overrides
+    from backend.core.settings import with_overrides
     return with_overrides(overrides)
 
 
@@ -67,7 +65,7 @@ def describe(record):
     tid = (record.get("source") or {}).get("tbl_id")
     t = _csv_table(tid)
     if t:
-        from backend.rag.retrieval.corpus import csv_table_text
+        from backend.rag.search.index import csv_table_text
         return csv_table_text({**t, "footnotes": []})
     try:
         from backend.rag.ingestion.table_text import INDEX
@@ -115,7 +113,7 @@ def build_options(conf, views_by_id, settings):
 def _view_bundle(source, today=None, overrides=None, tracer=None):
     """질문 문자열 | QueryAnalysis(dict) | view_bundle(dict) → (view_bundle | None, analysis | None)"""
     if isinstance(source, str):
-        from backend.rag.query_analyzer.v4 import analyze
+        from backend.rag.query_analyzer.analyze import analyze
         source = analyze(source, today, overrides=overrides, tracer=tracer)
     if isinstance(source, dict) and "status" in source and ("bundle" in source or "state" in source):
         vb = source.get("view_bundle") if source["status"] == "ok" else None
@@ -123,39 +121,30 @@ def _view_bundle(source, today=None, overrides=None, tracer=None):
     return dict(source), None
 
 
-def build_viewset(source, *, today=None, retrieval_config=None, top_k=None, n_views=None, overrides=None,
-                  on_ambiguous=None, tracer=None, progress=None):
+def build_viewset(source, *, today=None, top_k=None, n_views=None, overrides=None, on_ambiguous=None, tracer=None,
+                  progress=None, search_fn=None):
     s = _settings(overrides)
     t0 = time.time()
     vb, analysis = _view_bundle(source, today, overrides, tracer)
     base = {"query_id": None, "status": None, "units": [], "records": [], "pending": [], "notes": [],
             "analysis_status": analysis.get("status") if analysis else None,
-            "clarifications": (analysis or {}).get("clarifications") or [], "retrieval_config": None}
+            "clarifications": (analysis or {}).get("clarifications") or []}
     if vb is None:
         return {**base, "status": analysis["status"], "query_id": analysis.get("query_id"),
-                "notes": ["쿼리 분석이 끝나지 않아 검색하지 않음 (되묻기 또는 범위 밖)"], "seconds": round(time.time() - t0, 3)}
+                "notes": ["질의 분석이 끝나지 않아 검색하지 않음 (되묻기 또는 범위 밖)"], "seconds": round(time.time() - t0, 3)}
     vb = {**vb, "query_id": vb.get("query_id") or uuid.uuid4().hex[:8]}
     if vb.get("filters") is None:
         return {**base, "status": "out_of_scope", "query_id": vb["query_id"], "notes": ["슬롯 없음 (범위 밖)"],
                 "seconds": round(time.time() - t0, 3)}
-    cfg = retrieval_config or s.view_retrieval_config
-    search_fn = None
-    if cfg == "v5":                        # [NEW v5] 다채널 검색 (backend.rag.search)
-        from backend.rag.search import search_fn as v5_fn
-        search_fn = v5_fn(cfg)
-    elif cfg:
-        from backend.rag.retrieval.factory import get_pipeline
-        search_fn = get_pipeline(cfg).search_compat
-    from backend.rag.ingestion.views import run_query
-    with maybe_step(tracer, "2-1·2-2 검색 + View", top_k=top_k or s.view_top_k, n_views=n_views or s.view_n_views,
-                    retrieval_config=cfg) as st:
+    from backend.rag.view.run import run_query
+    with maybe_step(tracer, "검색 + View", top_k=top_k or s.view_top_k, n_views=n_views or s.view_n_views) as st:
         res = run_query(vb, top_k or s.view_top_k, n_views or s.view_n_views, progress=progress, search_fn=search_fn,
                         skip_main=not s.view_main_with_subs)
         st.output = {u["unit_id"]: [v["tbl_id"] for v in u["views"]] for u in res["units"]}
     units, records, pending = [], [], []
     for u in res["units"]:
         uid = u["unit_id"]
-        with maybe_step(tracer, f"2-3 Point 비교:{uid}", rel_tol=s.conflict_rel_tol, abs_tol=s.conflict_abs_tol,
+        with maybe_step(tracer, f"Point 비교:{uid}", rel_tol=s.conflict_rel_tol, abs_tol=s.conflict_abs_tol,
                         allow_partial=s.conflict_allow_partial) as st:
             conf = detect(u["views"], u["filters"], s, uid)
             views_by_id = {v["record"]["id"]: v for v in u["views"]}
@@ -183,7 +172,7 @@ def build_viewset(source, *, today=None, retrieval_config=None, top_k=None, n_vi
         records += unit_records(unit)
     status = "needs_selection" if pending else "ok"
     return {**base, "status": status, "query_id": vb["query_id"], "original": vb.get("original"), "units": units,
-            "records": records, "pending": pending, "retrieval_config": cfg, "view_bundle": vb,
+            "records": records, "pending": pending, "view_bundle": vb,
             "seconds": round(time.time() - t0, 3)}
 
 
@@ -194,7 +183,7 @@ def unit_records(unit):
         return []
     drop = set(unit["selected"]["dropped_ids"]) if unit.get("selected") else set()
     if not unit.get("keep_unusable", True) and any(v["usable"] for v in c["views"]):
-        drop |= {v["record_id"] for v in c["views"] if not v["usable"]}       # 다 맞은 View 가 있을 때만 못 쓴 View 를 뺌
+        drop |= {v["record_id"] for v in c["views"] if not v["usable"]}  # 다 맞은 View 가 있을 때만 못 쓴 View 를 뺌
     recs = [v["record"] for v in unit["views"] if v["record"]["id"] not in drop]
     if unit.get("selected"):
         have = {r["id"] for r in recs}
@@ -208,10 +197,10 @@ def _apply(unit, sel):
 
 
 def apply_selections(viewset, selections, con=None):
-    """viewset(이전 응답) + 선택들 → 새 viewset. selections: [{selection_token, option_id}] 또는 {token: option_id}"""
+    """viewset(직전 응답) + 선택들 → 새 viewset. selections: [{selection_token, option_id}] 또는 {token: option_id}"""
     if isinstance(selections, dict):
         selections = [{"selection_token": k, "option_id": v} for k, v in selections.items()]
-    vs = json.loads(json.dumps(viewset, default=str))                   # 원본은 그대로 두기
+    vs = json.loads(json.dumps(viewset, default=str))  # 원본은 그대로 두기
     by_unit = {u["unit_id"]: u for u in vs.get("units") or []}
     applied = []
     for sel in selections:

@@ -32,16 +32,16 @@ class ObservationType(str, Enum):
 
 
 class InputMode(str, Enum):
-    STORED_VIEW = "STORED_VIEW"            # 방식 A: 저장된 View 를 직접 읽음
+    STORED_VIEW = "STORED_VIEW"  # 방식 A: 저장된 View 를 직접 읽음
     GENERATED_FROM_RAW = "GENERATED_FROM_RAW"  # 방식 B: RAW + 메타로 생성
 
 
 class ValueKind(str, Enum):
-    COUNT = "COUNT"        # 명, 가구, 건, 호 … (합산 가능)
-    AMOUNT = "AMOUNT"      # 원, 백만원 … (합산 가능)
-    RATE = "RATE"          # %, ‰, 율 (합산 불가)
-    MEAN = "MEAN"          # 세, 평균 … (합산 불가)
-    INDEX = "INDEX"        # 지수 (합산 불가)
+    COUNT = "COUNT"  # 명, 가구, 건, 호 … (합산 가능)
+    AMOUNT = "AMOUNT"  # 원, 백만원 … (합산 가능)
+    RATE = "RATE"  # %, ‰, 율 (합산 불가)
+    MEAN = "MEAN"  # 세, 평균 … (합산 불가)
+    INDEX = "INDEX"  # 지수 (합산 불가)
     UNKNOWN = "UNKNOWN"
 
 

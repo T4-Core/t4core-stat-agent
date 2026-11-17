@@ -1,18 +1,42 @@
 """Evaluation Tool (수치 검증 · Ablation · View 판정 · Retriever/Generator 지표 · 실패 진단) + Deduplication Tool."""
 from __future__ import annotations
 
-from synthetic_gold_pipeline.schemas.dataset import (EvidenceGroup, ExpectedClaim, GenerationEval, GoldenRecord, M1Eval,
-                                                      M2Eval, M3Eval, ModuleEval, Provenance, RetrievalEval,
-                                                      VerificationMetrics)
-from synthetic_gold_pipeline.schemas.planning import (AnswerabilityType, HopType, Operand, OperationGraph, OperationPlan,
-                                                       OperationStep, ReasoningType, SampledCluster)
+from synthetic_gold_pipeline.schemas.dataset import (
+    EvidenceGroup,
+    ExpectedClaim,
+    GenerationEval,
+    GoldenRecord,
+    M1Eval,
+    M2Eval,
+    M3Eval,
+    ModuleEval,
+    Provenance,
+    RetrievalEval,
+    VerificationMetrics,
+)
+from synthetic_gold_pipeline.schemas.planning import (
+    AnswerabilityType,
+    HopType,
+    Operand,
+    OperationGraph,
+    OperationPlan,
+    OperationStep,
+    ReasoningType,
+    SampledCluster,
+)
 from synthetic_gold_pipeline.schemas.verification import AblationOutcome, ViewLabel
 from synthetic_gold_pipeline.tests.conftest import find_view
 from synthetic_gold_pipeline.tools.calculation_tool import TableCalculationEngine
 from synthetic_gold_pipeline.tools.deduplication_tool import DedupIndex, entity_signature, fact_signature
-from synthetic_gold_pipeline.tools.evaluation_tool import (AblationChecker, NumericAnswerEvaluator, ViewJudge,
-                                                            diagnose_failure, evaluate_generation, evaluate_retrieval,
-                                                            extract_numbers)
+from synthetic_gold_pipeline.tools.evaluation_tool import (
+    AblationChecker,
+    NumericAnswerEvaluator,
+    ViewJudge,
+    diagnose_failure,
+    evaluate_generation,
+    evaluate_retrieval,
+    extract_numbers,
+)
 
 POLICY = {"rounding_digits": [1, 2], "abs_tolerance": 0.05, "rel_tolerance": 0.0, "unit_required": True}
 CLAIMS = [ExpectedClaim(claim_id="F", role="FINAL", value=-0.6878939, value_text="-0.7%", unit="%"),
@@ -58,7 +82,7 @@ def test_rounding_policy():
     c = [ExpectedClaim(claim_id="F", role="FINAL", value=14.285714, value_text="14.3%", unit="%")]
     assert EV.evaluate("14.3%", c, POLICY).final_value_ok
     assert EV.evaluate("14.29%", c, POLICY).final_value_ok
-    assert not EV.evaluate("14%", c, POLICY).final_value_ok        # 0자리 반올림은 정책상 불허
+    assert not EV.evaluate("14%", c, POLICY).final_value_ok  # 0자리 반올림은 정책상 불허
 
 
 def test_number_extraction():
@@ -96,8 +120,8 @@ def test_ablation_and_alternative_positive(demo_env):
     res, alts = AblationChecker(idx, eng).run(plan, calc, cl)
     assert all(r.outcome == AblationOutcome.NECESSARY for r in res)
     alt_tables = {idx.view(v).parent_table_id for v in alts[b]}
-    assert "101_DT_DEMO_POP_OLD" in alt_tables                                # 같은 값의 구 표
-    assert any(idx.view(v).input_mode.value == "STORED_VIEW" for v in alts[b])   # 저장된 View(대구 포함)
+    assert "101_DT_DEMO_POP_OLD" in alt_tables  # 같은 값의 구 표
+    assert any(idx.view(v).input_mode.value == "STORED_VIEW" for v in alts[b])  # 저장된 View(대구 포함)
     sv = next(v for v in idx.views.values() if v.input_mode.value == "STORED_VIEW")
     foreign = find_view(idx, "101_DT_DEMO_FOREIGN", "T1", "2024")
     proj = find_view(idx, "101_DT_DEMO_PROJ", "T1", "2024", {"C1": ["1"]})
@@ -150,7 +174,7 @@ def record(expected_abstention=False):
 def test_retrieval_metrics_with_alternatives_and_unjudged():
     r = evaluate_retrieval(record(), ["vN", "vU", "vA2", "vX", "vB"], ["T9", "T1b", "T1"], ks=(1, 2, 3))
     assert r["view_n_unjudged_removed"] if "view_n_unjudged_removed" in r else r["n_unjudged_removed"] == 1
-    assert r["view_Hit@1"] == 0.0 and r["view_Hit@2"] == 1.0          # vU 제외 후 vA2 가 2위
+    assert r["view_Hit@1"] == 0.0 and r["view_Hit@2"] == 1.0  # vU 제외 후 vA2 가 2위
     assert r["view_All_Hit@2"] == 0.0 and r["view_All_Hit@3"] == 0.0
     r4 = evaluate_retrieval(record(), ["vN", "vU", "vA2", "vX", "vB"], None, ks=(4,))
     assert r4["view_All_Hit@4"] == 1.0 and r4["view_Requirement_Coverage@4"] == 1.0
@@ -190,12 +214,12 @@ def test_dedup_rules():
     fs = fact_signature("GROWTH_RATE", "GROWTH_RATE", [{"TBL_ID": "T", "ITM_ID": "I", "PRD_DE": "2023", "dims": {"C1": "11"}}], "SCALAR")
     es = entity_signature(["서울특별시"], ["2023", "2024"], ["총인구수"], "GROWTH_RATE")
     q = ["2023년 대비 2024년 서울특별시 총인구수 증감률은?", "서울 인구 23년 대비 24년 얼마나 변했어?"]
-    assert not d.check("a", q, fs, es).is_duplicate                 # original/paraphrase 쌍은 서로 비교하지 않음
+    assert not d.check("a", q, fs, es).is_duplicate  # original/paraphrase 쌍은 서로 비교하지 않음
     d.add("a", q, fs, es)
     assert d.check("b", ["표현만 바꾼 질문"], fs, "other").reason == "SAME_FACT_SIGNATURE"
     fs2 = fact_signature("GROWTH_RATE", "GROWTH_RATE", [{"TBL_ID": "T", "ITM_ID": "I", "PRD_DE": "2023", "dims": {"C1": "26"}}], "SCALAR")
     es2 = entity_signature(["부산광역시"], ["2023", "2024"], ["총인구수"], "GROWTH_RATE")
     dec = d.check("c", ["2023년 대비 2024년 부산광역시 총인구수 증감률은?"], fs2, es2)
-    assert not dec.is_duplicate and dec.max_score > 0.5              # 비슷하지만 지역이 다름 → 유지
+    assert not dec.is_duplicate and dec.max_score > 0.5  # 비슷하지만 지역이 다름 → 유지
     dec = d.check("e", ["2023년 대비 2024년 서울특별시 총인구수 증감률은?"], fs2, es)
     assert dec.is_duplicate and dec.reason == "NEAR_DUPLICATE_SAME_ENTITIES"

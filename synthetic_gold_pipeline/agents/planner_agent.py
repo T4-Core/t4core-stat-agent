@@ -44,7 +44,7 @@ SYSTEM_PROMPT = """당신은 국가통계(KOSIS) 표를 결합하는 통계 분�
 - 출력은 스키마에 맞는 JSON 하나뿐이다. 설명 문장을 붙이지 않는다."""
 
 SUBTYPE_GUIDE = {
-    "LOOKUP": "View 하나. 지역 코드 하나(또는 총계)를 고른 스칼라 하나 → LOOKUP. 값을 바꾸는 연산 없음.",   # [NEW 11-12]
+    "LOOKUP": "View 하나. 지역 코드 하나(또는 총계)를 고른 스칼라 하나 → LOOKUP. 값을 바꾸는 연산 없음.",
     "GROWTH_RATE": "두 View 는 같은 표·항목의 이전/이후 시점. 같은 좌표의 스칼라 두 개 → GROWTH_RATE(이후, 이전).",
     "DIFFERENCE": "두 View 는 같은 표·항목의 이전/이후 시점. 같은 좌표의 스칼라 두 개 → DIFFERENCE(이후, 이전).",
     "PP_DIFFERENCE": "% 단위 항목의 두 시점. 같은 좌표 스칼라 두 개 → PERCENTAGE_POINT_DIFFERENCE(이후, 이전).",
@@ -67,7 +67,7 @@ class PlannerAgent:
         self.max_codes = int(cfg.get("max_codes_in_card", 40))
         self.mock_error_rate = float(cfg.get("mock_inject_structural_error_rate", 0.0))
         # rule: 하위 유형마다 정해진 계산 틀을 코드가 채움 (LLM 호출 없음) — 실데이터에서 HCX 계획이 유형에 없는 계산
-        #       (합계−합계 등)을 만들고 좌표를 비우는 문제가 탈락의 대부분이었음. llm: 예전 방식
+        # (합계−합계 등)을 만들고 좌표를 비우는 문제가 탈락의 대부분이었음. llm: LLM 이 연산 계획
         self.mode = str(cfg.get("mode", "rule")).lower()
         if isinstance(llm, MockLLMClient):
             llm.register(TASK, mock_plan_response)
@@ -81,7 +81,7 @@ class PlannerAgent:
             cm = v0.code_map(lv) if lv else {}
             common = [{"code": c, "name": cm[c].name if c in cm else "", "is_total": bool(cm.get(c) and cm[c].is_total)}
                       for c in cluster.common_codes[:self.max_codes]]
-            if len(cluster.common_codes) > self.max_codes:            # 읍면동이면 수천 개 → 프롬프트 하나가 분당 토큰 한도를 넘음
+            if len(cluster.common_codes) > self.max_codes:  # 읍면동이면 수천 개 → 프롬프트 하나가 분당 토큰 한도를 넘음
                 common.append({"code": "...", "name": f"외 {len(cluster.common_codes) - self.max_codes}개 생략 (전체 "
                                                       f"{len(cluster.common_codes)}개)", "is_total": False})
         allowed = []
@@ -163,7 +163,7 @@ def _fixed_coords(card: dict, skip: set[str]) -> dict[str, str]:
     return out
 
 
-# [NEW 11-12] 단순 조회에서 고를 지역 코드: 전국·시도 이름을 먼저 (시군구·읍면동은 쉬운 질문이 아님)
+# 단순 조회에서 고를 지역 코드: 전국·시도 이름을 먼저 (시군구·읍면동은 쉬운 질문이 아님)
 SIDO_NAMES = {"전국", "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시",
               "세종특별자치시", "경기도", "강원도", "강원특별자치도", "충청북도", "충청남도", "전라북도", "전북특별자치도",
               "전라남도", "경상북도", "경상남도", "제주도", "제주특별자치도"}
@@ -191,8 +191,8 @@ def mock_plan_response(ctx: dict) -> dict:
     views = ctx["views"]
     rng = random.Random(int(ctx["random_seed"]) + 31 * int(ctx.get("_planner_attempt", 0)) + 7 * int(ctx.get("_attempt", 0)))
     ids = [v["view_id"] for v in views]
-    item = lambda v: v["items"][0]["itm_id"]                    # noqa: E731
-    per = lambda v: v["periods"][0]                             # noqa: E731
+    item = lambda v: v["items"][0]["itm_id"]  # noqa: E731
+    per = lambda v: v["periods"][0]  # noqa: E731
     common = ctx.get("common_join_codes") or []
     non_total = [c for c in common if not c["is_total"]]
 
@@ -215,7 +215,7 @@ def mock_plan_response(ctx: dict) -> dict:
     if non_total or common:
         pick = non_total if (non_total and rng.random() < 0.85) else common
         code = pick[rng.randrange(len(pick))]["code"]
-    if sub == "LOOKUP":                                          # [NEW 11-12] 단순 조회
+    if sub == "LOOKUP":  # 단순 조회
         v = views[0]
         plan["operands"] = [scalar("A", v, _lookup_code(v, rng), "조회 값")]
         plan["operation"] = {"steps": [{"step_id": "s1", "op": "LOOKUP", "inputs": ["A"], "params": {}}], "final_step_id": "s1"}

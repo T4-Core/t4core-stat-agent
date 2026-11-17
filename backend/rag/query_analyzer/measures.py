@@ -1,11 +1,11 @@
-"""[NEW 11-12] 지표 칸에 들어오는 '계산 단어' · '수를 세는 일반 지표' 구분 (v3 검증 · v4 서브쿼리 분리 공용, HCX 호출 없음)
+"""지표 칸에 들어오는 '계산 단어' · '수를 세는 일반 지표' 구분 (재작성 검증 · 서브쿼리 분리 공용, HCX 호출 없음)
 
   계산 단어   : 표의 항목 이름이 아니라 구하는 방법 ('구성비', '비율', '증감률', '평균', '총계' …)
                 → 지표에서 빼고(그 값만 있을 때), 뜻이 분명하면 의도로 옮김. 검색·조건 확인에 넣지 않음
   일반 지표   : 무엇을 세는지만 말하는 지표 ('인구수', '가구수', '건수', '호수' …)
                 → 대상('국제결혼 이주자')과 한 개념. 따로 서브쿼리를 만들지 않음
 
-144문항 비교 결과(11-12): 지표에 계산 단어가 든 질문 53개, 대상·지표를 따로 나눈 한 단어 서브쿼리 130개
+(144문항 비교: 지표에 계산 단어가 든 질문 53개, 대상·지표를 따로 나눈 한 단어 서브쿼리 130개)
 """
 import re
 
@@ -90,7 +90,7 @@ def concept_groups(targets, indicators):
         else:
             free.append({"지표": [], "대상": [d]})
     alone, pending = [], []
-    for g in generic:                                    # 먼저 이름이 겹치는 구체 지표에 ('인구수' ⊂ '총인구수'), 다음 대상에 ('인구수' → '인구')
+    for g in generic:  # 먼저 이름이 겹치는 구체 지표에 ('인구수' ⊂ '총인구수'), 다음 대상에 ('인구수' → '인구')
         host = next((c for c in concepts if any(_overlap(g, x) for x in c["지표"])), None)
         if host:
             host["지표"].append(g)
@@ -100,7 +100,7 @@ def concept_groups(targets, indicators):
             free[score.index(max(score))]["지표"].append(g)
         else:
             pending.append(g)
-    for g in pending:                                    # 남은 것은 일반 지표가 없는 대상에, 없으면 따로
+    for g in pending:  # 남은 것은 일반 지표가 없는 대상에, 없으면 따로
         if lacking := [c for c in free if not c["지표"]]:
             lacking[0]["지표"].append(g) if len(pending) > 1 else [c["지표"].append(g) for c in lacking]
         else:

@@ -55,10 +55,10 @@ class QueryView:
     subs: list = field(default_factory=list)
     lex: str = ""
     link: str = ""
-    added: list = field(default_factory=list)            # 일상어 사전으로 더한 통계어
-    want_age: bool = False                               # 연령을 물었는가 (→ 연령 분류가 있는 표)
+    added: list = field(default_factory=list)  # 일상어 사전으로 더한 통계어
+    want_age: bool = False  # 연령을 물었는가 (→ 연령 분류가 있는 표)
     want_sex: bool = False
-    axis: str | None = None                              # '시군구별'·'읍면동 단위' → 그 수준의 지역 분류가 있는 표
+    axis: str | None = None  # '시군구별'·'읍면동 단위' → 그 수준의 지역 분류가 있는 표
 
 
 def _term_index():
@@ -75,8 +75,8 @@ _COLLOQUIAL = None
 
 def _colloquial():
     """configs/colloquial.yaml: [정규식, [통계어…]] 목록"""
-    from pathlib import Path
-    f = Path(__file__).resolve().parent / "configs" / "colloquial.yaml"
+    from backend.core.config import CONFIGS_DIR
+    f = CONFIGS_DIR / "colloquial.yaml"
     if not f.exists():
         return []
     import yaml
@@ -107,7 +107,7 @@ def synonyms(text):
 def parse_question(question, filters=None, today=None, region_dict=None) -> QueryView:
     """filters = 쿼리 모듈 슬롯 (있으면 시점·지역을 합침 — '최근 5년' 같은 상대 표현은 쿼리 모듈이 풀어 줌)"""
     from backend.rag.ingestion.normalize import SIDO_ALIAS
-    from backend.rag.ingestion.resolve import short
+    from backend.rag.search.resolve import short
     q = str(question or "")
     f = filters or {}
     v = QueryView(q)
@@ -115,7 +115,7 @@ def parse_question(question, filters=None, today=None, region_dict=None) -> Quer
 
     v.cohort = sorted({int(y) for m in COHORT_RE.finditer(q) for y in m.groups() if y})
     body = COHORT_RE.sub(" ", q)
-    try:                                                  # '1995년부터 5년마다' → 1995·2000·…·기준 해 (쿼리 모듈과 같은 규칙)
+    try:  # '1995년부터 5년마다' → 1995·2000·…·기준 해 (쿼리 모듈과 같은 규칙)
         from backend.rag.query_analyzer.extract import expand_open_range
         body = expand_open_range(body, today)[0]
     except Exception:  # noqa: BLE001
@@ -131,7 +131,7 @@ def parse_question(question, filters=None, today=None, region_dict=None) -> Quer
     v.years = sorted(y for y in years if y not in v.cohort)
     if re.search(r"분기", q):
         v.cycle.add("Q")
-    if re.search(r"상반기|하반기|반기", q):                # 반기 값은 월·분기 자료로 계산
+    if re.search(r"상반기|하반기|반기", q):  # 반기 값은 월·분기 자료로 계산
         v.cycle.add("H")
     v.want_age = bool(f.get("연령")) or bool(WANT_AGE_RE.search(q))
     v.want_sex = bool(f.get("성별")) or bool(WANT_SEX_RE.search(q))
@@ -139,7 +139,7 @@ def parse_question(question, filters=None, today=None, region_dict=None) -> Quer
     ax = (m.group(1) if m else None) or str(f.get("비교축") or "")
     v.axis = next((g for g in ("읍면동", "시군구", "시도") if g in ax), None)
     if v.axis is None and (ANY_REGION_RE.search(q) or any(w in ax for w in ("지역", "행정구역"))):
-        v.axis = "지역"                                   # 수준은 말하지 않았지만 지역끼리 비교 → 지역 분류가 있는 표
+        v.axis = "지역"  # 수준은 말하지 않았지만 지역끼리 비교 → 지역 분류가 있는 표
     if re.search(r"월별|월간|매월|(?<!\d)\d{1,2}\s*월(?!\s*세)|지난달|이번\s*달", q):
         v.cycle.add("M")
 
@@ -166,7 +166,7 @@ def parse_question(question, filters=None, today=None, region_dict=None) -> Quer
             subs.append(n)
         else:
             keep.append(tok)
-    for r in f.get("지역") or []:                          # 쿼리 모듈이 준 시군구 ('수원시 권선구')
+    for r in f.get("지역") or []:  # 쿼리 모듈이 준 시군구 ('수원시 권선구')
         n = norm(str(r).split()[-1])
         if not SIDO_ALIAS.get(norm(r)) and r != "전국" and (SUB_RE.match(n) or n in URBAN):
             subs.append(n)
@@ -175,9 +175,9 @@ def parse_question(question, filters=None, today=None, region_dict=None) -> Quer
     lex = " ".join(keep)
     lex = THRESH_RE.sub(" ", BIGNUM_RE.sub(" ", lex))
     lex = re.sub(rf"{YEAR}\s*년?(?:도)?{JOSA}|전국적?{JOSA}|(?<!\d)\d{{1,2}}\s*분기|작년|올해|지난해|금년|전년", " ", lex)
-    v.added = synonyms(lex)                               # 일상어 → 통계어 (군말을 지우기 전에: '사는 사람' → 인구)
+    v.added = synonyms(lex)  # 일상어 → 통계어 (군말을 지우기 전에: '사는 사람' → 인구)
     core = FILLER_RE.sub(" ", lex)
-    core = core if len(norm(core)) >= 2 else lex          # 다 지워지면 원래 문장
+    core = core if len(norm(core)) >= 2 else lex  # 다 지워지면 원래 문장
     v.lex = " ".join((core + " " + " ".join(v.added)).split())
     v.link = norm(core) + "|" + "|".join(norm(a) for a in v.added)
     return v

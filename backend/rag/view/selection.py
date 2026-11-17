@@ -1,10 +1,10 @@
-"""[NEW v4] 2-3 선택지 + 선택 토큰 — 서버에 세션을 두지 않는 선택 왕복
+"""선택지 + 선택 토큰 — 서버에 세션을 두지 않는 선택 왕복
 
   선택지(option) = 값이 같은 표 무리 하나. 표 이름 · 다른 값 미리보기 · 주석(메타 CMMT) · 표 설명 · 산출 기준
   선택 토큰      = (검색 단위, 슬롯, 선택지별 Record id) 를 담은 서명 문자열 (HMAC-SHA256)
-                   → POST /api/v1/rag/v4/views/select 에 {selection_token, option_id} 만 보내면 됨
-                   → 이전 응답(previous)을 함께 보내면 그 안의 Record 를 그대로, 없으면 좌표로 View 를 다시 만듦
-  CLI·노트북: resolve(token, "opt-2") 또는 build_viewset(…, on_ambiguous=콜백)
+                   → POST /api/v1/rag/views/select 에 {selection_token, option_id} 만 보내면 됨
+                   → 직전 응답(previous)을 함께 보내면 그 안의 Record 를 그대로, 없으면 좌표로 View 를 다시 만듦
+  CLI: resolve(token, "opt-2") 또는 build_viewset(…, on_ambiguous=콜백)
 
 비밀 키: 환경변수 VIEW_SELECTION_SECRET, 없으면 storage/.view_selection_secret (처음 한 번 만들어 둠)
 """
@@ -78,7 +78,7 @@ def _num_of(record_id):
 
 def rebuild(record_id, tbl_id, filters, con=None):
     """좌표(표·슬롯·번호)로 View 를 다시 만듦 — 같은 id 가 나와야 함"""
-    from backend.rag.ingestion.build_view import build_view
+    from backend.rag.view.build import build_view
     rec, _ = build_view(tbl_id, filters, _num_of(record_id), con)
     if rec["id"] != record_id:
         raise ValueError(f"다시 만든 View id 가 다름: {rec['id']} ≠ {record_id} (원본 자료가 바뀌었을 수 있음)")

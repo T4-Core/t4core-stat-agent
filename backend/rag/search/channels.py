@@ -1,6 +1,6 @@
 """검색 채널 — 표 전체(약 1,100개)에 점수를 매긴다. 후보를 50개로 먼저 자르지 않는다
 
-  lex     Kiwi 형태소 BM25 (기존 표 설명문 그대로 — baseline 1단계와 같은 색인)
+  lex     Kiwi 형태소 BM25 (표 설명문 색인)
   ngram   글자 2·3-gram BM25 (표 이름·항목·분류 값) — 형태소 분석이 쪼개는 복합어('보증부월세'·'시도간전출')에 강함
   title   질문 안에 표 이름이 (거의) 그대로 들어 있는가 — 표 이름 글자쌍 중 질문에 있는 비율 (IDF 가중)
   value   값 연결: 질문 속 표현이 어느 표의 '항목·분류 값·분류 이름' 인가 (드문 값일수록 큰 점수)
@@ -64,8 +64,8 @@ class TitleChannel:
 class ValueChannel:
     def __init__(self, facets):
         self.n = len(facets)
-        table = defaultdict(dict)                         # 표현(norm) → {표 번호: 가중치}
-        self._cohort = []                                 # 출생연도(코호트) 분류가 있는 표
+        table = defaultdict(dict)  # 표현(norm) → {표 번호: 가중치}
+        self._cohort = []  # 출생연도(코호트) 분류가 있는 표
         for i, f in enumerate(facets):
             def add(name, w):
                 for v in variants(name):
@@ -101,19 +101,17 @@ class ValueChannel:
         s = np.zeros(self.n)
         found = self.link(link)
         for key in found:
-            w = self.idf[key] * (0.6 if len(key) == 2 else 1.0)   # 두 글자 표현은 우연히 겹치기 쉬움
+            w = self.idf[key] * (0.6 if len(key) == 2 else 1.0)  # 두 글자 표현은 우연히 겹치기 쉬움
             for i, kw in self.table[key].items():
                 s[i] += w * kw
-        if cohort and self._cohort:                        # '1983년생' → 출생연도 분류가 있는 표
+        if cohort and self._cohort:  # '1983년생' → 출생연도 분류가 있는 표
             s[self._cohort] += idf(len(self._cohort), self.n)
         return s, found
 
 
 class Channels:
     def __init__(self, corpus, facets, embedder=None, log=None):
-        from backend.rag.retrieval.interfaces import Doc
-        from backend.rag.retrieval.retrievers import BM25Retriever, DenseRetriever
-        from backend.rag.retrieval.tokenizers import CharNgramTokenizer, KiwiTokenizer
+        from backend.rag.search.index import BM25Retriever, CharNgramTokenizer, DenseRetriever, Doc, KiwiTokenizer
         self.docs = corpus.docs()
         self.facets = [facets[d.id] for d in self.docs]
         self.n = len(self.docs)
@@ -128,7 +126,7 @@ class Channels:
                          for f in self.facets]
         self.region_dict = {r for f in self.facets if f.regions_full for r in f.regions} or None
         if log:
-            log(f"[v5] 채널 준비: 표 {self.n} · 값 사전 {len(self.value.table)}개 표현 · "
+            log(f"[search] 채널 준비: 표 {self.n} · 값 사전 {len(self.value.table)}개 표현 · "
                 f"지역 사전 {len(self.region_dict or [])} · dense {'있음' if self.dense else '없음'}")
 
     def _bm25(self, r, text):

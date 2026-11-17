@@ -24,15 +24,25 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-from synthetic_gold_pipeline.schemas.calculation import (CalcErrorCode, CalculationResult, EvidenceFileRef,
-                                                          FinalAnswer, IntermediateFact, JoinDiagnostics,
-                                                          NumericResult, RankedEntry, RETRYABLE_CODES,
-                                                          SourceCoordinate, StepResult, UnitConversionTrace,
-                                                          VectorEntry)
+from synthetic_gold_pipeline.schemas.calculation import (
+    RETRYABLE_CODES,
+    CalcErrorCode,
+    CalculationResult,
+    EvidenceFileRef,
+    FinalAnswer,
+    IntermediateFact,
+    JoinDiagnostics,
+    NumericResult,
+    RankedEntry,
+    SourceCoordinate,
+    StepResult,
+    UnitConversionTrace,
+    VectorEntry,
+)
 from synthetic_gold_pipeline.schemas.metadata import DimensionType, ValueKind, ViewMetadata
 from synthetic_gold_pipeline.schemas.planning import AtomicOp, FilterSpec, Operand, OperationPlan, OperationStep
 from synthetic_gold_pipeline.tools.plan_repair import AREA_SPLIT
-from synthetic_gold_pipeline.tools.units import (UnitIncompatible, conversion_factor, parse_value, unit_info)
+from synthetic_gold_pipeline.tools.units import UnitIncompatible, conversion_factor, parse_value, unit_info
 from synthetic_gold_pipeline.utils import atomic_write_text, display_path, period_label, sha256_file
 
 Q18 = Decimal("1e-18")
@@ -279,7 +289,7 @@ class Scalar:
 
 @dataclass
 class Vector:
-    entries: dict[str, tuple[Decimal, str, list[str]]]    # code → (value, name, fact_ids)
+    entries: dict[str, tuple[Decimal, str, list[str]]]  # code → (value, name, fact_ids)
     unit: str
     level: str
     dim_type: str
@@ -297,7 +307,7 @@ class Entity:
 
 @dataclass
 class Ranking:
-    entries: list[tuple[int, str, str, Decimal]]   # rank, code, name, value
+    entries: list[tuple[int, str, str, Decimal]]  # rank, code, name, value
     unit: str
 
 
@@ -510,7 +520,7 @@ class _Ctx:
                 continue
             if op.exclude_totals and (dc.is_total or dc.has_children):
                 continue
-            if region_vec and AREA_SPLIT.match(dc.name or ""):     # 동부·읍부·면부는 지역 단위가 아님
+            if region_vec and AREA_SPLIT.match(dc.name or ""):  # 동부·읍부·면부는 지역 단위가 아님
                 continue
             if op.depth is not None and dc.depth != op.depth:
                 continue
@@ -819,11 +829,11 @@ class _Ctx:
         if isinstance(a, Vector) and isinstance(b, Vector):
             self._join_check(list(s.inputs), a, b)
             keys = [k for k in a.entries if k in b.entries]
-            get_b = lambda k: b.entries[k]                       # noqa: E731
+            get_b = lambda k: b.entries[k]  # noqa: E731
             unit_b, base = b.unit, a
         elif isinstance(a, Vector) and isinstance(b, Scalar):
             keys = list(a.entries)
-            get_b = lambda k: (b.value, "", b.fact_ids)          # noqa: E731
+            get_b = lambda k: (b.value, "", b.fact_ids)  # noqa: E731
             unit_b, base = b.unit, a
         else:
             raise CalculationError(CalcErrorCode.PLAN_STRUCTURE_ERROR, f"{s.step_id}: (스칼라, 벡터) 순서 미지원")
@@ -864,7 +874,7 @@ class _Ctx:
         items = [(k, x[0]) for k, x in v.entries.items()]
         disp = make_numeric(vals[0], v.unit, self.e.rounding).display_digits if vals else 2
 
-        def shown(x: Decimal) -> Decimal:           # 표시 자릿수에서 같아 보이면 순위가 모호
+        def shown(x: Decimal) -> Decimal:  # 표시 자릿수에서 같아 보이면 순위가 모호
             return _q(x, disp)
         if op in (AtomicOp.MIN, AtomicOp.MAX):
             r = rank_values(items, "DESC" if op == AtomicOp.MAX else "ASC")

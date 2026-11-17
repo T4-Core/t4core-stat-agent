@@ -26,11 +26,6 @@ FROM base AS dev
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt
 
-# browsers are several hundred MB; opt in via build arg. Shared path so the non-root user can use them.
-ARG INSTALL_PLAYWRIGHT=false
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then playwright install --with-deps chromium; fi
-
 # code is bind-mounted by docker-compose.dev.yml, not copied
 USER app
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "backend"]
@@ -39,5 +34,6 @@ CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--re
 FROM base AS runtime
 
 COPY --chown=app:app backend/ backend/
+COPY --chown=app:app configs/ configs/
 USER app
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

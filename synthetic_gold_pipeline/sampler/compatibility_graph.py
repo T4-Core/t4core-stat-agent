@@ -46,7 +46,7 @@ class EdgeInfo:
     b: str
     same_table: bool
     same_frequency: bool
-    period_relation: str            # SAME | DIFFERENT | INCOMPARABLE_FREQUENCY
+    period_relation: str  # SAME | DIFFERENT | INCOMPARABLE_FREQUENCY
     join: list[JoinCandidate]
     same_item: bool
     unit_families: tuple[str | None, str | None]

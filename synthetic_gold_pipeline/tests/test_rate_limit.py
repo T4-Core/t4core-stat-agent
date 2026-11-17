@@ -6,8 +6,13 @@ import asyncio
 import pytest
 
 from synthetic_gold_pipeline.agents import llm_client as L
-from synthetic_gold_pipeline.agents.llm_client import (BaseLLMClient, LLMRateLimitExhausted, LLMTransientError,
-                                                       RateLimiter, parse_reset)
+from synthetic_gold_pipeline.agents.llm_client import (
+    BaseLLMClient,
+    LLMRateLimitExhausted,
+    LLMTransientError,
+    RateLimiter,
+    parse_reset,
+)
 
 
 @pytest.fixture
@@ -33,7 +38,7 @@ def test_limiter_waits_for_token_window(fast):
 
     async def go():
         await lim.acquire(600)
-        await lim.acquire(600)                   # 1200 > 1000 → 첫 요청이 창(60초)에서 빠질 때까지 대기
+        await lim.acquire(600)  # 1200 > 1000 → 첫 요청이 창(60초)에서 빠질 때까지 대기
     asyncio.run(go())
     assert fast["slept"] >= 59.9
 
@@ -52,8 +57,8 @@ def test_429_is_waited_out_and_not_charged(fast):
                                               "backoff_seconds": 15}})
     out = asyncio.run(c._call("planner", "s", "u" * 100, None, None))
     assert out == '{"ok": 1}'
-    assert c.usage.calls == 1 and c.usage.rate_limited == 2           # 거절 2번은 예산에서 빠짐 (예산 2로도 성공)
-    assert fast["slept"] >= 20 + 30 - 0.1 - 2                          # 헤더 20초 + 두 번째 15·2^1=30초
+    assert c.usage.calls == 1 and c.usage.rate_limited == 2  # 거절 2번은 예산에서 빠짐 (예산 2로도 성공)
+    assert fast["slept"] >= 20 + 30 - 0.1 - 2  # 헤더 20초 + 두 번째 15·2^1=30초
 
 
 def test_429_forever_raises_exhausted(fast):
@@ -68,8 +73,8 @@ def test_429_forever_raises_exhausted(fast):
 
 
 def test_pipeline_stops_on_rate_limit_without_rejecting(tmp_path, monkeypatch):
-    from synthetic_gold_pipeline.tests.test_pipeline import run_pipeline
     import synthetic_gold_pipeline.agents.planner_agent as P
+    from synthetic_gold_pipeline.tests.test_pipeline import run_pipeline
 
     async def boom(self, cluster, errors=None, attempt=0):
         raise LLMRateLimitExhausted("planner: 429")

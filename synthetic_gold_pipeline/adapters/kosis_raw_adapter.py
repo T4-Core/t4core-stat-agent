@@ -25,12 +25,29 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from synthetic_gold_pipeline.schemas.metadata import (DimensionCode, DimensionDefinition, DimensionType,
-                                                       IndicatorDefinition, InputMode, MetadataCompleteness,
-                                                       ObservationType, TableMetadata, ViewMetadata, ViewSelector)
+from synthetic_gold_pipeline.schemas.metadata import (
+    DimensionCode,
+    DimensionDefinition,
+    DimensionType,
+    IndicatorDefinition,
+    InputMode,
+    MetadataCompleteness,
+    ObservationType,
+    TableMetadata,
+    ViewMetadata,
+    ViewSelector,
+)
 from synthetic_gold_pipeline.tools.units import unit_info
-from synthetic_gold_pipeline.utils import (display_path, ensure_inside, normalize_frequency, norm_text,
-                                           safe_name, sha256_file, sha256_text, period_sort_key)
+from synthetic_gold_pipeline.utils import (
+    display_path,
+    ensure_inside,
+    norm_text,
+    normalize_frequency,
+    period_sort_key,
+    safe_name,
+    sha256_file,
+    sha256_text,
+)
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +82,7 @@ class TableRef:
     tbl_id: str
     key: str
     data_path: Path
-    data_kind: str                 # raw_csv | store_parquet
+    data_kind: str  # raw_csv | store_parquet
     meta_path: Path | None
     catalog: dict[str, Any] = field(default_factory=dict)
     survey_hint: str = ""
@@ -74,7 +91,7 @@ class TableRef:
 @dataclass
 class LoadedTable:
     meta: TableMetadata
-    df: pd.DataFrame                # 표준 컬럼(CANON_COLS 중 존재하는 것) + _src_row, 모두 문자열
+    df: pd.DataFrame  # 표준 컬럼(CANON_COLS 중 존재하는 것) + _src_row, 모두 문자열
 
 
 def as_string_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -95,7 +112,7 @@ def _arrow_str(values: pd.Series, null_as: str | None = None):
     import pyarrow.compute as pc
     arr = pa.array(values, from_pandas=True)
     if not pa.types.is_large_string(arr.type):
-        arr = pc.cast(arr, pa.large_string())           # 컬럼마다 string/large_string 이 섞이지 않게 통일
+        arr = pc.cast(arr, pa.large_string())  # 컬럼마다 string/large_string 이 섞이지 않게 통일
     return pc.fill_null(arr, null_as) if null_as is not None else arr
 
 
@@ -120,8 +137,8 @@ def row_strings(df: pd.DataFrame) -> np.ndarray:
     """행마다 표준 컬럼 값을 이어 붙인 문자열 배열 (스냅샷 해시용, pyarrow 벡터 연산). 결측은 \\x00."""
     cols = [c for c in CANON_COLS if c in df.columns] + ["_src_row"]
     try:
-        import pyarrow.compute as pc
         import pyarrow as pa
+        import pyarrow.compute as pc
         joined = pc.binary_join_element_wise(*[_arrow_str(df[c], "\x00") for c in cols],
                                              pa.scalar("\x1f", pa.large_string()))
         return np.asarray(joined.to_pylist(), dtype=object)
@@ -481,7 +498,7 @@ class RawViewGenerator:
                                                          for c in group_cols) else df[group_cols]
         # 그룹 번호(키 정렬 순) → 표를 한 번만 재정렬해 View 마다 연속 구간(복사 없는 slice)으로 자른다
         gid = keys_df.groupby(group_cols, sort=True).ngroup().to_numpy()
-        order = np.argsort(gid, kind="stable")          # 같은 그룹 안에서는 원본 행 순서 유지
+        order = np.argsort(gid, kind="stable")  # 같은 그룹 안에서는 원본 행 순서 유지
         bounds = np.flatnonzero(np.diff(gid[order])) + 1
         starts = np.concatenate([[0], bounds]) if len(order) else np.array([], dtype=int)
         ends = np.concatenate([bounds, [len(order)]]) if len(order) else np.array([], dtype=int)
@@ -535,7 +552,7 @@ def build_view_metadata(tm: TableMetadata, part: pd.DataFrame, view_id: str, vfi
                         n_numeric: int | None = None) -> ViewMetadata:
     split_sel = split_sel or {}
 
-    def uniq(col: str) -> list[str]:                 # 컬럼 단위 고유값 (행마다 Python 반복하지 않음)
+    def uniq(col: str) -> list[str]:  # 컬럼 단위 고유값 (행마다 Python 반복하지 않음)
         return [str(x) for x in part[col].dropna().unique()] if col in part.columns else []
     dcodes: dict[str, list[DimensionCode]] = {}
     for d in tm.dimension_definitions:

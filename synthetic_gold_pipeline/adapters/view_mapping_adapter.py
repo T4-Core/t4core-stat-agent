@@ -44,7 +44,7 @@ class ViewMappingAdapter:
         return next((c for c in cands if c and c.is_file()), None)
 
     def _load(self, max_records: int):
-        with open(self.path, encoding="utf-8") as f:       # 읽기 전용
+        with open(self.path, encoding="utf-8") as f:  # 읽기 전용
             for i, line in enumerate(f):
                 if i >= max_records:
                     break
@@ -111,7 +111,7 @@ class ViewMappingAdapter:
         for lv, codes in req["codes"].items():
             d = dims.get(lv.lower())
             if d is None:
-                continue                     # 기존 View 가 이 분류를 제한하지 않음 = 전체 포함
+                continue  # 기존 View 가 이 분류를 제한하지 않음 = 전체 포함
             if "codes" not in d:
                 return False, False, "분류를 깊이(depth)로만 지정해 코드 포함 여부를 확인할 수 없음"
             if not set(codes) <= {str(c) for c in d["codes"]}:

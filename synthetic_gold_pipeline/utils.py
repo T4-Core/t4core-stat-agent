@@ -79,7 +79,7 @@ def load_config(path: str | os.PathLike | None = None, overrides: dict | None = 
         raise FileNotFoundError(f"설정 파일 없음: {p}")
     with open(p, encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
-    # [NEW 11-12] extends: 다른 설정 파일을 바탕으로 바뀐 값만 적기 (이 파일 기준 상대 경로). 예) pipeline_easy.yaml
+    # extends: 다른 설정 파일을 바탕으로 바뀐 값만 적기 (이 파일 기준 상대 경로). 예) pipeline_easy.yaml
     if cfg.get("extends"):
         base = load_config(p.parent / cfg.pop("extends"))
         base.pop("_config_path", None)
@@ -187,7 +187,7 @@ def read_jsonl(path: str | os.PathLike) -> Iterator[dict]:
             try:
                 yield json.loads(line)
             except json.JSONDecodeError:
-                continue          # 중단으로 잘린 마지막 줄
+                continue  # 중단으로 잘린 마지막 줄
 
 
 def now_iso() -> str:

@@ -1,13 +1,13 @@
 """(선택) LLM 재정렬 — 합친 순위의 상위 top_n 표를 '표 구조 요약'으로 다시 줄 세운다
 
-왜 필요한가   retrieval_golden 89문항에서 v5[hcx] 는 Hit@10 0.82 인데 Hit@1 0.49 — 정답이 10위 안에는 있는데 1위가 아닌 경우가 많다.
+왜 필요한가   정답이 10위 안에는 있는데 1위가 아닌 경우가 많다 (retrieval_golden 89문항: Hit@10 0.82 · Hit@1 0.49).
               형제 표(시도판/시군구판, 연도판, 세부 교차표) 사이의 선택은 점수 합보다 '이 표의 행·열로 답이 되는가' 를 읽는 쪽이 낫다.
 무엇을 주는가 표마다 한 줄: 제목 · 조사 · 항목(열) · 분류(행) · 지역 수준 · 수록 연도 · 가능성 계수가 깎인 이유
               (LLM 설명문을 미리 만들어 두지 않는다 — 구조에서 그때 조립하므로 표가 바뀌어도 다시 만들 것이 없음)
 안전장치     번호만 받는다(JSON). 빠진 번호·모르는 번호·오류는 원래 순서를 유지. top_n 밖은 건드리지 않음. 같은 질문·후보는 캐시
 비용         질의 단위마다 HCX 1회 (입력 약 1.5~3천 자)
-[NEW 11-16] (P3) 형제 표(siblings.py 의 무리)는 카드에 '형제 A: 성별 … · 수준 …' 로 표시하고, 상위 5개 무리의 빠진 형제를
-             후보에 끼워 넣어(router._with_siblings) 나란히 비교하게 한다. LLM 뒤에 형제 규칙을 한 번 더 적용 (무리 안의 선택)
+형제 표        siblings.py 의 무리는 카드에 '형제 A: 성별 … · 수준 …' 로 표시하고, 상위 5개 무리의 빠진 형제를
+              후보에 끼워 넣어(engine._with_siblings) 나란히 비교하게 한다. LLM 뒤에 형제 규칙을 한 번 더 적용
 """
 from __future__ import annotations
 
@@ -40,10 +40,10 @@ def card(n, h, f, sib_of=None, con_of=None):
         years = ", ".join(f"{a}~{b}" for a, b in f.spans) or "?"
     notes = "; ".join(h.get("feas_notes") or [])
     sib = ""
-    if sib_of and h["tbl_id"] in sib_of:                 # [NEW 11-16] (P3) 형제 사이의 차이를 한눈에
+    if sib_of and h["tbl_id"] in sib_of:  # 형제 사이의 차이를 한눈에
         from backend.rag.search.siblings import table_level, table_sex
         sib = f" | 형제 {sib_of[h['tbl_id']]}: 성별 {table_sex(f.tbl_nm) or '분할 없음'} · 수준 {table_level(f)}"
-    if con_of and h["tbl_id"] in con_of:                 # [NEW 11-16] (P5) 개념 카탈로그
+    if con_of and h["tbl_id"] in con_of:  # 개념 카탈로그
         sib += f" | 같은 값 묶음 {con_of[h['tbl_id']]}"
     return (f"[{n}] {f.tbl_nm} | 조사: {f.survey_nm} | 항목: {', '.join(f.items[:12])}{' …' if len(f.items) > 12 else ''}"
             f" | 분류: {' / '.join(dims) or '없음'} | 지역: {geo} | 연도: {years} | 주기: {''.join(sorted(f.cycles))}"
@@ -107,7 +107,7 @@ def rerank(question, qv, hits, facets, top_n=12, chat_fn=None, sib=None, concept
             if len(_cache) > 5000:
                 _cache.clear()
             _cache[key] = order
-    order = order + [n for n in range(1, len(head) + 1) if n not in order]     # 빠진 번호는 원래 순서로 뒤에
+    order = order + [n for n in range(1, len(head) + 1) if n not in order]  # 빠진 번호는 원래 순서로 뒤에
     out = []
     for r, n in enumerate(order, 1):
         h = dict(head[n - 1])

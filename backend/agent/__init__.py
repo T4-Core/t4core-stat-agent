@@ -1,1 +1,1 @@
-"""가벼운 단일 Agent — light_agent.run_chat (통합), light_agent.answer (legacy), tools.py (모듈 호출 래퍼)"""
+"""답변 생성 + 통합 파이프라인 (pipeline.run_chat)"""

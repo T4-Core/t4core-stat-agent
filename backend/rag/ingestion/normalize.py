@@ -1,22 +1,15 @@
 """
-[엔드포인트 1] normalize — 원본 CSV + 메타 JSON → 정제 parquet + 표 프로필 + 표기 통일 사전
+정규화 — 원본 CSV + 메타 JSON → 정제 parquet + 표 프로필 + 표기 통일 사전
 
-입력  kosis_data/catalog.csv, kosis_data/raw/<조사>/<기관_표>.csv, kosis_data/meta/<기관_표>.json   (읽기 전용)
-출력  view_model/output/processed/<기관_표>.parquet   tidy 데이터 (View 생성의 유일한 입력)
-      view_model/output/profiles/<기관_표>.json       표 구조 요약 (분류 종류·합계·지역 유형·항목·시점·부호·주석)
-      view_model/output/dict/*.json                   쿼리·RAG 모듈과 공유할 표기 사전
+입력  KOSIS_DATA_DIR/catalog.csv, raw/<조사>/<기관_표>.csv, meta/<기관_표>.json   (읽기 전용)
+출력  VIEW_OUT_DIR/processed/<기관_표>.parquet   tidy 데이터 (View 생성의 유일한 입력)
+      VIEW_OUT_DIR/profiles/<기관_표>.json       표 구조 요약 (분류 종류·합계·지역 유형·항목·시점·부호·주석)
+      VIEW_OUT_DIR/dict/*.json                   표기 사전 (region_dict · period_rules · symbol_dict · dim_kinds)
 
-실행  API : POST /normalize/{tbl_id}  (routers/normalize.py)
-      CLI : 저장소 루트에서 (표를 반드시 지정, 기본 목록 없음)
-            python -m backend.rag.ingestion.normalize --tables DT_1B040A3           # 특정 표 정규화
-            python -m backend.rag.ingestion.normalize --tables DT_1B040A3 --force   # 원본이 그대로여도 다시
-      [CHANGED] 이전: cd view_model && ../.venv/Scripts/python.exe -m services.normalize ...
-      [CHANGED] 경로: kosis_data → config.KOSIS_DATA_DIR,  view_model/output → config.VIEW_OUT_DIR (동적 해석)
+실행  python -m backend.rag.ingestion.normalize --tables DT_1B040A3 [--force]
 
-지연 정규화  다른 엔드포인트는 ensure_normalized(con, tbl_id) 를 부른다.
-            이미 정규화돼 있으면 프로필만 읽고, 없으면 그때 정규화한다 (표를 미리 정하지 않기 위함)
-
-규칙 출처: ys_work/view_model.ipynb 2단계(0~9장). 규칙은 바꾸지 않고 옮김 (설명은 normalize.md)
+지연 정규화  View 생성은 ensure_normalized(con, tbl_id) 를 부른다.
+            이미 정규화돼 있으면 프로필만 읽고, 없으면 그때 정규화한다 (검색이 고른 표만)
 """
 import argparse
 import json
@@ -25,10 +18,9 @@ import sys
 
 import pandas as pd
 
-from backend.core.config import DATA, OUT
+from backend.core.config import KOSIS_DATA_DIR, VIEW_OUT_DIR
 from backend.core.utils import norm_space, safe, sql_str
 from backend.data_engine.duckdb_client import connect, one
-# [CHANGED] 이전: from config import DATA, OUT, connect, norm_space, one, safe, sql_str
 
 # ── 4-1. 시점 정규화 ─────────────────────────────────────────────
 # 원본/메타의 시점 구분 표기 → 표준 코드
@@ -103,15 +95,12 @@ WEAK_TOTAL = {"총인구", "총수"}
 # 분류 종류 = 쿼리 모듈 conditions 의 조건 이름 (regions, sex, ages, nationality, scenario, cohort) + other
 GEO_RE = re.compile(r"행정구역|시도|시군구|읍면동|지역|시·도|시군|권역")
 SEX_RE = re.compile(r"^성별?$|^성$|^성별|(?:^|[\s·/(의])성별$")
-# [CHANGED v4] 이전: r"^성별?$|^성$|^성별|성별$" — '성별$' 이 '세대구성별'·'다문화가구 구성별'·'특성별' 까지 성별로 판정
-#   → 질문에 성별이 없으면 합계 '계' 만 골라 '1인가구' 같은 값을 못 고르던 문제 (검수 카드 Q001)
-#   지금: '성별' 앞이 단어 경계(처음·공백··/(·의)일 때만 + 값에 남·여가 있어야 (아래 level_kind)
-KIND_RULES_VERSION = 2                                    # [NEW v4] 분류 판정 규칙이 바뀌면 올림 → 캐시된 프로필·CSV 값 사전 다시 판정
+KIND_RULES_VERSION = 2  # 분류 판정 규칙이 바뀌면 올림 → 캐시된 프로필·CSV 값 사전 다시 판정
 AGE_RE = re.compile(r"연령|나이|세별")
-NOT_AGE_RE = re.compile(r"연령차")                       # 부부 연령차(남자연상 …)는 연령이 아님
+NOT_AGE_RE = re.compile(r"연령차")  # 부부 연령차(남자연상 …)는 연령이 아님
 AGE_NAME_RE = re.compile(r"\d+\s*[~\-]\s*\d+\s*세|\d+\s*세\s*(이상|미만|이하)|^\d+\s*세$")
 NATION_RE = re.compile(r"국적|내외국인|내·외국인")
-NOT_NATION_RE = re.compile(r"취득")                      # 국적취득연도별 (코드가 연도) 은 국적이 아님
+NOT_NATION_RE = re.compile(r"취득")  # 국적취득연도별 (코드가 연도) 은 국적이 아님
 SCENARIO_RE = re.compile(r"시나리오|가정별")
 COHORT_RE = re.compile(r"년생|코호트")
 ROLE_RE = re.compile(r"^(.+?)\s*의\s*(?:연령|국적|성)|^(가구주|남편|아내|모|부|처)\s*(?:연령|국적|성)")
@@ -126,15 +115,15 @@ SIDO = [
     ("21", "부산광역시", ["부산", "부산시"]),
     ("22", "대구광역시", ["대구", "대구시"]),
     ("23", "인천광역시", ["인천", "인천시"]),
-    ("24", "광주광역시", ["광주"]),               # '광주시'는 경기도 광주시와 겹치므로 별칭에서 제외
+    ("24", "광주광역시", ["광주"]),  # '광주시'는 경기도 광주시와 겹치므로 별칭에서 제외
     ("25", "대전광역시", ["대전", "대전시"]),
     ("26", "울산광역시", ["울산", "울산시"]),
     ("29", "세종특별자치시", ["세종", "세종시"]),
     ("31", "경기도", ["경기"]),
-    ("32", "강원특별자치도", ["강원", "강원도"]),   # 2023.6 명칭 변경
+    ("32", "강원특별자치도", ["강원", "강원도"]),  # 2023.6 명칭 변경
     ("33", "충청북도", ["충북"]),
     ("34", "충청남도", ["충남"]),
-    ("35", "전북특별자치도", ["전북", "전라북도"]), # 2024.1 명칭 변경
+    ("35", "전북특별자치도", ["전북", "전라북도"]),  # 2024.1 명칭 변경
     ("36", "전라남도", ["전남"]),
     ("37", "경상북도", ["경북"]),
     ("38", "경상남도", ["경남"]),
@@ -180,9 +169,9 @@ def level_kind(obj_nm, names):
         return "scenario"
     if COHORT_RE.search(nm):
         return "cohort"
-    sexy = {re.sub(r"\s*\(.*\)\s*$", "", n) for n in s} & SEX_CODES        # '남자(A)' 도 남자
+    sexy = {re.sub(r"\s*\(.*\)\s*$", "", n) for n in s} & SEX_CODES  # '남자(A)' 도 남자
     if (SEX_RE.search(nm) and (not s or sexy)) or (s and s <= SEX_CODES):
-        return "sex"                                      # [CHANGED v4] 이름으로 성별이어도 값에 남·여가 하나는 있어야
+        return "sex"
     if not NOT_AGE_RE.search(nm) and (AGE_RE.search(nm) or (
             len(s) >= 3 and sum(bool(AGE_NAME_RE.search(n)) for n in s) / len(s) >= 0.6)):
         return "ages"
@@ -234,11 +223,11 @@ def pick_totals(codes):
 
 # ── 4-4. 메타 → 코드 사전 ───────────────────────────────────────
 def raw_path(row):
-    return DATA / "raw" / safe(row.category) / f"{row.org_id}_{row.tbl_id}.csv"
+    return KOSIS_DATA_DIR / "raw" / safe(row.category) / f"{row.org_id}_{row.tbl_id}.csv"
 
 
 def meta_path(row):
-    return DATA / "meta" / f"{row.org_id}_{row.tbl_id}.json"
+    return KOSIS_DATA_DIR / "meta" / f"{row.org_id}_{row.tbl_id}.json"
 
 
 def load_meta(row):
@@ -247,7 +236,7 @@ def load_meta(row):
 
 
 def raw_code_dict(con, src, cols, lv, obj_names):
-    """[NEW] 메타가 없을 때: 원본 CSV → parse_meta 와 같은 모양의 (분류 목록, 항목 목록). 순서 = 원본 첫 등장 순"""
+    """메타가 없을 때: 원본 CSV → parse_meta 와 같은 모양의 (분류 목록, 항목 목록). 순서 = 원본 첫 등장 순"""
     levels = []
     for i in lv:
         nm = f"C{i}_NM" if f"C{i}_NM" in cols else f"C{i}"
@@ -410,7 +399,7 @@ def build_item_dims(items):
 
 # ── 5. 표 하나 정규화 ───────────────────────────────────────────
 def stale_kinds(prof):
-    """[NEW v4] 캐시 프로필의 분류 종류 중 지금 규칙(level_kind)과 다른 것 → [(분류 이름, 예전, 지금)]"""
+    """캐시 프로필의 분류 종류 중 지금 규칙(level_kind)과 다른 것 → [(분류 이름, 저장된 값, 지금 규칙)]"""
     out = []
     for lv in prof.get("levels") or []:
         now = level_kind(lv.get("obj_nm"), [c.get("name") for c in lv.get("codes") or []])
@@ -422,8 +411,8 @@ def stale_kinds(prof):
 def normalize_table(con, row, force=False):
     key = f"{row.org_id}_{row.tbl_id}"
     raw = raw_path(row)
-    pq = OUT / "processed" / f"{key}.parquet"
-    prof_p = OUT / "profiles" / f"{key}.json"
+    pq = VIEW_OUT_DIR / "processed" / f"{key}.parquet"
+    prof_p = VIEW_OUT_DIR / "profiles" / f"{key}.json"
     if not raw.exists():
         print(f"  (원본 없음) {raw}")
         return None
@@ -433,7 +422,7 @@ def normalize_table(con, row, force=False):
         stale = [] if prof.get("kind_rules") == KIND_RULES_VERSION else stale_kinds(prof)
         if not stale:
             return prof
-        print(f"  (분류 판정 규칙 변경 → 다시 정규화) {key}: {stale}")   # [NEW v4] 예전 규칙 프로필 중 판정이 달라진 표만
+        print(f"  (분류 판정 규칙 변경 → 다시 정규화) {key}: {stale}")
 
     meta = load_meta(row)
     src = f"read_csv({sql_str(raw.as_posix())}, all_varchar=true, header=true)"
@@ -444,7 +433,7 @@ def normalize_table(con, row, force=False):
     levels_meta, items_meta = parse_meta(meta)
     obj_names = raw_obj_names(con, raw, cols, lv)
     if not levels_meta and not items_meta:
-        # [NEW] 메타 JSON 이 없는 표: 원본 CSV 의 코드·이름으로 코드 사전을 대신 만듦 (합계 판별·순서가 동작하도록)
+        # 메타 JSON 이 없는 표: 원본 CSV 의 코드·이름으로 코드 사전을 대신 만듦 (합계 판별·순서가 동작하도록)
         levels_meta, items_meta = raw_code_dict(con, src, cols, lv, obj_names)
     matched = match_levels(levels_meta, lv, obj_names)
     level_info, dim_rows = [], []
@@ -519,10 +508,10 @@ def normalize_table(con, row, force=False):
     # 3) 프로필 (분류 종류별 속성: 연령·코호트 범위, 시나리오 기본값 등은 코드 사전에서 가져와 붙임)
     extra = {(r["level"], r["code"]): {k: r[k] for k in ("age_from", "age_to", "cohort_from", "cohort_to", "is_default")}
              for r in dim_rows}
-    as_int = lambda x: None if x is None or pd.isna(x) else int(x)   # noqa: E731  (NaN 은 JSON 표준이 아니므로 None 으로)
+    as_int = lambda x: None if x is None or pd.isna(x) else int(x)  # noqa: E731  (NaN 은 JSON 표준이 아니므로 None 으로)
     item_extra = {r.itm_id: {"age_from": as_int(r.age_from), "age_to": as_int(r.age_to)} for r in items.itertuples()}
     prof = build_profile(con, row, key, pq, raw, lv, level_info, meta, extra, item_extra)
-    prof["kind_rules"] = KIND_RULES_VERSION                # [NEW v4] 이 규칙으로 판정한 프로필 (다시 확인하지 않음)
+    prof["kind_rules"] = KIND_RULES_VERSION  # 이 규칙으로 판정한 프로필 (다시 확인하지 않음)
     prof_p.parent.mkdir(parents=True, exist_ok=True)
     prof_p.write_text(json.dumps(prof, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     return prof
@@ -589,7 +578,7 @@ def build_profile(con, row, key, pq, raw, lv, level_info, meta, extra=None, item
 
 # ── 6. 검증: 합계 정합성 ("하위 코드 합 ≈ 합계 코드 값") ──────────
 def check_total(con, prof, level_no, include_urban_rural=False):
-    pq = (OUT / prof["file"]).as_posix()
+    pq = (VIEW_OUT_DIR / prof["file"]).as_posix()
     lvl = next(l for l in prof["levels"] if l["level"] == level_no)
     if not lvl["total_code"]:
         return None
@@ -617,7 +606,7 @@ def check_total(con, prof, level_no, include_urban_rural=False):
 
 # ── 7. 표기 통일 사전 내보내기 (쿼리·RAG 모듈 공유용) ─────────────
 def export_dicts():
-    d = OUT / "dict"
+    d = VIEW_OUT_DIR / "dict"
     d.mkdir(parents=True, exist_ok=True)
     region_dict = {
         "version": 1,
@@ -659,17 +648,16 @@ def export_dicts():
 
 
 def load_targets(tables):
-    # [CHANGED] 이전: catalog.csv(selected) 에 없으면 바로 ValueError
     # 이후: selected → catalog.csv 전체(선택 안 된 행) → raw 폴더(<조사>/<기관>_<표>.csv) 순으로 찾음
-    #       → catalog 에 없어도 raw CSV 가 있으면 정규화·View 생성 가능 (개인 파이프라인의 전체 CSV 카탈로그용)
-    full = pd.read_csv(DATA / "catalog.csv", dtype=str)
+    # → catalog 에 없어도 raw CSV 가 있으면 정규화·View 생성 가능 (개인 파이프라인의 전체 CSV 카탈로그용)
+    full = pd.read_csv(KOSIS_DATA_DIR / "catalog.csv", dtype=str)
     sel = full[full["selected"] == "True"]
     rows = []
     for t in tables:
         hit = sel[sel["tbl_id"] == t]
         if hit.empty:
             hit = full[full["tbl_id"] == t]
-            if not hit.empty:      # 선택 안 된 행: 원본이 실제로 있는 폴더의 행을 우선
+            if not hit.empty:  # 선택 안 된 행: 원본이 실제로 있는 폴더의 행을 우선
                 hit = hit[[raw_path(r).exists() for r in hit.itertuples()]] if any(
                     raw_path(r).exists() for r in hit.itertuples()) else hit
         if hit.empty:
@@ -681,8 +669,8 @@ def load_targets(tables):
 
 
 def raw_row(tbl_id):
-    """[NEW] catalog.csv 에 없는 표: raw/<조사>/<기관>_<표>.csv 에서 카탈로그 행 하나를 만듦"""
-    f = next(iter(sorted((DATA / "raw").glob(f"*/*_{tbl_id}.csv"))), None) if (DATA / "raw").exists() else None
+    """catalog.csv 에 없는 표: raw/<조사>/<기관>_<표>.csv 에서 카탈로그 행 하나를 만듦"""
+    f = next(iter(sorted((KOSIS_DATA_DIR / "raw").glob(f"*/*_{tbl_id}.csv"))), None) if (KOSIS_DATA_DIR / "raw").exists() else None
     if f is None:
         return None
     head = pd.read_csv(f, dtype=str, nrows=1, encoding="utf-8-sig")
@@ -697,7 +685,6 @@ _norm_locks, _norm_guard = {}, __import__("threading").Lock()
 
 def ensure_normalized(con, tbl_id, force=False):
     # 지연 정규화: resolve 가 고른 표만 이 시점에 정규화. 캐시(원본보다 새 parquet)가 있으면 프로필만 읽음
-    # [CHANGED] 표마다 잠금: 여러 질문을 병렬로 돌릴 때 같은 표를 동시에 정규화(같은 parquet 에 동시 쓰기)하지 않게
     row = next(load_targets([tbl_id]).itertuples())
     with _norm_guard:
         lock = _norm_locks.setdefault(tbl_id, __import__("threading").Lock())

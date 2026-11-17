@@ -18,7 +18,7 @@ from synthetic_gold_pipeline.schemas.planning import OperationPlan
 
 TOTAL_ALIASES = {"전국", "계", "총계", "합계", "전체", "총", "소계", "t", "total", "all"}
 TOTAL_NAMES = {"전국", "계", "총계", "합계", "전체", "소계"}
-AREA_SPLIT = re.compile(r"^\s*(동|읍|면)\s*부\s*$")        # 시도 안의 동부·읍부·면부 = 지역이 아니라 도시/농촌 구분
+AREA_SPLIT = re.compile(r"^\s*(동|읍|면)\s*부\s*$")  # 시도 안의 동부·읍부·면부 = 지역이 아니라 도시/농촌 구분
 
 
 def is_total_code(dc) -> bool:
@@ -64,10 +64,10 @@ def repair_plan(plan: OperationPlan, index) -> tuple[OperationPlan, list[str]]:
         coords = {str(k): str(v) for k, v in o.coordinates.items()}
         upd = {}
         g = o.group_by_level
-        if g and g in coords:                                                    # ②
+        if g and g in coords:  # ②
             coords.pop(g)
             notes.append(f"{o.operand_id}: group_by_level {g} 를 coordinates 에서 뺌")
-        for lv in list(coords):                                                  # ③
+        for lv in list(coords):  # ③
             if lv in levels and coords[lv] not in vm.code_map(lv):
                 fix = match_code(coords[lv], vm.code_map(lv))
                 if fix:
@@ -79,7 +79,7 @@ def repair_plan(plan: OperationPlan, index) -> tuple[OperationPlan, list[str]]:
             if fixed != list(o.include_codes):
                 notes.append(f"{o.operand_id}: include_codes {o.include_codes} → {fixed}")
                 upd["include_codes"] = fixed
-        try:                                                                     # ①
+        try:  # ①
             sub = index.load_frame(o.view_id)
             sub = sub[(sub["ITM_ID"].astype(str) == str(o.itm_id)) & (sub["PRD_DE"].astype(str) == str(o.prd_de))]
             for lv, c in coords.items():
@@ -103,7 +103,7 @@ def repair_plan(plan: OperationPlan, index) -> tuple[OperationPlan, list[str]]:
         if coords != {str(k): str(v) for k, v in o.coordinates.items()}:
             upd["coordinates"] = coords
         new_ops.append(o.model_copy(update=upd) if upd else o)
-    new_ops = _align_depths(new_ops, index, notes)                                          # ④
+    new_ops = _align_depths(new_ops, index, notes)  # ④
     if not notes:
         return plan, []
     return plan.model_copy(update={"operands": new_ops}), notes
@@ -134,7 +134,7 @@ def _align_depths(ops, index, notes):
     common = set.intersection(*(set(need[i]) for i in need)) if len(need) > 1 else set(need[mixed[0]])
     out = list(ops)
     if common:
-        d0 = max(common, key=lambda d: (min(need[i][d] for i in need), -d))   # 모두에게 있는 깊이 중 가장 많이 겹치는 것
+        d0 = max(common, key=lambda d: (min(need[i][d] for i in need), -d))  # 모두에게 있는 깊이 중 가장 많이 겹치는 것
         targets = list(need)
     else:
         targets = mixed

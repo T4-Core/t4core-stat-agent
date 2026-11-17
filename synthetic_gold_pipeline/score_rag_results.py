@@ -1,14 +1,12 @@
-"""기존 RAG 실행 결과(eval/pipeline_review/review_v4.py 의 results.json)를 Synthetic Golden Set 으로 채점한다.
+"""RAG 실행 결과(backend.agent.batch 의 results.json)를 Synthetic Golden Set 으로 채점한다.
 
-기존 코드는 읽기만 한다 (import 하지 않음, 결과 파일만 읽음). 출력은 synthetic_gold_pipeline/outputs/reports/rag_eval/ 아래.
+backend 코드는 import 하지 않고 결과 파일만 읽는다. 출력은 synthetic_gold_pipeline/outputs/reports/rag_eval/ 아래.
 
 흐름
-  1) 기존 도구로 RAG 실행 (질문 CSV 경로를 그대로 넘기면 같은 폴더의 *_answers_references.csv 를 짝지어 읽음)
-       python eval/pipeline_review/review_v4.py run --queries synthetic_gold_pipeline/outputs/datasets/synthetic_gold_queries.csv
-       (수치 답변까지 채점하려면 --answer — 문항당 HCX 1회 추가)
+  1) RAG 일괄 실행 (답변까지 채점하려면 --no-answer 없이 — 문항당 HCX 1회 추가)
+       python -m backend.agent.batch --queries synthetic_gold_pipeline/outputs/datasets/synthetic_gold_queries.csv
   2) 채점
-       python -m synthetic_gold_pipeline.score_rag_results \
-           --rag-results storage/eval_runs/synthetic_gold_queries__v4/results.json
+       python -m synthetic_gold_pipeline.score_rag_results --rag-results storage/runs/batch/synthetic_gold_queries
 
 채점 기준
   - 표 기준 (M3): 필수 근거 그룹마다 '그룹의 허용 표(대체 표 포함)' 가 어느 검색 단위의 top-K 에 있는가
@@ -36,8 +34,16 @@ import pandas as pd
 
 from synthetic_gold_pipeline.schemas.dataset import GoldenRecord
 from synthetic_gold_pipeline.tools.evaluation_tool import evaluate_generation, is_abstention
-from synthetic_gold_pipeline.utils import (PACKAGE_ROOT, REPO_ROOT, atomic_write_json, display_path, ensure_inside, now_iso,
-                                           read_jsonl, resolve_path)
+from synthetic_gold_pipeline.utils import (
+    PACKAGE_ROOT,
+    REPO_ROOT,
+    atomic_write_json,
+    display_path,
+    ensure_inside,
+    now_iso,
+    read_jsonl,
+    resolve_path,
+)
 
 DEFAULT_DATASET = PACKAGE_ROOT / "outputs" / "datasets" / "synthetic_gold_dataset.jsonl"
 DEFAULT_OUT = PACKAGE_ROOT / "outputs" / "reports" / "rag_eval"
@@ -49,7 +55,7 @@ def load_rag_results(path: str | Path) -> dict[str, dict]:
     p = Path(path)
     if p.is_dir():
         p = p / "results.json" if (p / "results.json").exists() else p
-    if p.is_dir():                                      # json/<id>.json 폴더
+    if p.is_dir():  # json/<id>.json 폴더
         out = {}
         for f in sorted(p.glob("*.json")):
             d = json.loads(f.read_text(encoding="utf-8"))
@@ -86,7 +92,7 @@ def _codes_of(dsel: Any) -> set[str] | None:
 
 
 def view_covers(view: dict, coord) -> bool:
-    """RAG View(review_v4 _slim_view 형식) 가 원본 좌표 하나를 포함하는가."""
+    """RAG View(batch 결과의 units[].views[]) 가 원본 좌표 하나를 포함하는가."""
     src = view.get("source") or {}
     tbl = src.get("tbl_id") or view.get("tbl_id")
     if tbl != coord.TBL_ID:
@@ -99,7 +105,7 @@ def view_covers(view: dict, coord) -> bool:
     want = re.sub(r"\D", "", coord.PRD_DE)
     if isinstance(per, dict) and per.get("in"):
         have = {re.sub(r"\D", "", str(x)) for x in per["in"]}
-        if want not in have and want[:4] not in have:          # 기존 View 는 월·분기 자료도 연도로 기간을 적음
+        if want not in have and want[:4] not in have:  # 기존 View 는 월·분기 자료도 연도로 기간을 적음
             return False
     elif isinstance(per, dict) and (per.get("from") or per.get("to")):
         lo, hi = re.sub(r"\D", "", str(per.get("from") or "0")), re.sub(r"\D", "", str(per.get("to") or "9999"))
@@ -202,9 +208,9 @@ def diagnose(rec: GoldenRecord, res: dict, q: dict, th: dict, vh: dict, gen: dic
         return "PIPELINE_ERROR", "PIPELINE_ERROR"
     if rec.generation_eval.expected_abstention:
         if rec.answerability_type.value == "AMBIGUOUS" and asked_clarification(res):
-            return None, None                            # 되묻기 = 기대 동작
+            return None, None  # 되묻기 = 기대 동작
         if gen is None and not abstained(res):
-            return "INSUFFICIENT_TRACE", "INSUFFICIENT_TRACE"   # 답변 단계를 돌리지 않아 판정 불가 (--answer 필요)
+            return "INSUFFICIENT_TRACE", "INSUFFICIENT_TRACE"  # 답변 단계를 돌리지 않아 판정 불가 (--answer 필요)
         return (None, None) if abstained(res) else ("ABSTENTION_ERROR", "ABSTENTION_ERROR")
     q_bad = q.get("query_ok") is False
     stage = None
@@ -221,7 +227,7 @@ def diagnose(rec: GoldenRecord, res: dict, q: dict, th: dict, vh: dict, gen: dic
     elif vh.get("Final_Context_All_Hit") == 0.0:
         stage = "FINAL_CONTEXT_MISS"
     elif gen is None:
-        return None, None                                # 답변을 돌리지 않음 — 문맥까지는 정상
+        return None, None  # 답변을 돌리지 않음 — 문맥까지는 정상
     elif gen.get("Numeric_Accuracy") == 0.0:
         stage = "CALCULATION_ERROR" if gen.get("Intermediate_Fact_Accuracy") == 1.0 else "ANSWER_GENERATION_ERROR"
     elif gen.get("Abstention_Accuracy") == 0.0:
@@ -352,8 +358,8 @@ def run(rag_results: str | Path, dataset: str | Path = DEFAULT_DATASET, out_dir:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="RAG 실행 결과(review_v4 results.json)를 Synthetic Golden Set 으로 채점")
-    ap.add_argument("--rag-results", required=True, help="results.json 또는 그 폴더 (예: storage/eval_runs/synthetic_gold_queries__v4)")
+    ap = argparse.ArgumentParser(description="RAG 실행 결과(backend.agent.batch 의 results.json)를 Synthetic Golden Set 으로 채점")
+    ap.add_argument("--rag-results", required=True, help="results.json 또는 그 폴더 (예: storage/runs/batch/synthetic_gold_queries)")
     ap.add_argument("--dataset", default=str(DEFAULT_DATASET), help="synthetic_gold_dataset.jsonl")
     ap.add_argument("--out", default=None, help="출력 폴더 (기본 synthetic_gold_pipeline/outputs/reports/rag_eval/<실행 이름>)")
     ap.add_argument("--k", default="1,3,5,10")

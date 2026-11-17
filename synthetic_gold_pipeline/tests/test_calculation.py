@@ -7,13 +7,31 @@ import duckdb
 import pytest
 
 from synthetic_gold_pipeline.schemas.calculation import CalcErrorCode
-from synthetic_gold_pipeline.schemas.planning import (FilterSpec, Operand, OperationGraph, OperationPlan, OperationStep,
-                                                       ReasoningType)
+from synthetic_gold_pipeline.schemas.planning import (
+    FilterSpec,
+    Operand,
+    OperationGraph,
+    OperationPlan,
+    OperationStep,
+    ReasoningType,
+)
 from synthetic_gold_pipeline.tests.conftest import find_view
-from synthetic_gold_pipeline.tools.calculation_tool import (CalculationError, SqlSafetyValidator, TableCalculationEngine,
-                                                             convert_unit, difference, growth_rate, make_numeric,
-                                                             mean_values, percentage_point_difference, rank_values,
-                                                             share_ratio, sum_values, top_k_values, weighted_mean)
+from synthetic_gold_pipeline.tools.calculation_tool import (
+    CalculationError,
+    SqlSafetyValidator,
+    TableCalculationEngine,
+    convert_unit,
+    difference,
+    growth_rate,
+    make_numeric,
+    mean_values,
+    percentage_point_difference,
+    rank_values,
+    share_ratio,
+    sum_values,
+    top_k_values,
+    weighted_mean,
+)
 from synthetic_gold_pipeline.tools.units import conversion_factor, parse_value, unit_info
 
 D = Decimal
@@ -36,7 +54,7 @@ def test_growth_and_share_and_difference():
 
 
 def test_sum_mean_weighted():
-    assert sum_values([D(1), D(-2), D(0)]).value == D(-1)        # 0·음수는 유효
+    assert sum_values([D(1), D(-2), D(0)]).value == D(-1)  # 0·음수는 유효
     assert mean_values([D(1), D(2)]).value == D("1.5")
     assert weighted_mean([D(10), D(20)], [D(1), D(3)]).value == D("17.5")
     with pytest.raises(CalculationError):
@@ -186,7 +204,7 @@ def test_engine_rejects_non_additive_sum_and_pp_rules(demo_env, eng):
     ops = [Operand(operand_id="A", view_id=a, itm_id="T3", prd_de="2023", coordinates={"C1": "11"}),
            Operand(operand_id="B", view_id=b, itm_id="T3", prd_de="2024", coordinates={"C1": "11"})]
     r = eng.run(_plan(ops, [OperationStep(step_id="s", op="DIFFERENCE", inputs=["B", "A"])], "s"), [a, b])
-    assert r.error_code == CalcErrorCode.PLAN_STRUCTURE_ERROR           # % 차이는 %p 로
+    assert r.error_code == CalcErrorCode.PLAN_STRUCTURE_ERROR  # % 차이는 %p 로
     r = eng.run(_plan(ops, [OperationStep(step_id="s", op="PERCENTAGE_POINT_DIFFERENCE", inputs=["B", "A"])], "s"), [a, b])
     assert r.success and r.final.unit == "%p"
 

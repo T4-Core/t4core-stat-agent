@@ -1,4 +1,4 @@
-# [NEW 11-12] 쉬운 평가셋 — pipeline.yaml 을 바탕으로 바뀐 값만 (extends)
+# 쉬운 평가셋 — pipeline.yaml 을 바탕으로 바뀐 값만 (extends)
 #   CSV 1개(단순 조회·두 시점 비교) 또는 2개(두 표 비율)만, 최근 연도·조건 1개 이하 View, 연도 구간으로 쪼갠 표 묶음 제외
 #   실행: python -m synthetic_gold_pipeline.main_pipeline --config synthetic_gold_pipeline/configs/pipeline_easy.yaml --mode real --target-count 60
 extends: pipeline.yaml

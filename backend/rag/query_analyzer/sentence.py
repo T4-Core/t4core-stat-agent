@@ -1,9 +1,8 @@
-"""3. 슬롯 → 문장 (코드 템플릿, HCX 호출 없음)
-노트북 user_question_rewrite_v3.ipynb '3' 셀의 코드를 그대로 옮김 (실행·예시 출력 부분은 뺌)"""
+"""슬롯 → 문장 (코드 템플릿, HCX 호출 없음)
 
-# ============= 3. 슬롯 → 문장 (코드 템플릿, HCX 호출 없음) ================
-# 검증된 슬롯 값을 정해진 순서로 이어 붙여 검색용 명사구를 만듦. 슬롯에 없는 말은 끼어들지 않음
-# 순서: 시점 → 지역 → 전출지→전입지 → 국적 → 성별 → 연령 → 조건 → 대상 → 이동 → 지표 → 비교축 → 의도어
+검증된 슬롯 값을 정해진 순서로 이어 붙여 검색용 명사구를 만듦. 슬롯에 없는 말은 끼어들지 않음
+순서: 시점 → 지역 → 전출지→전입지 → 국적 → 성별 → 연령 → 조건 → 대상 → 이동 → 지표 → 비교축 → 의도어
+"""
 import re
 
 INTENT_WORD = {"값 조회": "", "구성비": "", "추이": "추이", "비교": "비교", "순위": "순위", "증감": "증감",
@@ -52,27 +51,27 @@ def slots_to_sentence(slots, intent=None):
     parts = [format_time(s.get("시점", []))]
     parts += s.get("지역", [])
 
-    frm, to = s.get("전출지", []), s.get("전입지", [])                      # 전출지→전입지
+    frm, to = s.get("전출지", []), s.get("전입지", [])  # 전출지→전입지
     if frm and to:
         parts.append(f"{' '.join(frm)}→{' '.join(to)}")
     else:
         parts += frm + to
 
     parts += s.get("국적", []) + s.get("성별", []) + s.get("연령", [])
-    parts += [c.split("=", 1)[1].strip() if "=" in c else c for c in s.get("조건", [])]   # '혼인상태=미혼' → '미혼'
+    parts += [c.split("=", 1)[1].strip() if "=" in c else c for c in s.get("조건", [])]  # '혼인상태=미혼' → '미혼'
 
     # 대상과 지표가 겹치면 한 번만 ('출생아' + '출생아수' → '출생아수', '인구' + '인구' → '인구')
     indicators = s.get("지표", [])
     targets = [t for t in s.get("대상", []) if not any(_ns(i).startswith(_ns(t)) for i in indicators)]
     parts += targets + s.get("이동", []) + indicators
-    parts += [a if a.endswith("별") else f"{a}별" for a in s.get("비교축", [])]   # '시도' → '시도별', '성별'은 그대로
+    parts += [a if a.endswith("별") else f"{a}별" for a in s.get("비교축", [])]  # '시도' → '시도별', '성별'은 그대로
 
     words = [p for p in parts if p]
-    words += [w for w in (INTENT_WORD.get(i, "") for i in intents) if w]       # 값 조회·구성비·범위 밖은 붙이지 않음
-    return " ".join(dict.fromkeys(words))                                   # 같은 말이 두 번 나오지 않게
+    words += [w for w in (INTENT_WORD.get(i, "") for i in intents) if w]  # 값 조회·구성비·범위 밖은 붙이지 않음
+    return " ".join(dict.fromkeys(words))  # 같은 말이 두 번 나오지 않게
 
 
 def build_sentences(v):
-    """2-4 validate_slots() 결과 → {"rewritten", "sub_questions"}"""
+    """validate_slots() 결과 → {"rewritten", "sub_questions"}"""
     subs = [slots_to_sentence(x) for x in v.get("sub_slots", [])]
     return {"rewritten": slots_to_sentence(v["slots"]), "sub_questions": [x for x in subs if x]}

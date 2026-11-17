@@ -19,7 +19,7 @@ from synthetic_gold_pipeline.schemas.planning import HopType, ReasoningType, Sam
 from synthetic_gold_pipeline.tools.units import name_is_additive, unit_info
 
 SUBTYPES: dict[ReasoningType, list[str]] = {
-    ReasoningType.SIMPLE_LOOKUP: ["LOOKUP"],                        # [NEW 11-12] View 1개에서 값 하나 (쉬운 평가셋)
+    ReasoningType.SIMPLE_LOOKUP: ["LOOKUP"],  # View 1개에서 값 하나 (쉬운 평가셋)
     ReasoningType.TIME_SERIES_COMPARISON: ["GROWTH_RATE", "DIFFERENCE", "PP_DIFFERENCE"],
     ReasoningType.CROSS_TABLE_RATIO: ["SHARE", "RATE_PER"],
     ReasoningType.CONDITIONAL_AGGREGATION: ["FILTER_SUM", "FILTER_COUNT", "FILTER_MEAN", "FILTER_TOP_K", "RATIO_TOP_K",
@@ -111,7 +111,7 @@ class ViewClusterSampler:
         self.alpha = float(cfg.get("diversity_alpha", 1.0))
         # 표 균형: View 가중치를 그 표의 View 수로 나눠 '표마다 같은 확률' 로 (안 하면 View 60개 표가 1개 표보다 60배 자주 뽑힘)
         self.table_balance = bool(cfg.get("table_balance", True))
-        self.attempt_decay = float(cfg.get("attempt_decay", 0.3))      # 시도했지만 탈락한 표는 조금씩 덜 뽑음
+        self.attempt_decay = float(cfg.get("attempt_decay", 0.3))  # 시도했지만 탈락한 표는 조금씩 덜 뽑음
         self.views_per_table = Counter(v.parent_table_id for v in index.views.values())
         # 사람이 물을 만한 질문만: 조건이 너무 많은 View · 패널 전이표(t+3년 변화 비율 등) · 이름이 너무 긴 항목 제외
         self.max_conditions = int(cfg.get("max_conditions_per_view", 2))
@@ -119,9 +119,9 @@ class ViewClusterSampler:
         self.anchor_tries = int(cfg.get("max_anchor_tries", 25))
         self.hn_per_view = int(cfg.get("hard_negative_candidates_per_view", 6))
         self.subtype_weights = cfg.get("subtype_weights", {})
-        # [NEW 11-12] 쉬운 평가셋용 View 거르기 (기본은 모두 꺼짐 = 예전과 같음)
-        #   min_year: 이 해보다 옛 시점 View 제외 · exclude_table_title_patterns: 표 이름이 맞으면 제외 (연도·항목별로 쪼갠 표 묶음 등)
-        #   lookup_kinds: 단순 조회에 쓸 값 종류 (COUNT·AMOUNT·RATE·MEAN …)
+        # 쉬운 평가셋용 View 거르기 (기본은 모두 꺼짐)
+        # min_year: 이 해보다 옛 시점 View 제외 · exclude_table_title_patterns: 표 이름이 맞으면 제외 (연도·항목별로 쪼갠 표 묶음 등)
+        # lookup_kinds: 단순 조회에 쓸 값 종류 (COUNT·AMOUNT·RATE·MEAN …)
         self.min_year = int(cfg["min_year"]) if cfg.get("min_year") else None
         self.title_exclude = [re.compile(x) for x in cfg.get("exclude_table_title_patterns") or []]
         self.lookup_kinds = tuple(ValueKind(k) for k in cfg.get("lookup_kinds") or ["COUNT", "AMOUNT", "RATE"])
@@ -207,11 +207,11 @@ class ViewClusterSampler:
             if res is None:
                 continue
             views, join, notes = res
-            if any(len(v.units) != 1 for v in views):        # 단위가 비었거나 여러 개인 View 는 단위 검증·변환 불가 → 다른 조합
+            if any(len(v.units) != 1 for v in views):  # 단위가 비었거나 여러 개인 View 는 단위 검증·변환 불가 → 다른 조합
                 continue
-            if any(has_unknown_label(v) for v in views):     # '미상·기타' 항목·분류는 질문 대상에서 제외
+            if any(has_unknown_label(v) for v in views):  # '미상·기타' 항목·분류는 질문 대상에서 제외
                 continue
-            if any(self._too_complex(v) for v in views):      # 조건이 많거나 패널 전이표 → 사람이 묻지 않을 질문
+            if any(self._too_complex(v) for v in views):  # 조건이 많거나 패널 전이표 → 사람이 묻지 않을 질문
                 continue
             tables = list(dict.fromkeys(v.parent_table_id for v in views))
             hop = (HopType.SINGLE_TABLE_SINGLE_VIEW if len(views) == 1 else
@@ -246,7 +246,7 @@ class ViewClusterSampler:
                    for i in v.indicator_definitions)
 
     def _easy_ok(self, v: ViewMetadata) -> bool:
-        """[NEW 11-12] min_year · exclude_table_title_patterns (설정이 없으면 늘 True)"""
+        """min_year · exclude_table_title_patterns (설정이 없으면 늘 True)"""
         if self.min_year:
             years = [int(m.group(0)) for p in v.available_periods for m in [re.match(r"\d{4}", str(p))] if m]
             if not years or min(years) < self.min_year:
@@ -259,7 +259,7 @@ class ViewClusterSampler:
                 if single_item_period(v) and len(v.units) == 1 and self._easy_ok(v) and pred(v)]
 
     def _s_lookup(self, rng):
-        """[NEW 11-12] SIMPLE_LOOKUP: View 하나 (값 하나를 그대로 읽음). 지역 코드는 계획 단계가 고름"""
+        """SIMPLE_LOOKUP: View 하나 (값 하나를 그대로 읽음). 지역 코드는 계획 단계가 고름"""
         anchors = self._base(lambda v: view_kind(v) in self.lookup_kinds)
         a = self._pick(rng, anchors)
         return ([a], None, ["LOOKUP: View 하나의 값 하나"]) if a is not None else None
@@ -321,14 +321,14 @@ class ViewClusterSampler:
                     continue
                 if b.available_periods != a.available_periods or len(b.units) != 1:
                     continue
-                if view_kind(b) not in (ValueKind.COUNT, ValueKind.AMOUNT):       # 분모도 개수·금액만
+                if view_kind(b) not in (ValueKind.COUNT, ValueKind.AMOUNT):  # 분모도 개수·금액만
                     continue
                 fa, fb = unit_info(a.units[0]).family, unit_info(b.units[0]).family
                 if same_family is not None and (fa == fb) != same_family:
                     continue
                 if not self._denominator_ok(b, fa == fb):
                     continue
-                if items_match(a, b):          # 같은 지표끼리의 비율(예: 신·구 표의 총인구)은 의미 없음
+                if items_match(a, b):  # 같은 지표끼리의 비율(예: 신·구 표의 총인구)은 의미 없음
                     continue
                 if fa == fb and self._narrower(a, b):
                     continue
@@ -417,7 +417,7 @@ class ViewClusterSampler:
     def _s_class_diff_count(self, rng):
         """같은 표·항목·시점, 분류 코드만 다른 두 View (예: 가구주 성별 남/여) → 지역별 차이의 부호로 집계."""
         groups: dict[tuple, list[ViewMetadata]] = {}
-        def class_levels(v):        # 시나리오 분할은 '분류'가 아님 (시나리오 혼합 금지)
+        def class_levels(v):  # 시나리오 분할은 '분류'가 아님 (시나리오 혼합 금지)
             return tuple(sorted(lv for lv in v.source_coordinates.dim_filters
                                 if v.dim(lv) and v.dim(lv).dim_type != DimensionType.SCENARIO))
         for v in self._base(lambda v: bool(class_levels(v)) and region_level(v) is not None):
@@ -489,10 +489,10 @@ class ViewClusterSampler:
             cand: list[str] = []
             same_tbl = [self.index.view(o) for o in sorted(self.index.inv_table.get(p.parent_table_id, ())) if o not in pos]
             cand += [v.view_id for v in same_tbl if v.source_coordinates.itm_ids == p.source_coordinates.itm_ids
-                     and v.available_periods != p.available_periods]                 # 같은 표 다른 시점
+                     and v.available_periods != p.available_periods]  # 같은 표 다른 시점
             cand += [v.view_id for v in same_tbl if v.source_coordinates.itm_ids != p.source_coordinates.itm_ids
-                     and v.available_periods == p.available_periods]                 # 같은 표 다른 항목(하위 분류)
-            cand += [v.view_id for v in same_tbl if v.input_mode != p.input_mode]   # 저장된 View(지역 부분집합 등)
+                     and v.available_periods == p.available_periods]  # 같은 표 다른 항목(하위 분류)
+            cand += [v.view_id for v in same_tbl if v.input_mode != p.input_mode]  # 저장된 View(지역 부분집합 등)
             others = set()
             for i in p.indicator_definitions:
                 others |= self.index.inv_item.get(norm_item_name(i.itm_nm), set())

@@ -1,10 +1,10 @@
 """
-[NEW v4] 원본 CSV 한 개 → 표 구조 (TableScan) — 행·열 머리와 고유 값을 직접 스캔
+원본 CSV 한 개 → 표 구조 (TableScan) — 행·열 머리와 고유 값을 직접 스캔
 
 KOSIS 원본 CSV 열:  ORG_ID TBL_ID TBL_NM  C1 C1_NM C1_OBJ_NM … C8 …  ITM_ID ITM_NM UNIT_NM  PRD_SE PRD_DE  DT  LST_CHN_DE
   - 열(column) 머리 : CSV 헤더 + 분류 이름(C{i}_OBJ_NM, 예: '행정구역(시도)별')
   - 행(row) 값      : 분류 코드·이름(C{i}, C{i}_NM), 항목(ITM_ID, ITM_NM, UNIT_NM), 시점(PRD_SE, PRD_DE)
-분류 종류·지역 표준명·연령 범위는 기존 normalize 규칙(level_kind, std_geo_name, geo_type_of, parse_age)을 그대로 씀
+분류 종류·지역 표준명·연령 범위는 normalize 규칙(level_kind, std_geo_name, geo_type_of, parse_age)을 그대로 씀
 → 질의 쪽 슬롯과 View 쪽 데이터가 같은 기준으로 비교됨
 
 메타 JSON 은 '주석(CMMT)·조사명(SOURCE)·단위(UNIT_NM 이 비었을 때)'만 읽음 (구조는 원본 CSV 가 근거)
@@ -16,9 +16,9 @@ from pathlib import Path
 from backend.core.utils import norm_space, sql_str
 from backend.rag.ingestion.normalize import STRONG_TOTAL, geo_type_of, level_kind, parse_age, std_geo_name
 
-MAX_VALUES_PER_DIM = 3000          # tables.jsonl 에 남길 분류 값 수 상한 (역색인 values.parquet 에는 전부)
+MAX_VALUES_PER_DIM = 3000  # tables.jsonl 에 남길 분류 값 수 상한 (역색인 values.parquet 에는 전부)
 NUM = "try_cast(replace(DT, ',', '') AS DOUBLE)"
-KIND_SLOT = {"regions": "지역", "sex": "성별", "ages": "연령", "nationality": "국적"}   # 나머지 분류 = '분류'
+KIND_SLOT = {"regions": "지역", "sex": "성별", "ages": "연령", "nationality": "국적"}  # 나머지 분류 = '분류'
 
 
 def _meta(path):

@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from synthetic_gold_pipeline.schemas.metadata import ViewCard
 
-
 _NULLISH = {"", "null", "none", "None", "NULL", "N/A", "없음"}
 
 
@@ -44,7 +43,7 @@ class LLMModel(BaseModel):
 
 
 class ReasoningType(str, Enum):
-    SIMPLE_LOOKUP = "SIMPLE_LOOKUP"                  # [NEW 11-12] View 1개에서 값 하나 그대로 (쉬운 평가셋)
+    SIMPLE_LOOKUP = "SIMPLE_LOOKUP"  # View 1개에서 값 하나 그대로 (쉬운 평가셋)
     TIME_SERIES_COMPARISON = "TIME_SERIES_COMPARISON"
     CROSS_TABLE_RATIO = "CROSS_TABLE_RATIO"
     CONDITIONAL_AGGREGATION = "CONDITIONAL_AGGREGATION"

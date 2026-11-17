@@ -25,11 +25,11 @@ def test_adapter_does_not_assume_c1_is_region(demo_env):
 
 def test_adapter_sources_raw_only_store_parquet_and_inh(demo_env):
     tabs = demo_env["index"].tables
-    assert tabs["101_DT_DEMO_FOREIGN"].metadata_source == "raw_only"          # meta JSON 없음
-    assert tabs["101_DT_DEMO_MOVE_Q"].source_path.endswith(".parquet")         # RAW 없이 store parquet
+    assert tabs["101_DT_DEMO_FOREIGN"].metadata_source == "raw_only"  # meta JSON 없음
+    assert tabs["101_DT_DEMO_MOVE_Q"].source_path.endswith(".parquet")  # RAW 없이 store parquet
     assert "101_INH_DEMO_MARRY" in tabs
-    assert tabs["101_DT_DEMO_DUP"].duplicate_coordinate_rows > 0               # 같은 좌표 중복 행
-    assert tabs["101_DT_DEMO_SGG"].dimension_definitions[0].code_name_unique is False   # '중구' 2개
+    assert tabs["101_DT_DEMO_DUP"].duplicate_coordinate_rows > 0  # 같은 좌표 중복 행
+    assert tabs["101_DT_DEMO_SGG"].dimension_definitions[0].code_name_unique is False  # '중구' 2개
 
 
 def test_totals_and_hierarchy(demo_env):
@@ -41,7 +41,7 @@ def test_totals_and_hierarchy(demo_env):
 
 def test_missing_symbols_preserved_as_text(demo_env):
     df = demo_env["index"].load_frame(find_view(demo_env["index"], "101_DT_DEMO_POP", "T22", "2022"))
-    assert "-" in set(df["DT"])                       # 0 으로 바뀌지 않음
+    assert "-" in set(df["DT"])  # 0 으로 바뀌지 않음
 
 
 def test_stored_view_mode_a_keeps_raw_row_numbers(demo_env):
@@ -101,7 +101,7 @@ def test_time_series_only_within_same_table_item(demo_env):
     b = find_view(idx, "101_DT_DEMO_POP", "T20", "2024")
     c = find_view(idx, "101_DT_DEMO_POP_OLD", "T20", "2024")
     assert g.edge(a, b).allowed["TIME_SERIES"]
-    assert not g.edge(a, c).allowed["TIME_SERIES"]          # 다른 표 → 같은 시계열로 간주하지 않음
+    assert not g.edge(a, c).allowed["TIME_SERIES"]  # 다른 표 → 같은 시계열로 간주하지 않음
 
 
 def test_duplicate_rows_flag_join_risk(demo_env):
@@ -244,7 +244,7 @@ def test_index_cache_invalidation(tmp_path, cfg):
     assert c.build_info["cache"]["invalid"] == {"view_file_missing": 1} and v.view_id in c.views
     cfg2 = {**cfg, "adapter": {**cfg["adapter"], "split_dimension_types": []}}
     d = _build(root, cfg2)
-    assert d.build_info["cache"]["table_hits"] == 0                       # View 생성 설정이 바뀜 → 전부 다시
+    assert d.build_info["cache"]["table_hits"] == 0  # View 생성 설정이 바뀜 → 전부 다시
     e = _build(root, cfg, rebuild=True)
     assert e.build_info["cache"]["table_hits"] == 0 and e.build_info["cache"]["table_misses"] == 13
 
@@ -252,6 +252,7 @@ def test_index_cache_invalidation(tmp_path, cfg):
 # ── 인덱싱 성능 최적화가 결과를 바꾸지 않는지 ─────────────────────────
 def test_numeric_mask_matches_parse_value():
     import numpy as np
+
     from synthetic_gold_pipeline.adapters.kosis_raw_adapter import numeric_mask
     from synthetic_gold_pipeline.tools.units import parse_value
     vals = ["1", "0", "-3", "1,234", "1,234.5", " 12 ", "1 234", "-", "*", "X", "x", "NaN", "nan", "", " ", "…", "..",
@@ -289,5 +290,5 @@ def test_max_views_per_table_limits_before_writing(tmp_path, cfg):
     idx = MetadataIndex.build(root / "kosis", root / "gv", root, {**cfg, "input": {**cfg["input"], "max_views_per_table": 3}},
                               cache_dir=root / "c")
     pop = [v for v in idx.views.values() if v.parent_table_id == "101_DT_DEMO_POP" and v.input_mode.value == "GENERATED_FROM_RAW"]
-    assert len(pop) == 3 and {v.available_periods[0] for v in pop} == {"2024"}        # 최근 시점, 항목 번갈아
-    assert len(list((root / "gv" / "101_DT_DEMO_POP").glob("*.parquet"))) == 3       # 버릴 View 는 파일도 안 씀
+    assert len(pop) == 3 and {v.available_periods[0] for v in pop} == {"2024"}  # 최근 시점, 항목 번갈아
+    assert len(list((root / "gv" / "101_DT_DEMO_POP").glob("*.parquet"))) == 3  # 버릴 View 는 파일도 안 씀

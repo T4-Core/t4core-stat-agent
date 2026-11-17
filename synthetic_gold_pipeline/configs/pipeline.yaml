@@ -12,7 +12,7 @@ run:
   fail_fast_after: 24                    # 처음 N개 샘플이 전부 탈락하면 중단 (API 낭비 방지, 0 = 끔)
   target_count_unit: fact_records        # N = Fact records; each record has 2 questions (original + paraphrased)
   taxonomy_ratio:                        # ratio among answerable types
-    SIMPLE_LOOKUP: 0.0                   # [NEW 11-12] 단순 조회 (쉬운 평가셋은 configs/pipeline_easy.yaml)
+    SIMPLE_LOOKUP: 0.0                   # 단순 조회 (쉬운 평가셋은 configs/pipeline_easy.yaml)
     TIME_SERIES_COMPARISON: 1.0
     CROSS_TABLE_RATIO: 1.0
     CONDITIONAL_AGGREGATION: 1.2

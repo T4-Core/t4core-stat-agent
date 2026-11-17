@@ -71,7 +71,7 @@ class RateLimiter:
     def __init__(self, rpm: float = 0, tpm: float = 0, safety: float = 0.85, chars_per_token: float = 2.0):
         self.rpm, self.tpm, self.safety = float(rpm or 0), float(tpm or 0), float(safety)
         self.cpt = float(chars_per_token)
-        self.events: list[tuple[float, float]] = []      # (시각, 토큰)
+        self.events: list[tuple[float, float]] = []  # (시각, 토큰)
         self.cooldown_until = 0.0
         self._lock = asyncio.Lock()
         self.waited_seconds = 0.0
@@ -100,7 +100,7 @@ class RateLimiter:
                     n_ok = not self.rpm or len(self.events) < self.rpm * self.safety
                     cap = self.tpm * self.safety
                     used = sum(k for _, k in self.events)
-                    t_ok = not self.tpm or used + tokens <= cap or not self.events   # 하나가 한도보다 커도 혼자는 보냄
+                    t_ok = not self.tpm or used + tokens <= cap or not self.events  # 하나가 한도보다 커도 혼자는 보냄
                     if n_ok and t_ok:
                         self.events.append((now, tokens))
                         return
@@ -123,7 +123,7 @@ class LLMUsage:
     completion_tokens: int = 0
     total_tokens: int = 0
     tokens_reported: bool = False
-    rate_limited: int = 0                 # 429 로 거절된 요청 (예산 calls 에 넣지 않음)
+    rate_limited: int = 0  # 429 로 거절된 요청 (예산 calls 에 넣지 않음)
     rate_limit_wait_seconds: float = 0.0
     latency_ms_total: float = 0.0
     by_task: dict[str, dict[str, float]] = field(default_factory=lambda: defaultdict(lambda: {"calls": 0, "latency_ms": 0.0,
@@ -259,7 +259,7 @@ class BaseLLMClient:
                 dt = (time.perf_counter() - t0) * 1000
                 if e.rate_limited:
                     async with self._lock:
-                        self.usage.calls -= 1                     # 거절된 요청은 처리되지 않았으므로 예산에서 뺌
+                        self.usage.calls -= 1  # 거절된 요청은 처리되지 않았으므로 예산에서 뺌
                     self.usage.rate_limited += 1
                     self.usage.by_task[task]["rate_limited"] = self.usage.by_task[task].get("rate_limited", 0) + 1
                     n_rate += 1
@@ -268,7 +268,7 @@ class BaseLLMClient:
                     wait = e.retry_after if e.retry_after else min(self.rate_limit_max_backoff,
                                                                     self.rate_limit_backoff * 2 ** (n_rate - 1))
                     wait += random.random() * 2
-                    self.limiter.cooldown(wait)                    # 모든 작업이 함께 쉼 (각자 재시도하면 계속 429)
+                    self.limiter.cooldown(wait)  # 모든 작업이 함께 쉼 (각자 재시도하면 계속 429)
                     self.usage.rate_limit_wait_seconds += wait
                     log.warning("HCX 호출 한도 초과(429) — %.0f초 쉼 (%s, %d번째)", wait, task, n_rate)
                     if not self.limiter.enabled:
@@ -321,7 +321,7 @@ class BaseLLMClient:
                 feedback.append(msg)
                 self.usage.structured_retries += 1
         err = LLMResponseError(f"{task}: 구조화 응답 {self.structured_retries + 1}회 실패: {attempts[-1][:300]}")
-        err.last_text = (text or "")[:3000]                     # 진단용: 마지막 LLM 응답 원문
+        err.last_text = (text or "")[:3000]  # 진단용: 마지막 LLM 응답 원문
         raise err
 
 
@@ -333,7 +333,7 @@ class MockLLMClient(BaseLLMClient):
         super().__init__(cfg)
         self.model = self.model or "mock-deterministic"
         self.min_interval = 0.0
-        self.limiter = RateLimiter()                     # Mock 은 호출 한도 없음 (데모가 느려지지 않게)
+        self.limiter = RateLimiter()  # Mock 은 호출 한도 없음 (데모가 느려지지 않게)
         self.responders: dict[str, Callable[[Any], dict]] = {}
 
     def register(self, task: str, fn: Callable[[Any], dict]):
@@ -400,14 +400,14 @@ class HCXClient(BaseLLMClient):
                 "temperature": self.temperature, "topP": 0.8, "maxCompletionTokens": self.tokens_for(task),
                 "repetitionPenalty": 1.1}
         if self.model.upper().startswith("HCX-007"):
-            body["thinking"] = {"effort": "none"}       # 구조화 출력은 추론 모드와 함께 쓸 수 없음 (기존 llm.py 와 같은 처리)
+            body["thinking"] = {"effort": "none"}  # 구조화 출력은 추론 모드와 함께 쓸 수 없음 (기존 llm.py 와 같은 처리)
         if schema and self.use_schema:
             body["responseFormat"] = {"type": "json", "schema": schema}
         try:
             res = await asyncio.to_thread(self._post, body)
         except LLMResponseError as e:
             if "responseFormat" in body and "HTTP 400" in str(e):
-                body.pop("responseFormat")              # 구조화 출력 미지원 → 일반 응답 + JSON 파싱
+                body.pop("responseFormat")  # 구조화 출력 미지원 → 일반 응답 + JSON 파싱
                 res = await asyncio.to_thread(self._post, body)
             else:
                 raise
@@ -427,7 +427,7 @@ class RepoHCXClient(BaseLLMClient):
         if not os.getenv("HCX_API_KEY", "").strip():
             raise LLMConfigError("HCX_API_KEY 환경변수(.env)가 없습니다.")
         try:
-            from backend.core import llm as repo_llm      # 읽기·호출 목적의 재사용
+            from backend.core import llm as repo_llm  # 읽기·호출 목적의 재사용
         except Exception as e:  # noqa: BLE001
             raise LLMConfigError(f"backend.core.llm import 실패: {e}")
         params = inspect.signature(repo_llm.chat).parameters
@@ -440,7 +440,7 @@ class RepoHCXClient(BaseLLMClient):
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         try:
             out = await asyncio.to_thread(self._chat, msgs, schema, self.temperature, self.tokens_for(task))
-        except SystemExit as e:                          # 기존 코드가 키 없음 시 SystemExit
+        except SystemExit as e:  # 기존 코드가 키 없음 시 SystemExit
             raise LLMResponseError(str(e))
         except Exception as e:  # noqa: BLE001
             raise LLMTransientError(f"{type(e).__name__}: {str(e)[:120]}", rate_limited="429" in str(e))

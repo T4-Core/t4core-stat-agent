@@ -82,7 +82,7 @@ CASUAL = {"총인구수": "전체 인구", "혼인건수": "결혼 건수", "경
 
 def dim_label(obj_nm: str) -> str:
     """분류 이름 → 조건 앞말: '가구주의 성별' → '가구주', '특성별' → '특성', '기업규모별' → '기업규모'
-    (예전 규칙은 끝의 '성별' 을 먼저 지워 '특성별' 이 '특' 이 됐음)"""
+    ('특성별' 처럼 '성별' 로 끝나는 분류 이름을 잘못 자르지 않게)"""
     n = re.sub(r"\([^()]*\)", "", str(obj_nm)).strip()
     m = re.match(r"^(.*?)\s*의\s*성별$", n)
     if m:
@@ -178,7 +178,7 @@ def question_intent(cluster: SampledCluster, plan: OperationPlan, operands: list
         unit = b.get("unit") if b.get("unit") in ("명", "가구", "호", "개") else ""
         return f"{_op_phrase(b)} {int(float(scale)):,}{unit}당 {_op_phrase(a)}"
 
-    if ops == ["LOOKUP"] and len(operands) == 1:                # [NEW 11-12] 단순 조회
+    if ops == ["LOOKUP"] and len(operands) == 1:  # 단순 조회
         return f"{_op_phrase(operands[0])}의 {periods[0]} {_j('값', '을/를')} 묻는다."
     if last in ("GROWTH_RATE", "DIFFERENCE", "PERCENTAGE_POINT_DIFFERENCE") and len(periods) == 2 and "COUNT" not in ops:
         what = {"GROWTH_RATE": "증감률(%)", "DIFFERENCE": "증감량", "PERCENTAGE_POINT_DIFFERENCE": "변화폭(%p)"}[last]
@@ -304,8 +304,8 @@ class ReverseQAGeneratorAgent:
     def __init__(self, llm: BaseLLMClient, index: MetadataIndex, cfg: dict | None = None):
         self.llm, self.index = llm, index
         self.cfg = cfg or {}
-        self.max_len_o = int(self.cfg.get("max_question_original_chars", 160))      # 공식 표 이름이 들어가 더 김
-        self.max_len_p = int(self.cfg.get("max_question_paraphrased_chars", 90))    # 사람이 실제로 치는 길이
+        self.max_len_o = int(self.cfg.get("max_question_original_chars", 160))  # 공식 표 이름이 들어가 더 김
+        self.max_len_p = int(self.cfg.get("max_question_paraphrased_chars", 90))  # 사람이 실제로 치는 길이
         if isinstance(llm, MockLLMClient):
             llm.register(TASK, mock_reverse_qa_response)
 
@@ -346,7 +346,7 @@ class ReverseQAGeneratorAgent:
                 if yr and yr not in q:
                     errs.append(f"{name}: 시점 {p} 누락")
             for f in li["scalar_facts"]:
-                if f.get("region") in TOTAL_REGION:                 # 전국 값은 지역을 말하지 않아도 같은 뜻
+                if f.get("region") in TOTAL_REGION:  # 전국 값은 지역을 말하지 않아도 같은 뜻
                     continue
                 if f.get("region") and not any(v in q for v in {f["region"], region_short(f["region"])}):
                     errs.append(f"{name}: 지역 {f['region']} 누락")
@@ -458,14 +458,14 @@ def mock_reverse_qa_response(ctx: dict) -> dict:
         c = " ".join(o.get("condition_labels") or [])
         return f"{c} " if c else ""
 
-    def subj(o, casual=False):                       # '여자 가구주 1인가구는' 처럼 조건 + 항목 + 조사
+    def subj(o, casual=False):  # '여자 가구주 1인가구는' 처럼 조건 + 항목 + 조사
         return josa(cond(o) + (cas(o["item"]) if casual else o["item"]), "은/는")
 
     geo = re.sub(r"별$", "", (b["region_dimension"] or ["지역"])[0]) or "지역"
     reg = sf[0]["region"] if sf and sf[0].get("region") else ""
     rs = region_short(reg) if reg else ""
     lims: list[str] = []
-    if sub == "LOOKUP":                                          # [NEW 11-12] 단순 조회 (데모 템플릿)
+    if sub == "LOOKUP":  # 단순 조회 (데모 템플릿)
         o1 = ops[0]
         q1 = f"{o1['survey']} 「{o1['table']}」 기준 {o1['period']} {reg} {josa(cond(o1) + o1['item'], '은/는')} 얼마인가요?"
         q2 = f"{o1['period']} {rs} {cond(o1)}{cas(o1['item'])} 얼마야?"
@@ -557,5 +557,5 @@ def mock_reverse_qa_response(ctx: dict) -> dict:
         q1 = q2 = tmpl = ""
     if "{MEMBERS}" in tmpl and "MEMBERS" not in b["available_placeholders"]:
         tmpl = tmpl.replace("{MEMBERS}, ", "")
-    clean = lambda x: re.sub(r"\s+", " ", x).strip()   # noqa: E731
+    clean = lambda x: re.sub(r"\s+", " ", x).strip()  # noqa: E731
     return {"question_original": clean(q1), "question_paraphrased": clean(q2), "answer_template": tmpl, "limitations": lims}

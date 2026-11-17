@@ -1,16 +1,14 @@
-"""[NEW 11-16] (P5) 개념 카탈로그 — '같은 통계를 주는 표 묶음'
+"""개념 카탈로그 — '같은 통계를 주는 표 묶음'
 
-왜   11-16 실행에서 대체 정답이 있는 문항이 복합 44% · 쉬움 38% — 같은 값을 주는 표가 여럿인 경우가 흔하다.
-     표 하나하나를 맞히기보다 '어떤 통계(개념)인가' 를 먼저 맞히고, 그 안의 표는 좌표로 고르는 편이 정확하다.
-무엇 개념 하나 = 표 묶음. 씨앗은 두 가지
-       1) 대체 정답 (alt_gold.py 의 alt_positives.jsonl) — 같은 시점·지역·항목의 값이 정답 값과 같은 표들 (값으로 확인됨)
+같은 값을 주는 표가 여럿인 경우가 흔해, 표 하나하나를 맞히기보다 '어떤 통계(개념)인가' 를 먼저 맞히고
+그 안의 표는 좌표로 고른다.
+  씨앗 1) 대체 정답 (tuning/alt_gold.py 의 alt_positives.jsonl) — 같은 시점·지역·항목의 값이 정답 값과 같은 표들
        2) 형제 표 무리 (siblings.py) — 검색 때 바로 만들어짐 (파일에는 넣지 않음)
-     과적합 방지: 기본은 dev 레코드(splits.py)의 대체 정답만 씀 → 평가는 compare --split heldout
-어디에 쓰나  router 가 형제 무리와 합쳐 SiblingResolver 의 무리로 쓴다 → 무리 안의 표는 좌표(성별·지역 수준·연도)로 고르고,
-             상위 밖에 있는 같은 개념의 표도 후보로 끌어옴. LLM 카드에는 같은 글자(형제 A)로 표시
+  과적합 방지: 기본은 dev 레코드(tuning/splits.py)의 대체 정답만 → 평가는 compare --split heldout
+  쓰임: 상위 밖에 있는 같은 개념의 표를 LLM 후보로 끌어오고 카드에 같은 묶음으로 표시
 
   python -m backend.rag.search.concepts build --alt <alt_positives.jsonl…> --golden <합성 셋.jsonl…>
-  python -m backend.rag.search.concepts build --per-query <compare 폴더>/per_query.csv     # alt 파일이 없을 때 (정답 표 하나인 문항만)
+  python -m backend.rag.search.concepts build --per-query <compare 폴더>/per_query.csv
   python -m backend.rag.search.concepts show
   → <CSV 값 사전 폴더>/concepts.json   (끄기: configs/search.yaml 의 concepts: {enabled: false})
 """
@@ -24,7 +22,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from backend.rag.search.splits import split_of
+from backend.rag.search.tuning.splits import split_of
 
 
 def _tid(x):
@@ -128,8 +126,8 @@ def load(path=None):
 
 def _names():
     try:
-        from backend.rag.retrieval.factory import build_corpus
-        return {d.id: d.meta.get("tbl_nm", "") for d in build_corpus({"type": "table_text"}).docs()}
+        from backend.rag.search.index import table_corpus
+        return {d.id: d.meta.get("tbl_nm", "") for d in table_corpus().docs()}
     except Exception:  # noqa: BLE001
         return {}
 

@@ -1,26 +1,14 @@
 # NOTE: keep this file ASCII-only (Windows pip reads it with the cp949 locale)
-# [NEW] Local dev. Not installed in the Docker image.
+# Local dev and tests. Not installed in the Docker image.
 -r requirements.txt
-
-# --- ingestion (runs outside the container) ---
-xlrd==2.0.2
-openai>=1.30        # view_builder enrich
 
 # --- test ---
 pytest>=8.0
 httpx>=0.27         # FastAPI TestClient
 
-# --- eval ---
-streamlit>=1.35     # eval/review_app.py
-playwright>=1.40    # then: playwright install chromium
+# --- synthetic_gold_pipeline ---
+scikit-learn>=1.3
 
-# --- notebook / EDA ---
+# --- notebook / EDA (optional) ---
 ipykernel>=6.0
 matplotlib>=3.8
-seaborn>=0.13
-
-# --- retrieval lab (optional, v4) ---
-# Local embedders / cross-encoder rerankers (configs/retrieval/st_*.yaml, rerank_*.yaml).
-# Install torch for your CPU/GPU first (https://pytorch.org), then:
-# sentence-transformers>=3.0
-# konlpy>=0.6        # okt / mecab tokenizers

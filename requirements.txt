@@ -1,6 +1,5 @@
 # NOTE: keep this file ASCII-only (Windows pip reads it with the cp949 locale)
-# Runtime deps only (FastAPI server / Docker image). Dev, ingestion, eval -> requirements-dev.txt
-# [CHANGED] split from the single combined file; plotly promoted from optional (used by light_agent charts)
+# Runtime deps (FastAPI server / Docker image). Dev and test -> requirements-dev.txt
 
 # --- API ---
 fastapi>=0.115
@@ -12,14 +11,11 @@ numpy>=1.26
 pyarrow>=14.0
 duckdb>=1.0
 
-# --- retrieval ---
+# --- search ---
 kiwipiepy>=0.17
 rank-bm25>=0.2.2
 
 # --- external API / config ---
 requests>=2.31
 python-dotenv>=1.0
-pyyaml>=6.0          # [NEW v4] configs/query_v4.yaml
-
-# --- answer charts ---
-plotly>=5.18
+pyyaml>=6.0

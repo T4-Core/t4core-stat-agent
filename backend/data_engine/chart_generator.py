@@ -1,17 +1,10 @@
-"""
-차트 데이터 가공
-
-  chart_spec / render        : 구 kosis_views.py (backend/rag/ingestion/view_builder.py) — 다시 내보냄
-  chart_from_record  [NEW]   : View 모듈 Record(table{columns, rows} + metadata.view_type) → 프론트엔드 차트 형식
-                               Record 에는 차트 스펙이 없어서(kosis_views 레코드에는 rec["chart"] 가 있음) 여기서 만든다
-"""
-from backend.rag.ingestion.view_builder import chart_spec, render  # noqa: F401  (다시 내보냄)
+"""Record(table{columns, rows} + metadata.view_type) → 프론트엔드 차트 형식"""
 
 FIXED = {"시점", "항목", "값"}
 
 
 def chart_from_record(rec, title=None, max_rows=500):
-    """Record(dict) → {record_id, type, title, x, y, series, unit, columns, rows}"""
+    """Record(dict) → {record_id, type(line|bar|table), title, x, y, series, unit, columns, rows}"""
     t = rec.get("table") or {}
     cols, rows = list(t.get("columns") or []), list(t.get("rows") or [])[:max_rows]
     md = rec.get("metadata") or {}

@@ -34,15 +34,30 @@ from typing import Any
 
 from synthetic_gold_pipeline import __version__
 from synthetic_gold_pipeline.adapters.view_mapping_adapter import ViewMappingAdapter
-from synthetic_gold_pipeline.agents.llm_client import (BaseLLMClient, LLMBudgetExceeded, LLMConfigError,
-                                                       LLMRateLimitExhausted, LLMResponseError, make_llm_client)
+from synthetic_gold_pipeline.agents.llm_client import (
+    BaseLLMClient,
+    LLMBudgetExceeded,
+    LLMConfigError,
+    LLMRateLimitExhausted,
+    LLMResponseError,
+    make_llm_client,
+)
 from synthetic_gold_pipeline.agents.planner_agent import PlannerAgent
 from synthetic_gold_pipeline.agents.quality_verifier_agent import QualityVerifierAgent, review_payload
-from synthetic_gold_pipeline.agents.reverse_qa_agent import (ReverseQAGeneratorAgent, ReverseQAOutput,
-                                                             assemble_reference_answer, build_fact_bundle)
+from synthetic_gold_pipeline.agents.reverse_qa_agent import (
+    ReverseQAGeneratorAgent,
+    ReverseQAOutput,
+    assemble_reference_answer,
+    build_fact_bundle,
+)
 from synthetic_gold_pipeline.demo_data import build_demo_dataset
-from synthetic_gold_pipeline.record_builder import (build_answerable_record, expected_claims, final_digits, policy_for,
-                                                    signatures)
+from synthetic_gold_pipeline.record_builder import (
+    build_answerable_record,
+    expected_claims,
+    final_digits,
+    policy_for,
+    signatures,
+)
 from synthetic_gold_pipeline.sampler.compatibility_graph import CompatibilityGraph
 from synthetic_gold_pipeline.sampler.metadata_index import MetadataIndex
 from synthetic_gold_pipeline.sampler.unanswerable_sampler import UnanswerableBuilder
@@ -54,14 +69,26 @@ from synthetic_gold_pipeline.tools.deduplication_tool import DedupIndex
 from synthetic_gold_pipeline.tools.evaluation_tool import AblationChecker, NumericAnswerEvaluator, ViewJudge
 from synthetic_gold_pipeline.tools.plan_repair import repair_plan
 from synthetic_gold_pipeline.tools.statistical_validation_tool import StatisticalValidator
-from synthetic_gold_pipeline.utils import (PACKAGE_ROOT, append_jsonl, atomic_write_json, atomic_write_text, display_path,
-                                           load_config, load_dotenv_if_present, now_iso, read_jsonl,
-                                           resolve_path, sha256_file, stable_hash, write_jsonl)
+from synthetic_gold_pipeline.utils import (
+    PACKAGE_ROOT,
+    append_jsonl,
+    atomic_write_json,
+    atomic_write_text,
+    display_path,
+    load_config,
+    load_dotenv_if_present,
+    now_iso,
+    read_jsonl,
+    resolve_path,
+    sha256_file,
+    stable_hash,
+    write_jsonl,
+)
 
 log = logging.getLogger("synthetic_gold")
 ANSWERABLE_TYPES = [ReasoningType.SIMPLE_LOOKUP, ReasoningType.TIME_SERIES_COMPARISON, ReasoningType.CROSS_TABLE_RATIO,
                     ReasoningType.CONDITIONAL_AGGREGATION]
-DEFAULT_TYPE_RATIO = {ReasoningType.SIMPLE_LOOKUP: 0.0}     # [NEW 11-12] 단순 조회는 설정에 적었을 때만 (기본 0 = 예전과 같음)
+DEFAULT_TYPE_RATIO = {ReasoningType.SIMPLE_LOOKUP: 0.0}  # 단순 조회는 설정에 적었을 때만 (기본 0)
 
 
 @dataclass
@@ -75,9 +102,9 @@ class Outcome:
     plan: dict | None = None
     flags: dict[str, bool] = field(default_factory=dict)
     budget_exhausted: bool = False
-    rate_limited: bool = False            # 429 가 기다려도 계속됨 → 탈락이 아니라 실행 중단 (--resume 으로 이어서)
-    repairs: list = field(default_factory=list)    # 계획 자동 보정 기록 (tools/plan_repair.py)
-    extra: dict = field(default_factory=dict)      # 진단용: 질문·답변·검수 결과
+    rate_limited: bool = False  # 429 가 기다려도 계속됨 → 탈락이 아니라 실행 중단 (--resume 으로 이어서)
+    repairs: list = field(default_factory=list)  # 계획 자동 보정 기록 (tools/plan_repair.py)
+    extra: dict = field(default_factory=dict)  # 진단용: 질문·답변·검수 결과
 
 
 class Pipeline:
@@ -113,7 +140,7 @@ class Pipeline:
 
     # ── 준비 ──────────────────────────────────────────────────────
     def prepare(self, llm: BaseLLMClient | None = None):
-        self.llm = llm or make_llm_client(self.mode, self.cfg)        # 키 없음 등 설정 오류는 무거운 인덱싱 전에 확인
+        self.llm = llm or make_llm_client(self.mode, self.cfg)  # 키 없음 등 설정 오류는 무거운 인덱싱 전에 확인
         if self.mode == "demo":
             root = (self.data_root or (self.out / "demo_kosis_data")).resolve()
             if not root.is_relative_to(self.out):
@@ -244,8 +271,8 @@ class Pipeline:
                 all_t[v.survey_name] += 1
         tried = {t for t in self.sampler.state.attempts_by_table if t in survey_of}
         short = {t.split("_", 1)[1] if "_" in t and t.split("_", 1)[0].isdigit() else t: t for t in survey_of}
-        used = {short.get(t, t) for r in recs for t in r.retrieval_eval.golden_table_ids} & set(survey_of)   # 정답 표 ID 는 기관 접두어 없음
-        tried |= used                     # 답변 불가 레코드는 별도 샘플러가 고르므로 시도 기록에 없음 → 합쳐서 셈
+        used = {short.get(t, t) for r in recs for t in r.retrieval_eval.golden_table_ids} & set(survey_of)  # 정답 표 ID 는 기관 접두어 없음
+        tried |= used  # 답변 불가 레코드는 별도 샘플러가 고르므로 시도 기록에 없음 → 합쳐서 셈
         by = {s: {"tables": n, "tried": sum(survey_of[t] == s for t in tried), "in_dataset": sum(survey_of[t] == s for t in used)}
               for s, n in all_t.most_common()}
         return {"tables_total": len(survey_of), "tables_tried": len(tried), "tables_in_dataset": len(used),
@@ -271,7 +298,7 @@ class Pipeline:
         for attempt in range(self.max_planner_retries + 1):
             o.planner_attempts = attempt + 1
             plan, _ = await self.planner.plan(cluster, errors, attempt)
-            plan, fixes = repair_plan(plan, self.index)                 # 기계적 빈칸 보정 (기록 남김)
+            plan, fixes = repair_plan(plan, self.index)  # 기계적 빈칸 보정 (기록 남김)
             if fixes:
                 o.repairs += [f"[시도 {attempt + 1}] {x}" for x in fixes]
                 self.counters["plan_repairs"] += len(fixes)
@@ -279,7 +306,7 @@ class Pipeline:
             o.flags["plan_generated"] = plan.plan_status.value == "OK"
             rep_p = self.validator.validate_plan(plan, cluster)
             if not rep_p.passed and {i.code for i in rep_p.errors} == {"UNUSED_VIEW"}:
-                shrunk = self._drop_unused_views(cluster, plan)            # 안 쓴 View 만 문제면 묶음에서 빼고 다시 검증
+                shrunk = self._drop_unused_views(cluster, plan)  # 안 쓴 View 만 문제면 묶음에서 빼고 다시 검증
                 if shrunk is not None:
                     o.repairs.append(f"[시도 {attempt + 1}] 안 쓴 View 제외 {sorted(set(cluster.view_ids) - set(shrunk.view_ids))}")
                     cluster = o.cluster = shrunk
@@ -363,7 +390,7 @@ class Pipeline:
                 cand = ReverseQAOutput(question_original=quality.suggested_revision,
                                        question_paraphrased=qa_out.question_paraphrased,
                                        answer_template=qa_out.answer_template, limitations=qa_out.limitations)
-                errs = self.qa.validate(cand, bundle)          # 수정본도 같은 결정론적 검사 (GT 불변)
+                errs = self.qa.validate(cand, bundle)  # 수정본도 같은 결정론적 검사 (GT 불변)
                 if not errs:
                     q1 = self._fill_q(cand.question_original, bundle)
                     self.counters["question_revisions"] += 1
@@ -456,7 +483,7 @@ class Pipeline:
                 for k, v in o.flags.items():
                     if v:
                         self.counters[f"ok:{k}"] += 1
-                if o.rate_limited:                       # 샘플 잘못이 아님 → 탈락으로 세지 않고 멈춤
+                if o.rate_limited:  # 샘플 잘못이 아님 → 탈락으로 세지 않고 멈춤
                     self.counters["rate_limited_stop"] += 1
                     if not budget_stop:
                         shortfall.append("HCX 호출 한도(429)가 기다려도 계속됨 — llm.rate_limit 를 낮추거나 몇 분 뒤 --resume")
@@ -560,7 +587,7 @@ class Pipeline:
                              "target_module": "M1/M2/M3", "question": q})
                 ge, re_ = r.generation_eval, r.retrieval_eval
                 aw.writerow({
-                    # 기존 eval/pipeline_review(review_80·review_v4)가 읽는 형식: 쉼표로 나눈 TBL_ID (JSON 목록은 _json 열)
+                    # 쉼표로 나눈 TBL_ID (JSON 목록은 _json 열)
                     "id": qid, "dataset_id": r.dataset_id, "gold_table_ids": ", ".join(re_.golden_table_ids),
                     "gold_table_ids_json": json.dumps(re_.golden_table_ids, ensure_ascii=False),
                     "answerability": "UNANSWERABLE" if ge.expected_abstention else "ANSWERABLE",

@@ -1,4 +1,4 @@
-"""[NEW] 통합 Swagger 시나리오 — tests/test_pipeline_e2e.py 가 별도 프로세스로 실행 (환경변수로 저장소 위치를 바꾸기 위해)
+"""통합 파이프라인 시나리오 — tests/test_pipeline_e2e.py 가 별도 프로세스로 실행
 
     STORAGE_DIR=<임시폴더>/storage  (그 아래 kosis_data 에 fake_kosis.build 결과)
     python -m tests.e2e_scenario
@@ -10,16 +10,23 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import backend.core.llm as llm
-import backend.rag.retrieval.dense as dense
 from tests import fake_kosis
 
-llm._post = fake_kosis.fake_hcx_post            # HCX 대화·임베딩 대역
-dense._post = fake_kosis.fake_dense_post        # View 모듈 임베딩 대역
+CALLS = {"chat": 0}
 
-from backend.core import config  # noqa: E402
+
+def counting_post(path, body, timeout=60):
+    if "embedding" not in path:
+        CALLS["chat"] += 1
+    return fake_kosis.fake_hcx_post(path, body, timeout)
+
+
+llm._post = counting_post
+
 from backend.main import app  # noqa: E402
 
 c = TestClient(app)
+TODAY = "2026-11-02"
 
 
 def ok(r):
@@ -27,89 +34,118 @@ def ok(r):
     return r.json()
 
 
-# 0) 경로가 환경변수 STORAGE_DIR 아래로 해석됐는지
+# 0) 경로가 STORAGE_DIR 아래로 해석됐는지
 paths = ok(c.get("/api/v1/system/paths"))
 assert paths["KOSIS_DATA_DIR"]["exists"], paths
-assert Path(paths["KOSIS_DATA_DIR"]["path"]).parts[-2:] == ("storage", "kosis_data"), paths   # Windows(\\) / posix(/) 모두
-print("[0] paths:", paths["KOSIS_DATA_DIR"]["path"], "| VIEW_OUT_DIR:", paths["VIEW_OUT_DIR"]["path"])
+assert Path(paths["KOSIS_DATA_DIR"]["path"]).parts[-2:] == ("storage", "kosis_data"), paths
+print("[0] paths:", paths["KOSIS_DATA_DIR"]["path"])
 
-# ⓪ 준비: 메타 프로필 → 표 색인
-ok(c.post("/api/v1/rag/chunk-and-index"))
-for _ in range(100):
-    st = ok(c.get("/api/v1/rag/chunk-and-index/status"))
+# ⓪ 준비 한 번에: 메타 프로필 → 표 색인 → CSV 값 사전
+ok(c.post("/api/v1/ingest/prepare", params={"workers": 2}))
+for _ in range(300):
+    st = ok(c.get("/api/v1/ingest/prepare/status"))
     if not st["running"]:
         break
     time.sleep(0.2)
 assert st["error"] is None and st["result"]["index"]["n_tables"] == 3, st
-print("[⓪] chunk-and-index:", st["result"]["index"])
+assert st["result"]["csv_index"]["n_tables"] >= 3, st["result"]
+health = ok(c.get("/health"))
+assert health["meta_profiles"] and health["table_index"] and health["csv_index"], health
+print("[⓪] prepare:", st["result"]["index"], st["result"]["csv_index"])
 
-# ① 재작성 → view_bundle (입출력 변환 확인)
+# ① 질의 분석 → view_bundle
 q = "작년 대구의 남자 20대 인구 수"
-rw = ok(c.post("/api/v1/rag/query-rewrite", json={"question": q, "today": "2026-11-02", "query_id": "t1"}))
-vf = rw["view_bundle"]["filters"]
-assert rw["bundle"]["filters"]["시점"] == ["2025년"]                 # 재작성 모듈: 문자열
-assert vf["시점"] == [2025] and vf["연령"] == {"from": 20, "to": 29}  # View 모듈: int / {from,to}
-assert vf["지역"] == ["대구광역시"] and vf["의도"] == "값 조회"
-print("[①] bundle.filters:", rw["bundle"]["filters"], "\n    view_bundle.filters:", vf, "\n    search_text:",
-      rw["view_bundle"]["search_text"])
+a = ok(c.post("/api/v1/rag/analyze", json={"question": q, "today": TODAY, "query_id": "t1"}))
+vf = a["view_bundle"]["filters"]
+assert a["status"] == "ok" and a["trace"][0]["step"] == "재작성", a["status"]
+assert vf["시점"] == [2025] and vf["연령"] == {"from": 20, "to": 29} and vf["지역"] == ["대구광역시"], vf
+assert vf["의도"] == "값 조회" and a["view_bundle"]["query_id"] == "t1"
+print("[①] filters:", vf, "| search_text:", a["view_bundle"]["search_text"])
 
-# ①-1 [v3] 하위 질문마다 의도 (값 조회 / 순위) → sub_filters 의도, 범위 밖 → out_of_scope
-rw2 = ok(c.post("/api/v1/rag/query-rewrite", json={"question": "2025년 대전 인구랑 구별 인구 순위", "today": "2026-11-02"}))
-assert rw2["intents"] == ["값 조회", "순위"] and rw2["sub_intents"] == ["값 조회", "순위"], rw2
-assert [f["의도"] for f in rw2["view_bundle"]["sub_filters"]] == ["값 조회", "순위"], rw2["view_bundle"]
-assert rw2["view_bundle"]["sub_filters"][1]["비교축"] == "시군구" and not rw2["out_of_scope"]
-oos = ok(c.post("/api/v1/rag/query-rewrite", json={"question": "합계출산율이 무슨 뜻이야?"}))
-assert oos["out_of_scope"] and oos["bundle"]["intent"] == "범위 밖" and oos["view_bundle"]["filters"] is None, oos
-assert not any("재작성 슬롯이 비어" in n for n in oos["notes"]), oos["notes"]   # 판단 모듈이 '재작성 실패'로 읽지 않게
-tr = ok(c.post("/api/v1/rag/query-rewrite/trace", json={"question": "2025년 대전 인구랑 구별 인구 순위"}))
-assert tr["valid_slots"]["의도"] == ["값 조회", "순위"] and [s["의도"] for s in tr["valid_subs"]] == ["값 조회", "순위"], tr
-print("[①-1] sub_intents:", rw2["sub_intents"], "| 범위 밖 notes:", oos["notes"])
-
-# ② view_bundle 그대로 → Record 목록
-recs = ok(c.post("/api/v1/rag/views", json=rw["view_bundle"], params={"top_k": 3, "n_views": 2}))
-assert recs and all(r["doc_type"] == "view" for r in recs)
-age = next(r for r in recs if r["source"]["tbl_id"] == "DT_1IN1503")
+# ② view_bundle → View 묶음 (충돌이면 첫 선택지)
+vs = ok(c.post("/api/v1/rag/views", json={"view_bundle": a["view_bundle"], "n_views": 2, "auto_select": "first"}))
+assert vs["status"] == "ok" and vs["records"] and all(r["doc_type"] == "view" for r in vs["records"]), vs["status"]
+age = next(r for r in vs["records"] if r["source"]["tbl_id"] == "DT_1IN1503")
 assert age["table"]["rows"], age
-print("[②] records:", [r["id"] for r in recs])
-print("    ", age["table"]["columns"], age["table"]["rows"][:3])
+print("[②] records:", [r["id"] for r in vs["records"]])
 
-# ③ Record 목록 그대로 → 답변
-ans = ok(c.post("/api/v1/agent/answer", json={"question": q, "records": recs}))
+# ②-1 검색만
+sr = ok(c.post("/api/v1/rag/search", json={"query": "대구 남자 20대 인구", "top_k": 3, "filters": vf}))
+assert sr["candidates"] and sr["candidates"][0]["rank"] == 1, sr
+
+# ③ Record 목록 → 답변
+ans = ok(c.post("/api/v1/agent/answer", json={"question": q, "records": vs["records"]}))
 assert ans["answer"] and ans["used_ids"] and ans["chart"]["rows"], ans
-print("[③] answer:", ans["answer"], "| chart:", ans["chart"]["type"], ans["chart"]["x"], "| unverified:",
-      ans["unverified_numbers"])
+print("[③] answer:", ans["answer"], "| chart:", ans["chart"]["type"])
 
-# ★ 전체 한 번에
-full = ok(c.post("/api/v1/chat", json={"question": "최근 5년간 대전의 인구 변화 추이", "today": "2026-11-02"}))
-assert full["view_bundle"]["filters"]["의도"] == "추이" and full["records"], full["notes"]
-trend = next(r for r in full["records"] if r["source"]["tbl_id"] == "DT_1B040A3")
+# ★ 한 번에
+tq = "최근 5년간 대전의 인구 변화 추이"
+full = ok(c.post("/api/v1/chat", json={"question": tq, "today": TODAY}))
+assert full["status"] == "ok" and full["records"] and full["result"]["answer"], full["notes"]
+assert full["analysis"]["view_bundle"]["filters"]["의도"] == "추이"
+conf = full["views"]["units"][0]["conflict"]                          # 두 인구 표의 대전 값이 다름 → 첫 선택지로 답변
+assert conf["status"] == "ambiguous" and conf["selected_option"] == "opt-1" and len(conf["options"]) >= 2, conf["status"]
+assert all(r["metadata"]["view_type"] == "trend" for r in full["records"])
+assert set(full["timings"]) >= {"analyze", "views", "answer", "total"}, full["timings"]
+print("[★] chat timings:", full["timings"], "| records:", len(full["records"]), "| 충돌:", conf["clusters"])
+
+# ★-0 auto_select=false → needs_selection → 선택지 골라 이어서 (분석·검색 다시 안 함)
+p = ok(c.post("/api/v1/chat", json={"question": tq, "today": TODAY, "auto_select": False}))
+assert p["status"] == "needs_selection" and p["result"] is None and p["views"]["pending"], p["status"]
+pend = p["views"]["pending"][0]
+pick = next(o for o in pend["options"] if "DT_1B040A3" in o["tbl_ids"])
+n0 = CALLS["chat"]
+s2 = ok(c.post("/api/v1/chat", json={"question": tq, "previous": p, "view_selections": [
+    {"selection_token": pend["selection_token"], "option_id": pick["option_id"]}]}))
+assert s2["status"] == "ok" and CALLS["chat"] == n0 + 1 and "select" in s2["timings"], (s2["status"], CALLS)
+trend = next(r for r in s2["records"] if r["source"]["tbl_id"] == "DT_1B040A3")
 assert trend["metadata"]["view_type"] == "trend" and trend["metadata"]["prd_from"] == "2021", trend["metadata"]
-print("[★] chat timings:", full["timings"], "| records:", len(full["records"]), "| chart:", full["result"]["chart"]["type"])
+assert not any(r["source"]["tbl_id"] == "DT_1IN1503" for r in s2["records"])
+print("[★-0] 선택:", pick["option_id"], pick["tbl_ids"], "→ records", [r["id"] for r in s2["records"]])
 
-# ★-1 [v3] 범위 밖 → 검색·답변 생략, 하위 질문 '순위' 단위는 순위 의도로 View 생성
+# ★-1 범위 밖 → 검색·답변 HCX 없이 안내
+n0 = CALLS["chat"]
 o = ok(c.post("/api/v1/chat", json={"question": "합계출산율이 무슨 뜻이야?"}))
-assert o["out_of_scope"] and o["records"] == [] and o["views"]["units"] == [] and o["result"]["insufficient"], o
-sub = ok(c.post("/api/v1/chat", json={"question": "2025년 대전 인구랑 구별 인구 순위", "today": "2026-11-02"}))
-assert [u["filters"]["의도"] for u in sub["views"]["units"]] == ["값 조회", "값 조회", "순위"], sub["views"]["units"]
-assert ok(c.post("/api/v1/rag/judge/from-chat", json=sub))["units"], "판단 모듈이 v3 chat 응답을 받아야 함"
-print("[★-1] 범위 밖:", o["result"]["answer"][:30], "| 단위 의도:", [u["filters"]["의도"] for u in sub["views"]["units"]])
+assert o["status"] == "out_of_scope" and o["records"] == [] and o["views"] is None and o["result"]["insufficient"], o
+assert CALLS["chat"] == n0 + 1                                       # 재작성 1회만
 
-# ④ 좌표 재조회: 월간표 + 연도 시점 (입출력 보정 확인)
-mv = ok(c.post("/api/v1/chat", json={"question": "2025년 대전 전입 이동자 월별", "today": "2026-11-02", "n_views": 3}))
+# ★-2 되묻기 → 이어서 (재작성 HCX 다시 안 부름)
+cq = "출생아 수 알려줘"
+m = ok(c.post("/api/v1/chat", json={"question": cq, "today": TODAY, "overrides": {"csv_scope": "all"}}))
+assert m["status"] == "needs_clarification" and m["result"] is None, m["status"]
+slots = {x["slot"] for x in m["analysis"]["clarifications"]}
+assert {"시점", "지역"} <= slots, slots
+n0 = CALLS["chat"]
+m2 = ok(c.post("/api/v1/chat", json={"question": cq, "today": TODAY, "overrides": {"csv_scope": "all"}, "previous": m,
+                                      "selections": {"지역": ["대전광역시"], "시점": ["2025년"]}}))
+assert m2["status"] == "ok" and m2["analysis"]["view_bundle"]["filters"]["지역"] == ["대전광역시"], m2["status"]
+assert CALLS["chat"] == n0 + 1, CALLS                                 # 답변 1회만
+print("[★-2] 되묻기:", sorted(slots), "→ ok")
+
+# ★-3 서브쿼리: 단위마다 의도 (값 조회 / 순위)
+sub = ok(c.post("/api/v1/chat", json={"question": "2025년 대전 인구랑 구별 인구 순위", "today": TODAY}))
+intents = [u["filters"]["의도"] for u in sub["views"]["units"]]
+assert sub["status"] == "ok" and intents == ["값 조회", "순위"], intents
+jr = ok(c.post("/api/v1/rag/judge/from-chat", json=sub))
+assert jr["units"], jr
+assert c.post("/api/v1/rag/judge/from-chat", json=o).status_code == 422     # 검색까지 안 간 응답
+print("[★-3] 단위 의도:", intents, "| 판단:", jr["verdict"])
+
+# ④ 좌표 재조회: 월간표 + 연도 시점 (year 열로 거름). 지표 '이동자수' 가 CSV 에 없어도 soft 모드는 멈추지 않음
+mv = ok(c.post("/api/v1/chat", json={"question": "2025년 대전 전입 이동자 월별", "today": TODAY, "n_views": 3,
+                                      "overrides": {"clarify_mode": "soft"}}))
+assert mv["status"] == "ok" and mv["analysis"]["clarifications"], mv["status"]          # 되묻기 후보는 남김
 mrec = next((r for r in mv["records"] if r["source"]["tbl_id"] == "DT_1B26001"), None)
 assert mrec is not None, [r["id"] for r in mv["records"]]
-assert mrec["source"]["period"] == {"in": ["2025"]}, mrec["source"]   # build_view 는 시점을 '연도'로 기록
-assert len(mrec["table"]["rows"]) >= 12                              # 카드 자체에는 12개월 값이 있음
-src = mrec["source"]
-from backend.rag.ingestion.view_builder import load_view  # noqa: E402
-before = len(load_view(src, config.VIEW_OUT_DIR))           # 예전 방식: prd_de('202501') vs '2025' → 0행
-after = ok(c.post("/api/v1/data/source", json=src))["n_rows"]
-assert before == 0 and after > 0, (before, after)
-print(f"[④] 월간표 연도 좌표: load_view {before}행 → load_record_data {after}행")
+assert mrec["source"]["period"] == {"in": ["2025"]} and len(mrec["table"]["rows"]) >= 12, mrec["source"]
+n = ok(c.post("/api/v1/data/source", json=mrec["source"]))["n_rows"]
+full_rec = ok(c.post("/api/v1/data/source", json=mrec))
+assert n >= 12 and full_rec["chart"]["type"] in ("line", "bar", "table"), (n, full_rec.get("chart"))
+print(f"[④] 월간표 연도 좌표 → {n}행")
 
-# ⑤ [NEW] catalog.csv 선택 밖 표(DT_1B83A35) · catalog/메타 둘 다 없는 raw CSV(DT_1B81A01) 도 View 생성
-from backend.rag.ingestion.build_view import build_view  # noqa: E402
+# ⑤ catalog.csv 선택 밖 표 · catalog/메타 둘 다 없는 raw CSV 도 View 생성
 from backend.rag.ingestion.normalize import load_targets  # noqa: E402
+from backend.rag.view.build import build_view  # noqa: E402
 
 for tid, unit in (("DT_1B83A35", "건"), ("DT_1B81A01", "명")):
     row = next(load_targets([tid]).itertuples())
@@ -118,33 +154,26 @@ for tid, unit in (("DT_1B83A35", "건"), ("DT_1B81A01", "명")):
     vals = rec["table"]["rows"]
     assert vals and not vnotes and "대전" in str(vals), (tid, rec, vnotes)
     assert unit in str(rec["table"]) or unit in str(rec["metadata"]), rec
-    print(f"[⑤] {tid} ({row.tbl_nm}) → {rec['id']} rows={len(vals)} notes={vnotes}")
+    print(f"[⑤] {tid} → {rec['id']} rows={len(vals)}")
 
-# legacy: kosis_views(view_builder) → records.jsonl → 하이브리드 인덱스 → 검색·답변
-import argparse  # noqa: E402
+# 일괄 실행 (synthetic_gold_pipeline.score_rag_results 입력 형식)
+from backend.agent.batch import run_one  # noqa: E402
 
-from backend.rag.ingestion import indexer, view_builder  # noqa: E402
+br = run_one({"id": "B1", "question": q}, TODAY, answer=True)
+assert br["status"] == "ok" and br["final"]["records"] and br["answer"]["answer"], br
+assert {s["slot"] for s in br["stages"]["query"]["slots"]} >= {"시점", "지역"}
+assert br["units"][0]["candidates"][0]["rank"] == 1 and br["units"][0]["views"][0]["source"]["tbl_id"]
+print("[batch]", br["status"], br["final"]["records"][:2])
 
-va = argparse.Namespace(data=str(config.KOSIS_DATA_DIR), out=str(config.RAG_VIEWS_DIR), surveys=None, tables=None,
-                        max_tables=None, force=False, kiwi=False, catalog=None, workers=1)
-view_builder.stage_prepare(va)
-view_builder.stage_views(va)
-ia = argparse.Namespace(records=config.RAG_VIEWS_DIR / "records.jsonl", doc_type=None, limit=None, variant="base",
-                        dense_mode="single", workers=2)
-indexer.stage_index(ia)
-hits = ok(c.post("/api/v1/rag/hybrid-search", json={"query": "대전 인구 추이", "k": 5}))
-assert hits, hits
-leg = ok(c.post("/api/v1/chat/legacy", json={"question": "대전 인구 추이", "k": 3, "use_rewrite": False}))
-assert leg["answer"], leg
-print("[legacy] hybrid hits:", [h["title"][:30] for h in hits[:3]], "| answer:", leg["answer"][:40])
-
-# openapi 에 모든 단계가 한 문서로
+# Swagger
 spec = ok(c.get("/openapi.json"))
-for p in ("/api/v1/rag/query-rewrite", "/api/v1/rag/views", "/api/v1/agent/answer", "/api/v1/chat",
-          "/api/v1/rag/chunk-and-index", "/api/v1/rag/retrieve", "/api/v1/data/source", "/api/v1/rag/query-slots"):
+for p in ("/api/v1/ingest/prepare", "/api/v1/rag/analyze", "/api/v1/rag/clarify", "/api/v1/rag/views",
+          "/api/v1/rag/views/select", "/api/v1/rag/search", "/api/v1/agent/answer", "/api/v1/chat", "/api/v1/data/source",
+          "/api/v1/rag/judge", "/api/v1/csv-index/build"):
     assert p in spec["paths"], p
-assert c.get("/docs").status_code == 200 and c.get("/redoc").status_code == 200
-slots = ok(c.get("/api/v1/rag/query-slots"))
-assert len(slots["intents"]) == 9 and set(slots["view_intent_map"]) == set(slots["intents"]), slots
+assert not [p for p in spec["paths"] if "/v4/" in p or "legacy" in p or "hybrid" in p], list(spec["paths"])
+names = list(spec["components"]["schemas"])
+assert not [n for n in names if "__" in n or n.endswith(("-Input", "-Output"))], names
+assert c.get("/docs").status_code == 200
 print("[swagger] paths:", len(spec["paths"]))
 print(json.dumps({"E2E": "PASS"}))

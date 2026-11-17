@@ -4,7 +4,7 @@ collector.py 출력과 같은 폴더 모양을 만든다:
   <root>/catalog.csv, <root>/meta/<ORG>_<TBL>.json, <root>/raw/<조사명>/<ORG>_<TBL>.csv,
   <root>/store/data/<ORG>_<TBL>.parquet (분기표 1개는 RAW 없이 store parquet 만), <root>/stored_views/<ORG>_<TBL>/*.csv
 
-포함 사례 (README 표 참고)
+포함 사례
   - 동일 지표 서로 다른 연도 / 서로 다른 지역 / 월별 vs 분기별 (PRD_DE 문자열이 같아도 주기가 다름)
   - 단위 스케일 차이 (명 vs 천명) / 총계(전국·계)와 하위 분류 / 정상 0 · 음수 (순이동)
   - 결측 기호 ("-", "X", "*", "", "NaN") / 분모 0 / 같은 이름(중구) 다른 지역 코드 / 코드 체계 충돌
@@ -109,7 +109,7 @@ def build_tables() -> list[dict]:
             pops = _pop(code, y)
             gen_t = int(pops / 2.4)
             one_t = int(gen_t * (0.27 + (_h("one", code, y) % 60) / 1000 + (0.03 if y == 2020 else 0)))
-            m_one = 0.44 + (_h("msh", code, y) % 13) / 100           # 남성 가구주 1인가구 비중 44~56%
+            m_one = 0.44 + (_h("msh", code, y) % 13) / 100  # 남성 가구주 1인가구 비중 44~56%
             gm = int(gen_t * 0.68)
             om = int(one_t * m_one)
             return {"0": (gen_t, one_t), "1": (gm, om), "2": (gen_t - gm, one_t - om)}
@@ -155,7 +155,7 @@ def build_tables() -> list[dict]:
             inn = 10_000 + _h("in", code, m) % 40_000
             out = inn + (_h("net", code, m) % 3000) - 1500
             if (code, m) == ("30", 3):
-                out = inn                    # 순이동 0
+                out = inn  # 순이동 0
             for itm, val in ((("T10", "총전입", "명"), inn), (("T20", "총전출", "명"), out), (("T30", "순이동", "명"), inn - out)):
                 recs.append(_rec("101", "DT_DEMO_MOVE_M", "시도별 이동자수(월)", [("행정구역(시도)별", code, nm)], itm, "M", prd,
                                  _fmt(val)))

@@ -1,20 +1,4 @@
-"""
-프롬프트·출력 스키마  (구 kosis_rag_qa.py 의 REWRITE_* / ANSWER_* 를 그대로 옮김)
-질의 재작성(새 모듈)의 프롬프트는 backend/rag/query_analyzer/slots.py 의 SLOT_SYS 에 있음
-"""
-# ─── 아래는 구 kosis_rag_qa.py 405~412행 를 그대로 옮긴 코드 ───
-# 질의 재정의
-REWRITE_SCHEMA = {"type": "object", "properties": {
-    "rewritten": {"type": "string"}, "sub_questions": {"type": "array", "items": {"type": "string"}}},
-    "required": ["rewritten", "sub_questions"]}
-REWRITE_SYS = ("너는 한국 국가통계(KOSIS) 검색 도우미다. 사용자의 구어체 질문을 통계표 검색에 맞는 용어로 바꾼다. "
-               "지역·연도·성별·연령 같은 조건은 유지하고, 없는 조건을 추가하지 않는다. "
-               "여러 통계가 필요한 복합 질문이면 sub_questions 에 하위 질문(최대 3개)을 나누고, 단순 질문이면 빈 배열. JSON만 출력.")
-
-
-
-# ─── 아래는 구 kosis_rag_qa.py 423~441행 를 그대로 옮긴 코드 ───
-# 답변
+"""답변 프롬프트·출력 스키마 (질의 재작성 프롬프트는 backend/rag/query_analyzer/slots.py)"""
 ANSWER_SCHEMA = {"type": "object", "properties": {
     "answer": {"type": "string"},
     "summary": {"type": "string"},

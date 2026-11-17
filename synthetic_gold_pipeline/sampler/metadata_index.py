@@ -16,8 +16,8 @@ import os
 import re
 import threading
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from collections import OrderedDict, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -110,14 +110,14 @@ class MetadataIndex:
                 failures.append({"table": ref.key, "error": out[1]})
             else:
                 tm, vs = out[1], out[2]
-                cache.save_table(ref, tm, vs)            # 표 하나 끝날 때마다 즉시 저장 (중단돼도 이어서)
+                cache.save_table(ref, tm, vs)  # 표 하나 끝날 때마다 즉시 저장 (중단돼도 이어서)
                 results[ref.key] = (tm, vs)
             done[0] += 1
             if every and (done[0] % every == 0 or done[0] == len(todo)):
                 log.info("인덱싱 새로 읽음 %d/%d 표 (캐시 사용 %d, 작업자 %d) %.0fs", done[0], len(todo),
                          cache.stats["table_hits"], workers, time.time() - t0)
         if todo and workers > 1:
-            ctx = multiprocessing.get_context(xcfg.get("mp_start_method") or None)   # Windows 기본 = spawn
+            ctx = multiprocessing.get_context(xcfg.get("mp_start_method") or None)  # Windows 기본 = spawn
             with ProcessPoolExecutor(max_workers=workers, mp_context=ctx, initializer=_init_worker,
                                      initargs=(str(data_root), acfg, str(generated_views_dir), str(allowed_root))) as ex:
                 futs = {ex.submit(_process_table, ref, gen_views, max_views_per_table): ref for ref in todo}
@@ -131,7 +131,7 @@ class MetadataIndex:
             _W.update(raw=raw, gen=gen)
             for ref in todo:
                 finish(ref, _process_table(ref, gen_views, max_views_per_table))
-        for ref in refs:                                 # 결과 순서는 표 순서로 고정 (병렬이어도 재현 가능)
+        for ref in refs:  # 결과 순서는 표 순서로 고정 (병렬이어도 재현 가능)
             if ref.key in results:
                 tm, vs = results[ref.key]
                 tables[tm.parent_table_id] = tm
@@ -163,7 +163,7 @@ class MetadataIndex:
         return self.views[view_id]
 
     def load_frame(self, view_id: str) -> pd.DataFrame:
-        with self._lock:                     # 비동기 작업의 스레드들이 캐시를 함께 씀
+        with self._lock:  # 비동기 작업의 스레드들이 캐시를 함께 씀
             return self._load_frame(view_id)
 
     def _load_frame(self, view_id: str) -> pd.DataFrame:

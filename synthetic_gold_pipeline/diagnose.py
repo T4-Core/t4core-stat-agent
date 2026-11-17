@@ -100,7 +100,7 @@ def main(argv=None):
             print(f"    {c:>4}× {m}")
         for r in ex[(stage, code)]:
             first = str((r.get("reasons") or [""])[0])
-            if stage == "internal_error":                 # Traceback 은 끝부분(예외가 난 줄)이 중요
+            if stage == "internal_error":  # Traceback 은 끝부분(예외가 난 줄)이 중요
                 tail = "\n      ".join(first.strip().splitlines()[-8:])
                 print(f"    예) {r['sample_id']} {r['reasoning_type']}/{r['subtype']}\n      {tail}")
                 continue

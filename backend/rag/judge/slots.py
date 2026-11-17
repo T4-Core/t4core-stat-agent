@@ -1,5 +1,5 @@
 """
-[NEW] 요청 슬롯(Filters) vs ViewContents → 슬롯별 SlotCheck
+요청 슬롯(Filters) vs ViewContents → 슬롯별 SlotCheck
 
   check_slots(filters, contents, config)
     → {"시점": SlotCheck, "지역": …, "성별": …, "연령": …, "지표": …, "대상": …, "의도": …, "비교축": …}
@@ -9,16 +9,15 @@
 
   매칭 규칙은 View 를 만든 build_view.py / normalize.py 의 함수를 그대로 쓴다
 """
-from backend.rag.ingestion.build_view import SEX_ALIAS, has_sex, match_name, match_name_ctx, sex_name, term_stems
 from backend.rag.ingestion.normalize import parse_age, std_geo_name
 from backend.rag.judge.extract import ViewContents, is_total, region_std
+from backend.rag.view.build import SEX_ALIAS, has_sex, match_name, match_name_ctx, sex_name, term_stems
 from backend.schemas.judge import JudgeConfig, ReasonCode, SlotCheck
-from backend.schemas.judge import SlotStatus as S   
+from backend.schemas.judge import SlotStatus as S
 
 SLOT_ORDER = ["시점", "지역", "성별", "연령", "지표", "대상", "의도", "비교축"]
 SEX_STD = {"남자", "여자"}   
 INF = 10 ** 9                
-
 
 
 def _filters_dict(filters) -> dict:
@@ -90,7 +89,7 @@ def check_region(req, c: ViewContents, config: JudgeConfig) -> SlotCheck:
         return _not_requested()
     want = [std_geo_name(r) for r in req]       
     dims = c.dims_of("regions")
-    if all(w in ("전국", "전체") for w in want):          # [NEW v4] 전국만 물음 = 합계 행 또는 지역 분류 없는 표면 맞음
+    if all(w in ("전국", "전체") for w in want):  # 전국만 물음 = 합계 행 또는 지역 분류 없는 표면 맞음
         if not dims or any(d.has_total for d in dims):
             return SlotCheck(status=S.match, requested=want, found=["전국"],
                              evidence="지역 분류 없음 (전국 값)" if not dims else "합계(전국) 있음")
@@ -257,7 +256,6 @@ def check_terms(req, c: ViewContents, config: JudgeConfig) -> SlotCheck:
         return SlotCheck(status=S.match, requested=want, found=in_items[:10], evidence="항목에 있음")
     in_labels = [lb for d in c.dims for lb in d.labels if match_name(lb, stems)] or \
         [f"{d.column}={lb}" for d in c.dims for lb in d.labels if match_name_ctx(lb, stems, d.column)]
-    # [CHANGED v4] 값 + 분류 이름 ('가구원수별' 의 '1인' = '1인가구') — build_view 가 고른 것과 같은 규칙
     if in_labels:
         return SlotCheck(status=S.match, requested=want, found=in_labels[:10], evidence="분류 라벨에 있음")
     if match_name(c.title, stems):
@@ -297,7 +295,6 @@ def check_axis(req, c: ViewContents, config: JudgeConfig) -> SlotCheck:
         return SlotCheck(status=S.match, requested=req, found=by_name or [d.column for d in regions])
     return SlotCheck(status=S.unknown, requested=req, found=[d.column for d in c.dims],
                      evidence="비교축에 맞는 분류 열을 확인하지 못함")
-
 
 
 def check_slots(filters, contents: ViewContents, config: JudgeConfig | None = None) -> dict[str, SlotCheck]:

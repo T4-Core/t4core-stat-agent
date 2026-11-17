@@ -1,4 +1,4 @@
-"""[NEW v4] 원본 CSV 값 사전 — 표마다 열 머리·분류 값·항목·단위·기간·주석을 스캔해 '값 → 표' 역색인으로
+"""원본 CSV 값 사전 — 표마다 열 머리·분류 값·항목·단위·기간·주석을 스캔해 '값 → 표' 역색인으로
 
   source.py   DataSource 인터페이스 (KOSIS raw CSV / 추후 정제 데이터)
   scanner.py  원본 CSV 1개 → TableScan

@@ -1,39 +1,33 @@
 """
-표 설명문 + 표 색인 — ③ search 의 후보 검색용 (메타 프로필 → 표 설명문 + BM25 토큰)
+표 설명문 + 표 색인 — 검색의 코퍼스 (메타 프로필 → 표 설명문 + BM25 토큰)
 
 설명문에 넣는 것 = "이 표가 무엇을 세었는가": 조사명 · 표 이름 · 분류(지역은 수준만) · 항목 · 단위 · 기간 · 메뉴 경로
 설명문에 넣지 않는 것 = 지역 코드 수천 개, 연도 목록 — "어디·언제" 는 검색이 아니라 View 를 자를 때(슬롯) 정확히 처리
 
-출력  view_model/output/table_index/
+출력  TABLE_INDEX_DIR/
         ids.json        표 순서 (tbl_id)
         texts.jsonl     표 설명문
         tokens.json     BM25 용 형태소 토큰 (kiwi)
         meta.json       표 수·생성 시각
 
-설명문 임베딩(bge-m3)은 여기서 미리 하지 않는다. 검색 때 BM25 로 뽑힌 10개만 그때 임베딩한다 (search.py, 캐시 사용)
+설명문 임베딩(bge-m3)은 검색을 처음 할 때 전체를 한 번 만들어 캐시한다 (backend/rag/search/index.py)
 
-실행  API : POST /search/index/build (백그라운드), GET /search/index/status
-      CLI : python -m backend.rag.ingestion.table_text     # 몇 초 (저장소 루트에서)
-      [CHANGED] 이전: cd view_model && ../.venv/Scripts/python.exe -m services.table_text
+실행  python -m backend.rag.ingestion.table_text   (또는 python -m backend.rag.ingestion.prepare)
 """
 import json
+import re
 import sys
 import time
 from datetime import datetime
-
-import re
 
 from backend.core.config import TABLE_INDEX_DIR
 from backend.core.utils import norm_space
 from backend.rag.ingestion.meta_profile import load_meta_profiles
 from backend.rag.ingestion.normalize import SIDO_ALIAS
-# [CHANGED] 이전: from config import OUT
-#                from services.meta_profile import load_meta_profiles
 
 INDEX = TABLE_INDEX_DIR
-# [CHANGED] 이전: INDEX = OUT / "table_index"   (view_model/output/table_index → storage/indices/table_index, 없으면 예전 위치)
-SMALL_LEVEL = 30                # 코드가 이 수 이하인 분류는 코드 이름까지 설명문에 (성별·시나리오·종류 …)
-TOKEN_TAGS = ("NN", "SL", "SN", "XR", "VV", "VA")   # 명사·외국어·숫자·어근·동사·형용사 (공용 코드와 같은 기준)
+SMALL_LEVEL = 30  # 코드가 이 수 이하인 분류는 코드 이름까지 설명문에 (성별·시나리오·종류 …)
+TOKEN_TAGS = ("NN", "SL", "SN", "XR", "VV", "VA")  # 명사·외국어·숫자·어근·동사·형용사 (공용 코드와 같은 기준)
 GEO_ORDER = ["전국", "시도", "시군구", "읍면동", "동읍면부"]
 OLD_SIDO_RE = re.compile(r"(특별시|광역시|직할시|특별자치시|특별자치도)$")
 
@@ -53,7 +47,7 @@ def level_text(l):
     if l["kind"] == "regions":
         lv = [g for g in GEO_ORDER if g in (l.get("geo_types") or {}) and g != "전국"]
         return f"{l['obj_nm']}({'·'.join(lv) or '지역'})"
-    if is_region_list(l["names"]):                       # [NEW 11-03] 지역 이름은 나열하지 않음
+    if is_region_list(l["names"]):  # 지역 이름은 나열하지 않음
         return f"{l['obj_nm']}(지역·시도)"
     if l["n_codes"] <= SMALL_LEVEL:
         return f"{l['obj_nm']}({', '.join(l['names'][:15])})"
@@ -63,7 +57,7 @@ def level_text(l):
 def table_text(p):
     years = [f"{x['se_raw']} {x['year_from']}~{x['year_to']}" for x in p["periods"] if x.get("year_from")]
     items = [i["name"] for i in p["items"]]
-    if is_region_list(items):                            # [NEW 11-03] 항목이 지역인 표 ('전국, 서울, 부산 …')
+    if is_region_list(items):  # 항목이 지역인 표 ('전국, 서울, 부산 …')
         items = [n for n in items if not is_sido(n) and norm_space(n) != "전국"] + ["지역(시도)"]
     parts = [f"{p['survey_nm']} | {p['tbl_nm']}",
              "분류: " + " / ".join(level_text(l) for l in p["levels"]) if p["levels"] else "",
@@ -77,7 +71,7 @@ def table_text(p):
 _kiwi = None
 
 
-_kiwi_lock = __import__("threading").Lock()   # [NEW] 병렬 실행(review_80 --workers) 때 Kiwi 초기화·호출을 한 번에 하나씩
+_kiwi_lock = __import__("threading").Lock()  # 병렬 실행(batch --workers 등) 때 Kiwi 초기화·호출을 한 번에 하나씩
 
 
 def tokenize(text):
@@ -90,7 +84,7 @@ def tokenize(text):
 
 
 def build_index(progress=print):
-    profs = [p for p in load_meta_profiles() if p["raw"]["exists"]]   # 원본 없는 표는 골라도 정규화 불가 → 제외
+    profs = [p for p in load_meta_profiles() if p["raw"]["exists"]]  # 원본 없는 표는 골라도 정규화 불가 → 제외
     ids = [p["tbl_id"] for p in profs]
     texts = [table_text(p) for p in profs]
     progress(f"표 {len(ids)}개 설명문 생성 (원본 없는 표 제외)")

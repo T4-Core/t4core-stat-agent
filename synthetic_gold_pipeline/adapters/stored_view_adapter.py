@@ -19,10 +19,16 @@ from pathlib import Path
 
 import pandas as pd
 
-from synthetic_gold_pipeline.adapters.kosis_raw_adapter import (AdapterError, KosisRawAdapter, TableRef,
-                                                                 build_view_metadata, completeness_of,
-                                                                 frame_snapshot_hash, split_table_key,
-                                                                 tidy_to_canonical)
+from synthetic_gold_pipeline.adapters.kosis_raw_adapter import (
+    AdapterError,
+    KosisRawAdapter,
+    TableRef,
+    build_view_metadata,
+    completeness_of,
+    frame_snapshot_hash,
+    split_table_key,
+    tidy_to_canonical,
+)
 from synthetic_gold_pipeline.schemas.metadata import InputMode, TableMetadata, ViewMetadata
 from synthetic_gold_pipeline.utils import display_path, normalize_frequency, sha256_file
 
@@ -102,7 +108,7 @@ class StoredViewAdapter:
         tm, from_raw = self._table_meta(org, tbl, df, f)
         if "_src_row" in df.columns and from_raw:
             df["_src_row"] = pd.to_numeric(df["_src_row"], errors="coerce").astype("Int64")
-            provenance = "raw"          # 원본 RAW 행 번호를 그대로 가리킴
+            provenance = "raw"  # 원본 RAW 행 번호를 그대로 가리킴
         else:
             df["_src_row"] = range(1, len(df) + 1)
             provenance = "stored_view_file"

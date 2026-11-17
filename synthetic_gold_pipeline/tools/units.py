@@ -131,7 +131,7 @@ _NUM = re.compile(r"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$")
 
 @dataclass
 class ParsedValue:
-    status: str                    # NUMERIC | SYMBOL | EMPTY | NULL | NAN_STRING | INVALID
+    status: str  # NUMERIC | SYMBOL | EMPTY | NULL | NAN_STRING | INVALID
     value: Decimal | None
     raw: str | None
     symbol: str | None = None
