@@ -239,18 +239,39 @@ def full_names(names):
 
 
 # ── 시점 ────────────────────────────────────────────────────────
-def match_period(prof, f, notes):
+def years_text(ys):
+    """[1980, 1981, …, 1999, 2005] → '1980~1999, 2005' (연속 구간으로 묶음)"""
+    ys, out = sorted({int(y) for y in ys}), []
+    for y in ys:
+        if out and y == out[-1][1] + 1:
+            out[-1][1] = y
+        else:
+            out.append([y, y])
+    return ", ".join(f"{a}~{b}" if b > a else str(a) for a, b in out)
+
+
+def match_period(prof, f, notes, outside=None):
+    """outside: 요청 기간이 표 수록 기간과 하나도 겹치지 않으면 {requested, available, applied} 를 채움
+    (build_view 가 metadata.period_outside 로 — 모듈 3·6 이 '그 기간 자료는 2000년부터' 로 안내)"""
     se = next((s for s in SE_PREF if s in prof["periods"]), next(iter(prof["periods"])))
     avail = sorted({p["year"] for p in prof["periods"][se]})
     want = f.get("시점")
     if want:
         use = [y for y in want if y in avail]
         miss = [y for y in want if y not in avail]
-        if miss:
-            note(notes, "시점", "missing", f"시점 {miss} 은 이 표에 없음 (수록 {avail[0]}~{avail[-1]})", requested=miss)
+        span = f"{avail[0]}~{avail[-1]}"
+        if miss and use:
+            note(notes, "시점", "missing", f"시점 {years_text(miss)} 은(는) 이 표에 없음 (수록 {span})", requested=miss)
         if not use:
-            use = [avail[-1]]
-            note(notes, "시점", "default", f"요청 시점이 모두 없어 최신 {avail[-1]} 사용", requested=want, applied=use)
+            # 겹치는 해가 없음 → 가장 가까운 끝 해를 참고로 (요청이 모두 앞이면 첫 해, 그 밖에는 최신)
+            near = avail[0] if max(want) < avail[0] else avail[-1]
+            use = [near]
+            note(notes, "시점", "missing", f"요청 기간({years_text(want)}) 이 표 수록 기간({span}) 밖",
+                 requested=list(want), applied=[])
+            note(notes, "시점", "default", f"요청 기간에 자료가 없어 가장 가까운 {near} 값만 참고로 넣음",
+                 requested=list(want), applied=use)
+            if outside is not None:
+                outside.update(requested=years_text(want), available=span, applied=near)
     elif f.get("의도") == "추이":
         use = avail
     else:
@@ -452,7 +473,8 @@ def build_view(tbl_id, f, num, con=None):
         if prof is None:
             raise FileNotFoundError(f"원본 CSV 없음: {tbl_id}")
         stems = term_stems((f.get("지표") or []) + (f.get("대상") or []))
-        se, years = match_period(prof, f, notes)
+        outside = {}
+        se, years = match_period(prof, f, notes, outside)
         dims, miss = {}, []
         for l in prof["levels"]:
             sel = match_level(l, f, stems, notes, miss)
@@ -538,7 +560,8 @@ def build_view(tbl_id, f, num, con=None):
                      "n_points": int(df["값"].notna().sum()) if not df.empty else 0,
                      "items": item_names,
                      "dims": [l["obj_nm"] for l, sel in dims.values() if len(sel) > 1],
-                     **({"indicator_missing": miss} if miss else {})},
+                     **({"indicator_missing": miss} if miss else {}),
+                     **({"period_outside": outside} if outside else {})},
         "source": {"table_key": prof["table_key"], "file": prof["file"], "org_id": prof["org_id"],
                    "tbl_id": prof["tbl_id"], "prd_se": se, "itm_id": [i["itm_id"] for i in items],
                    "dims": {f"c{i}": {"codes": [c["code"] for c in sel]} for i, (l, sel) in dims.items()},

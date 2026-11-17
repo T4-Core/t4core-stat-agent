@@ -34,7 +34,7 @@ def resolve_relative_time(question, today=None):
     sub(r"최근\s*(\d{1,2})\s*년(간)?", lambda m: f"{Y - int(m.group(1))}년~{Y - 1}년")
     sub(r"(?<!\d)(\d{1,2})\s*년\s*전(?![국체년반부])", lambda m: f"{Y - int(m.group(1))}년")
     sub(r"(?<!\d)(\d{1,2})\s*년\s*(뒤|후)(?!반)", lambda m: f"{Y + int(m.group(1))}년")
-    sub(r"(?<!\d)((?:19|20)\d)0\s*년대", lambda m: f"{m.group(1)}0년~{m.group(1)}9년")
+    q = resolve_decades(q, Y, notes)
     sub(r"지난\s*달", lambda m: f"{Y if M > 1 else Y - 1}년 {M - 1 if M > 1 else 12}월")
     sub(r"이번\s*달", lambda m: f"{Y}년 {M}월")
     sub(r"재작년", lambda m: f"{Y - 2}년")
@@ -42,6 +42,70 @@ def resolve_relative_time(question, today=None):
     sub(r"올해|금년", lambda m: f"{Y}년")
     sub(r"내년", lambda m: f"{Y + 1}년")
     return q, notes
+
+
+# ---- 1-1) 연대 → 연도 범위 ----
+# '1990년대' · '90년대' · '80~90년대' · '80년대 후반~90년대 초반' · '80·90년대' · '2000년대 초반'
+# 두 자리 연대: 00·10·20 → 2000·2010·2020년대, 30~90 → 1930~1990년대
+# 초·중·후반 (10년을 셋으로): 초(반) 0~3 · 중(반) 4~6 · 후반·말 7~9 · 전반 0~4
+# 끝 연도는 작년까지 ('2020년대' → 2020~작년, 자료가 아직 없는 해를 묻지 않게). 'N0년대생' 은 출생연도라 건드리지 않음
+DECADE_PART = {"초반": (0, 3), "초": (0, 3), "중반": (4, 6), "중": (4, 6), "후반": (7, 9), "말": (7, 9), "전반": (0, 4)}
+_DEC = r"(?<![\d~\-–])((?:19|20)?\d)0"
+_DEC2 = r"((?:19|20)?\d)0"                 # 범위의 뒤쪽 ('80~90년대' 의 90)
+_PART = r"(?:\s*(초반|중반|후반|전반|초|중|말)(?![가-힣]))?"
+DECADE_RANGE_RE = re.compile(rf"{_DEC}\s*(?:년대)?{_PART}\s*(~|-|–|부터|에서)\s*{_DEC2}\s*년대{_PART}(?!\s*생)(\s*까지)?")
+DECADE_LIST_RE = re.compile(rf"{_DEC}\s*(?:년대)?\s*(?:·|,|와|과|및|이랑|하고)\s*{_DEC2}\s*년대(?!\s*생)")
+DECADE_COHORT_RE = re.compile(rf"{_DEC}\s*년대{_PART}\s*생")   # '80년대생' → 출생연도 1980~1989
+DECADE_RE = re.compile(rf"{_DEC}\s*년대{_PART}(?!\s*생)")
+
+
+def _decade_start(d):
+    d = str(d)
+    if len(d) == 3:                        # '199' → 1990
+        return int(d) * 10
+    n = int(d)                             # '9' → 1990, '0'·'1'·'2' → 2000·2010·2020
+    return (2000 if n <= 2 else 1900) + n * 10
+
+
+def _decade_span(d, part=None):
+    a = _decade_start(d)
+    lo, hi = DECADE_PART.get(part or "", (0, 9))
+    return a + lo, a + hi
+
+
+def resolve_decades(q, Y, notes):
+    """연대 표현 → 'a년~b년' (뒤의 expand_year_ranges 가 연도 목록으로 펼침). notes 에 바꾼 내역"""
+    def span(a, b):
+        b = min(b, Y - 1)
+        return f"{a}년~{b}년" if b > a else f"{a}년"
+
+    def rng(m):
+        a, _ = _decade_span(m.group(1), m.group(2))
+        _, b = _decade_span(m.group(4), m.group(5))
+        new = span(*sorted((a, b)))
+        notes.append(f"{m.group(0).strip()} → {new}")
+        return new + " "
+
+    def lst(m):
+        new = " ".join(span(*_decade_span(d)) for d in (m.group(1), m.group(2)))
+        notes.append(f"{m.group(0).strip()} → {new}")
+        return new + " "
+
+    def one(m):
+        new = span(*_decade_span(m.group(1), m.group(2)))
+        notes.append(f"{m.group(0).strip()} → {new}")
+        return new + " "
+
+    def cohort(m):
+        a, b = _decade_span(m.group(1), m.group(2))
+        notes.append(f"{m.group(0).strip()} → {a}~{b}년생")
+        return f"{a}~{b}년생"
+
+    q = DECADE_COHORT_RE.sub(cohort, q)
+    q = DECADE_RANGE_RE.sub(rng, q)
+    q = DECADE_LIST_RE.sub(lst, q)
+    q = DECADE_RE.sub(one, q)
+    return re.sub(r"[ \t]{2,}", " ", q).strip()
 
 
 # ---- 2) 범위 → 개별 연도·월 ----

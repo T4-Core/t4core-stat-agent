@@ -18,7 +18,7 @@ import re
 
 from backend.rag.ingestion.meta_profile import load_meta_profiles
 from backend.rag.ingestion.normalize import SIDO, SIDO_ALIAS
-from backend.rag.view.build import SEX_ALIAS, full_names, has_sex, note, squash
+from backend.rag.view.build import SEX_ALIAS, full_names, has_sex, note, squash, years_text
 
 LATEST_FROM = 2024  # 연도를 안 물었을 때 "최신 표" = 이 해 이후 자료가 있는 표
                          # 정답이 조건 단계에서 11~20위로 밀리면 dense 가 볼 기회가 없던 문제 (144문항 중 29건)
@@ -155,8 +155,11 @@ def unmet(p, f):
     # 반환 모양은 build_view 의 notes 와 같음: {slot, dim, type, requested, applied, text}
     if want:
         miss = [y for y in want if not any(a <= y <= b for a, b in years)]
-        if miss:
-            note(out, "시점", "missing", f"시점 {miss} 없음 (수록 ~{last})", requested=miss)
+        rng = ", ".join(f"{a}~{b}" for a, b in sorted(years)) or "?"
+        if miss and len(miss) == len(want):
+            note(out, "시점", "missing", f"요청 기간({years_text(want)}) 이 표 수록 기간({rng}) 밖", requested=miss)
+        elif miss:
+            note(out, "시점", "missing", f"시점 {years_text(miss)} 없음 (수록 {rng})", requested=miss)
     elif last is None or last < LATEST_FROM:
         note(out, "시점", "missing", f"최신 자료 없음 (끝 연도 {last})", requested="최신", applied=last)
 

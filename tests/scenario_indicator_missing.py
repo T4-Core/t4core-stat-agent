@@ -1,4 +1,4 @@
-"""요청 지표가 없는 표 — '최근 30년 이민자 수' 가 인구동태 표의 첫 코드(출생아수)로 답이 나가던 문제
+"""View 가 요청을 못 맞출 때 — ①~③ 요청 지표가 없는 표('최근 30년 이민자 수' → 출생아수), ④ 요청 기간이 수록 기간 밖
 tests/test_indicator_missing.py 가 별도 프로세스로 실행 (가짜 KOSIS 에 DT_1B8000F 모양의 표를 더해서)
 
   기본항목별 = 출생아수(명) · 사망자수(명) · 혼인건수(건) · 이혼건수(건)  (합계 코드 없음)
@@ -81,4 +81,17 @@ assert ids and all("DT_1B8000F" not in i for i in ids) and any("DT_1B040A3" in i
 assert not any("찾지 못함" in n for n in vs2["units"][0]["notes"])
 print("[③] records:", ids)
 
+# ④ 요청 기간이 표 수록 기간(2021~2025) 밖 → notes · metadata.period_outside · 검색 unmet 에 남김
+from backend.rag.search.resolve import profile, unmet  # noqa: E402
+
+OLD = {"시점": list(range(1980, 2000)), "지역": ["대구광역시"], "지표": ["인구수"], "의도": "추이"}
+rec4, notes4 = build_view("DT_1B040A3", OLD, "t-4")
+assert rec4["metadata"]["period_outside"] == {"requested": "1980~1999", "available": "2021~2025", "applied": 2021}, rec4["metadata"]
+assert any(n["type"] == "missing" and "요청 기간(1980~1999) 이 표 수록 기간(2021~2025) 밖" == n["text"] for n in notes4), notes4
+assert {r[0] for r in rec4["table"]["rows"]} == {"2021"}                 # 가장 가까운 해 (요청이 모두 앞이라 첫 해)
+um = [n["text"] for n in unmet(profile("DT_1B040A3"), OLD) if n["slot"] == "시점"]
+assert um == ["요청 기간(1980~1999) 이 표 수록 기간(2021~2025) 밖"], um
+part = [n["text"] for n in unmet(profile("DT_1B040A3"), {**OLD, "시점": list(range(2019, 2024))}) if n["slot"] == "시점"]
+assert part == ["시점 2019~2020 없음 (수록 2021~2025)"], part
+print("[④] 기간 밖:", [n["text"] for n in notes4 if n["slot"] == "시점"])
 print(json.dumps({"INDICATOR_MISSING": "PASS"}, ensure_ascii=False))
