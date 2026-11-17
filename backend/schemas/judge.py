@@ -1,9 +1,9 @@
 """
-[NEW] 판단(Judge) 모듈 — "받은 View 가 질문 조건을 실제로 담았는가" 를 슬롯 단위로 판정
+판단(Judge) 모듈 — "받은 View 가 질문 조건을 실제로 담았는가" 를 슬롯 단위로 판정
 
   흐름 (실시간, 질문마다 1번)
-    tool_rewrite ─▶ view_bundle + adapter notes
-    tool_views   ─▶ ViewResult
+    analyze      ─▶ view_bundle + notes
+    build_viewset ─▶ ViewResult (units[].views)
                        │
                        ▼
              judge(JudgeRequest) ─▶ JudgeResult ─▶ 오케스트레이터 (pass 면 답변, 아니면 reasons 를 보고 결정)
@@ -23,30 +23,30 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from backend.schemas.query import QueryBundle   # 질의 모듈 → View 모듈 입력 (view_bundle)
-from backend.schemas.view import ViewResult     # View 모듈 출력 (단위별 Record + notes).
+from backend.schemas.query import QueryBundle  # 질의 모듈 → View 모듈 입력 (view_bundle)
+from backend.schemas.view import ViewResult  # View 모듈 출력 (단위별 Record + notes).
 
 
 class SlotStatus(str, Enum):
     """슬롯 하나의 판정 결과"""
-    match = "match"                   # 요청한 조건이 View 에 모두 있다
-    partial = "partial"               # 일부만 있거나, 비슷한 값으로 대체되었다 (예: 2024 요청 → 최신 2023 사용)
-    missing = "missing"               # 요청했는데 View 에 없다 (예: 20대를 물었는데 연령 분류가 없는 표)
-    unsupported = "unsupported"       # View 단계 이전(재작성·변환)에서 이미 빠졌다 (예: 국적, 전출지)
-    not_requested = "not_requested"   # 사용자가 묻지 않은 슬롯 → 점수 계산에서 뺀다
-    unknown = "unknown"               # 판단할 근거가 없다 (예: 표 열의 종류를 알 수 없음)
+    match = "match"  # 요청한 조건이 View 에 모두 있다
+    partial = "partial"  # 일부만 있거나, 비슷한 값으로 대체되었다 (예: 2024 요청 → 최신 2023 사용)
+    missing = "missing"  # 요청했는데 View 에 없다 (예: 20대를 물었는데 연령 분류가 없는 표)
+    unsupported = "unsupported"  # View 단계 이전(재작성·변환)에서 이미 빠졌다 (예: 국적, 전출지)
+    not_requested = "not_requested"  # 사용자가 묻지 않은 슬롯 → 점수 계산에서 뺀다
+    unknown = "unknown"  # 판단할 근거가 없다 (예: 표 열의 종류를 알 수 없음)
 
 
 class SlotTier(str, Enum):
     """슬롯의 중요도 등급 — 빠졌을 때 얼마나 치명적인가"""
-    core = "core"     # 빠지면 '다른 숫자'를 답하게 됨 (지표·대상·지역·시점)
-    minor = "minor"   # 빠지면 '범위가 넓은 숫자'를 답하게 됨 (성별·연령)
-    shape = "shape"   # 값은 맞지만 모양이 다름 (의도: 추이를 물었는데 한 시점만)
+    core = "core"  # 빠지면 '다른 숫자'를 답하게 됨 (지표·대상·지역·시점)
+    minor = "minor"  # 빠지면 '범위가 넓은 숫자'를 답하게 됨 (성별·연령)
+    shape = "shape"  # 값은 맞지만 모양이 다름 (의도: 추이를 물었는데 한 시점만)
 
 
 class Verdict(str, Enum):
-    """최종 판정 3단계 (eval/pipeline_review 의 PASS/PARTIAL/FAIL 과 같은 단계, 소문자)"""
-    pass_ = "pass"        # 'pass' 는 파이썬 예약어라 이름 뒤에 _ 를 붙였다. JSON 값은 "pass" 그대로
+    """최종 판정 3단계"""
+    pass_ = "pass"  # 'pass' 는 파이썬 예약어라 이름 뒤에 _ 를 붙였다. JSON 값은 "pass" 그대로
     partial = "partial"
     fail = "fail"
 
@@ -54,12 +54,12 @@ class Verdict(str, Enum):
 class ReasonCode(str, Enum):
     """오케스트레이터가 '다음에 무엇을 할지' 고를 때 쓰는 사유 코드.
     평가 모듈은 사유만 알려 주고, 재검색·재작성 여부는 오케스트레이터가 정한다."""
-    no_views = "no_views"                             # 단위에 View 가 하나도 없음            → 재검색
-    empty_view = "empty_view"                         # View 는 있으나 값이 0개               → 재검색
-    core_slot_missing = "core_slot_missing"           # 핵심 슬롯(지표·지역·시점 …) 없음      → 재검색 또는 "자료 없음"
-    slot_substituted = "slot_substituted"             # 요청과 다른 값으로 대체됨             → 주의 문구 붙여 답변
-    slot_dropped_upstream = "slot_dropped_upstream"   # 재작성·변환 단계에서 조건이 빠짐      → 재작성 재시도 또는 한계 안내
-    intent_mismatch = "intent_mismatch"               # 추이를 물었는데 시점이 1개뿐 등       → 조건 조정 후 재검색
+    no_views = "no_views"  # 단위에 View 가 하나도 없음            → 재검색
+    empty_view = "empty_view"  # View 는 있으나 값이 0개               → 재검색
+    core_slot_missing = "core_slot_missing"  # 핵심 슬롯(지표·지역·시점 …) 없음      → 재검색 또는 "자료 없음"
+    slot_substituted = "slot_substituted"  # 요청과 다른 값으로 대체됨             → 주의 문구 붙여 답변
+    slot_dropped_upstream = "slot_dropped_upstream"  # 재작성·변환 단계에서 조건이 빠짐      → 재작성 재시도 또는 한계 안내
+    intent_mismatch = "intent_mismatch"  # 추이를 물었는데 시점이 1개뿐 등       → 조건 조정 후 재검색
 
 
 def _default_slot_tiers() -> dict[str, SlotTier]:
@@ -81,7 +81,7 @@ def _default_status_score() -> dict[SlotStatus, float]:
 
 class JudgeConfig(BaseModel):
     """통과 기준. 팀에서 아직 정하는 중이라 전부 설정값으로 뺐다 (기본값 = 임시값).
-    나중에 eval/pipeline_review 평가셋으로 여러 설정을 돌려 비교한 뒤 확정한다."""
+    평가셋으로 여러 설정을 돌려 비교한 뒤 확정한다."""
     slot_tiers: dict[str, SlotTier] = Field(
         default_factory=_default_slot_tiers,
         description="슬롯 이름 → 중요도 등급. 여기에 없는 슬롯은 판정만 하고 점수에는 넣지 않음")
@@ -112,9 +112,8 @@ class JudgeConfig(BaseModel):
         return self
 
 
-
-# Swagger 예시: "작년 대구 남자 20대 인구 수" 에 연령 분류가 없는 View 가 온 경우 ([P1] 사례) + 국적 변환 메모
-#   Try it out → Execute 만 누르면 → partial (연령 missing · 시점 대체 · 국적 unsupported, 점수 0.75)
+# Swagger 예시: "작년 대구 남자 20대 인구 수" 에 연령 분류가 없는 View 가 온 경우 + 국적 변환 메모
+# Try it out → Execute 만 누르면 → partial (연령 missing · 시점 대체 · 국적 unsupported, 점수 0.75)
 _EX_FILTERS = {"시점": [2025], "지역": ["대구광역시"], "성별": ["남자"], "연령": {"from": 20, "to": 29},
                "지표": ["인구수"], "대상": ["인구"], "의도": "값 조회"}
 EX_JUDGE_REQUEST = {
@@ -145,15 +144,14 @@ EX_JUDGE_REQUEST = {
 class JudgeRequest(BaseModel):
     # json_schema_extra 의 examples 가 Swagger 의 'Example Value' 로 그대로 채워진다 (schemas/query.py 와 같은 방식)
     model_config = ConfigDict(json_schema_extra={"examples": [EX_JUDGE_REQUEST]})
-    bundle: QueryBundle = Field(..., description="view_bundle (query-rewrite 응답의 view_bundle 그대로)")
-    views: ViewResult = Field(..., description="View 모듈 상세 결과 (/api/v1/rag/views/detail 응답 그대로). "
+    bundle: QueryBundle = Field(..., description="view_bundle (POST /rag/analyze 응답의 view_bundle 그대로)")
+    views: ViewResult = Field(..., description="View 결과 (POST /api/v1/rag/views 응답 그대로). "
                                                "단위별 슬롯(units[].filters)과 Record 를 짝지어 판정한다")
     upstream_notes: list[str] = Field(
         default_factory=list,
-        description="재작성 → View 입력 변환(adapter) 중 버리거나 바꾼 조건 메모 (query-rewrite 응답의 notes). "
+        description="재작성 → View 입력 변환(adapter) 중 버리거나 바꾼 조건 메모 (analyze 응답의 notes). "
                     "'[국적] … View 모듈에 아직 없는 슬롯' 처럼 [슬롯] 태그가 붙어 있어 unsupported 판정에 쓴다")
     config: JudgeConfig | None = Field(None, description="통과 기준. 비우면 JudgeConfig 기본값")
-
 
 
 class SlotCheck(BaseModel):

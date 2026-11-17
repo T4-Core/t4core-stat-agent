@@ -1,15 +1,15 @@
-"""[NEW] 답변 문맥 고르기 (light_agent.pick_context): groups 없으면 예전과 같음 / 있으면 하위 질의마다 최소 1개"""
-from backend.agent.light_agent import pick_context
+"""답변 문맥 고르기 (agent.answer.pick_context): groups 가 있으면 검색 단위마다 최소 1개"""
+from backend.agent.answer import pick_context
 
 
 def _r(i, tbl, rows=True):
     return {"id": i, "source": {"tbl_id": tbl}, "table": {"rows": [[1]] if rows else []}}
 
 
-def test_default_is_unchanged():
+def test_default_order():
     recs = [_r("a", "T1", False), _r("b", "T2"), _r("c", "T3"), _r("d", "T4"), _r("e", "T5")]
     notes = {"c": ["x"]}
-    assert [r["id"] for r in pick_context(recs, notes)] == ["b", "d", "e", "c"]     # 값 있는 View → 메모 적은 순 → 빈 View
+    assert [r["id"] for r in pick_context(recs, notes)] == ["b", "d", "e", "c"]  # 값 있는 View → 메모 적은 순 → 빈 View
 
 
 def test_each_group_gets_one():

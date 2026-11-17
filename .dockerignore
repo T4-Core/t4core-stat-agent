@@ -24,13 +24,8 @@ venv/
 
 # not imported by backend/
 .git/
-notebooks/
-eval/
-profiling/
-why/
-rag/
 tests/
-docs/
+synthetic_gold_pipeline/
 private/
 **/.ipynb_checkpoints/
 

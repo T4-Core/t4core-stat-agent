@@ -1,76 +1,189 @@
 """
-View 모듈 상세 결과·관리 응답 (구 view_model/schemas.py 중 1.1~1.3 에 들어가지 않는 것)
+검색·View 입출력
+
+  Candidate · SearchResult       표 검색 결과 (POST /api/v1/rag/search)
+  ViewResult                     검색 단위별 View (판단 모듈 입력)
+  ViewSet                        ViewResult + 단위별 Point 충돌 판정 · 선택 (POST /api/v1/rag/views)
 """
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.schemas.query import Filters, QueryBundle
-from backend.schemas.record import Record
-from backend.schemas.search import Candidate
+from backend.schemas.record import Note, Record
 
-# ─── 구 view_model/schemas.py 118~123 행 (내용 그대로) ───
+EX_VB = {"query_id": "demo", "original": "2025년 대전 인구 수", "search_text": "대전광역시 인구수",
+         "filters": {"시점": [2025], "지역": ["대전광역시"], "지표": ["인구수"], "의도": "값 조회"}}
+
+
+# ── 검색 ────────────────────────────────────────────────────────
+class Candidate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    rank: int = Field(..., description="최종 순위 (1부터)")
+    tbl_id: str
+    tbl_nm: str
+    survey_nm: str
+    score: float = Field(..., description="채널 점수 합 × 표 구조 계수")
+    dense: float | None = Field(None, description="질문 ↔ 표 설명문 코사인 유사도")
+    bm25_rank: int | None = None
+    bm25: float | None = None
+    has_view: bool = Field(False, description="View 카드를 만들었는지 (상위 n_views 개만)")
+    unmet: list[Note] | None = Field(None, description="표 메타데이터 기준으로 못 맞춘 조건")
+    cover: float | None = Field(None, description="요청 연도 중 표 기간 안에 든 비율 (0~1)")
+    cost: float | None = None
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(..., examples=["최근 5년간 대전의 인구 변화 추이"])
+    top_k: int = Field(10, ge=1, le=100)
+    filters: Filters | None = Field(None, description="슬롯 (있으면 표 구조 계수에 반영)")
+
+
+class SearchResult(BaseModel):
+    query: str
+    candidates: list[Candidate]
+
+
+# ── View ────────────────────────────────────────────────────────
 class ViewItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
     record: Record
-    notes: list[str] = Field(default_factory=list, description="표에 없어 못 맞춘 조건 (확인용, 카드에는 안 들어감)")
+    notes: list[str] = Field(default_factory=list, description="표에 없어 못 맞춘 조건")
     rank: int
     tbl_id: str
 
 
-# ─── 구 view_model/schemas.py 138~154 행 (내용 그대로) ───
 class UnitResult(BaseModel):
-    """검색 단위 하나 (상위 질의 또는 서브쿼리)"""
+    model_config = ConfigDict(extra="allow")
     unit_id: str = Field(..., description="'main' 또는 서브쿼리 ID")
-    query: str = Field(..., description="검색에 쓴 자연어")
-    filters: Filters | None = Field(None, description="View 조건에 쓴 슬롯")
-    candidates: list[Candidate]
-    views: list[ViewItem]
-    notes: list[str] = Field(default_factory=list)
+    query: str = Field(..., description="검색 단위 문장")
+    filters: Filters | None = None
+    candidates: list[Candidate] = []
+    views: list[ViewItem] = []
+    notes: list[str] = []
 
 
 class ViewResult(BaseModel):
-    """판단 모듈로 넘기는 묶음: 원래 질의 + 단위별 View"""
+    model_config = ConfigDict(extra="allow")
     query_id: str
     original: str
-    filters: Filters | None
+    filters: Filters | None = None
     units: list[UnitResult]
 
 
-# ─── 구 view_model/schemas.py 162~198 행 (내용 그대로) ───
-class MetaBuildSummary(BaseModel):
-    file: str
-    n_tables: int
-    failed: list[dict[str, str]]
-    n_meta_empty: int
-    n_raw_missing: int
-    kinds: dict[str, int]
-    n_with_regions: int
-    n_with_sido: int
-    periods: dict[str, int]
-    n_no_unit: int
+# ── 충돌·선택 ───────────────────────────────────────────────────
+class ViewCheck(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    record_id: str
+    tbl_id: str
+    rank: int | None = None
+    usable: bool = Field(..., description="필수 메타를 모두 썼는가 (False 면 비교에서 빠짐)")
+    used: dict[str, bool] = {}
+    checks: dict[str, dict] = {}
+    notes: list[str] = []
+    n_points: int = 0
 
 
-class NormalizeResult(BaseModel):
-    table_key: str
-    tbl_nm: str
-    cached: bool = Field(..., description="true 면 기존 정규화 결과를 재사용")
-    seconds: float
-    row_check: dict[str, int]
-    profile: dict[str, Any] = Field(..., description="정규화 프로필 (full=false 면 코드 목록 생략)")
+class DifferingPoint(BaseModel):
+    key: dict[str, Any]
+    key_str: str
+    values: list[dict] = Field(..., description="표마다 {record_id, tbl_id, value, unit, base_value, labels}")
 
 
-class PipelineRequest(BaseModel):
-    # Swagger 가 QueryBundle 예시로 queries 를 채워 1개만 돌리는 일이 없도록 예시를 명시 (queries 없음 = 예시 12개)
-    model_config = ConfigDict(json_schema_extra={"examples": [{"top_k": 10, "n_views": 3}]})
-    queries: list[QueryBundle] | None = Field(None, description="비우면 쿼리 모듈 예시 12개 질의 (결과: view_results.jsonl). "
-                                                                 "넣으면 그 질의만 (결과: view_results_custom_<시각>.jsonl)")
-    top_k: int = Field(10, description="검색 후보 수")
-    n_views: int = Field(3, description="View 를 만들 후보 수 (상위부터)")
+class ConflictOption(BaseModel):
+    option_id: str = Field(..., examples=["opt-1"])
+    record_ids: list[str] = Field(..., description="이 선택지의 View (값이 서로 같은 표들, 첫 번째가 대표)")
+    tbl_ids: list[str]
+    tbl_nm: str = ""
+    survey_nm: str | None = None
+    value_preview: list[dict] = Field(default_factory=list, description="다른 값이 나온 교차점: 이 선택지 값 + 다른 표 값")
+    footnotes: list[dict] = Field(default_factory=list, description="메타 주석 (통계표·항목·분류) {type, target, text}")
+    description: str = Field("", description="표 설명 (분류·항목·단위·기간·경로)")
+    basis: dict = Field(default_factory=dict, description="산출 기준: 조사·주기·기간·단위·항목·검색 순위·View 메모")
+    kosis_url: str | None = None
+    same_value_tables: list[str] = []
 
 
-class PipelineResult(BaseModel):
-    n_queries: int
-    n_records: int
-    file: str = Field(..., description="카드 목록 저장 경로 (JSON 배열 하나)")
-    detail_file: str = Field(..., description="상세 결과 저장 경로 (jsonl, 한 줄 = ViewResult)")
-    records: list[Record]
+class PointConflict(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    unit_id: str
+    status: Literal["ok", "ambiguous", "partial", "empty"]
+    views: list[ViewCheck] = []
+    n_compared_keys: int = Field(0, description="두 표 이상에 있는 교차점 수")
+    n_agree: int = 0
+    differing_points: list[DifferingPoint] = []
+    clusters: list[list[str]] = []
+    options: list[ConflictOption] = []
+    selection_token: str | None = Field(None, description="선택할 때 option_id 와 함께 보냄")
+    selected_option: str | None = None
+    notes: list[str] = []
+
+
+class ViewUnit(UnitResult):
+    search_query: str = ""
+    conflict: PointConflict
+    selected: dict | None = None
+
+
+class PendingSelection(BaseModel):
+    unit_id: str
+    selection_token: str
+    options: list[ConflictOption]
+
+
+class ViewSet(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    status: Literal["ok", "needs_selection", "needs_clarification", "out_of_scope"]
+    query_id: str | None = None
+    original: str | None = None
+    units: list[ViewUnit] = []
+    records: list[Record] = Field(default_factory=list, description="답변으로 넘길 카드")
+    pending: list[PendingSelection] = []
+    analysis_status: str | None = None
+    clarifications: list[dict] = []
+    notes: list[str] = []
+    seconds: float | None = None
+    view_bundle: dict | None = None
+
+
+class ViewsRequest(BaseModel):
+    """셋 중 하나: question(분석부터) · analysis(/rag/analyze 응답) · view_bundle"""
+    model_config = ConfigDict(json_schema_extra={"examples": [{"view_bundle": EX_VB}, {"question": "작년 대전 인구 수"}]})
+    question: str | None = Field(None, description="질문 — 분석(HCX 1회)부터")
+    today: str | None = None
+    analysis: dict | None = Field(None, description="POST /api/v1/rag/analyze (또는 /clarify) 응답 그대로")
+    view_bundle: QueryBundle | None = None
+    top_k: int | None = Field(None, ge=1, le=50)
+    n_views: int | None = Field(None, ge=1, le=10, description="단위마다 View 를 만들어 비교할 표 수")
+    overrides: dict = Field(default_factory=dict, description="configs/pipeline.yaml 값 일부만 바꾸기")
+    auto_select: Literal["first"] | None = Field(None, description="first = 충돌이 있으면 검색 순위가 가장 높은 선택지를 자동으로")
+
+
+class SelectionItem(BaseModel):
+    selection_token: str
+    option_id: str = Field(..., examples=["opt-1"])
+
+
+class SelectRequest(BaseModel):
+    selections: list[SelectionItem]
+    previous: dict | None = Field(None, description="POST /rag/views 응답 전체. 있으면 그 Record 를 그대로 쓰고 records 를 다시 묶음. "
+                                                    "없으면 토큰의 좌표로 View 를 다시 만들어 선택한 것만 돌려줌")
+
+
+class SelectResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    viewset: ViewSet | None = None
+    records: list[Record] = Field(default_factory=list)
+    applied: list[dict] = []
+
+
+class PointsRequest(BaseModel):
+    records: list[Record] = Field(..., description="비교할 View 카드")
+    filters: dict | None = Field(None, description="질문 슬롯 (view_bundle.filters)")
+    overrides: dict = Field(default_factory=dict)
+
+
+class PointsResponse(BaseModel):
+    points: dict[str, list[dict]] = Field(..., description="record_id → Point 목록 {key, key_str, value, raw_value, unit, labels}")
+    point_notes: dict[str, list[str]] = {}
+    conflict: PointConflict

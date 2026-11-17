@@ -1,69 +1,74 @@
 """
-FastAPI 엔트리포인트 — 모든 모듈을 하나의 Swagger 로 통합  (구 view_model/main.py 를 확장)
+FastAPI 앱 — uvicorn backend.main:app --reload --port 8000  →  http://localhost:8000/docs
 
-실행  저장소 루트에서
-      uvicorn backend.main:app --reload --port 8000
-      [CHANGED] 이전: .venv/Scripts/python.exe -m uvicorn main:app --reload --reload-dir view_model --app-dir view_model --port 8002
-                     (재작성 모듈은 FastAPI 앱이 없었음 → 이번에 같은 앱에 등록)
-Swagger  http://localhost:8000/docs      (ReDoc: /redoc, 스키마 원본: /openapi.json)
-
-Swagger 화면 순서 = 파이프라인 순서
-  ⓪ Ingest  처음 한 번: POST /api/v1/rag/chunk-and-index  (메타 프로필 → 표 색인)
-  ① Query   POST /api/v1/rag/query-rewrite   질문 → bundle + view_bundle
-  ② View    POST /api/v1/rag/views           view_bundle → Record 목록
-  ③ Agent   POST /api/v1/agent/answer        질문 + Record 목록 → 답변
-  ★         POST /api/v1/chat                ①→②→③ 한 번에
+Swagger 순서 = 파이프라인 순서
+  ⓪ 준비      POST /api/v1/ingest/prepare     메타 프로필 → 표 색인 → CSV 값 사전 (처음 한 번)
+  ① 질의 분석  POST /api/v1/rag/analyze        질문 → QueryAnalysis (view_bundle)
+  ② 검색·View  POST /api/v1/rag/views          → 단위별 View + 충돌 판정 → records
+  ③ 답변       POST /api/v1/agent/answer       질문 + records → 답변
+  ★            POST /api/v1/chat               ①→②→③ 한 번에
+  ③-1 차트     POST /api/v1/chart/decide       질문 + View → 차트 계획 (모듈 2)
+               POST /api/v1/chart/calc         차트 계획 → 계산·차트 내용·검증 (모듈 3)
+  ③-2 답변·표  POST /api/v1/answer/compose     계산 결과 → 답변 문장·근거 표·주의사항 (모듈 6)
+  화면         /lab/chart-lab/                 frontend/ 가 있을 때 정적 테스트 화면
 """
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
-from backend.api import v1_chat, v1_ingest, v1_judge, v1_query, v1_search
-# [CHANGED] 이전: from backend.api import v1_chat, v1_ingest, v1_query, v1_search   (v1_judge = 판단 모듈 API 추가)
-from backend.core.config import OUT, TABLE_INDEX_DIR, paths
+from backend.api import answer, chart, chat, csv_index, ingest, judge, query, views
+from backend.core.config import FRONTEND_DIR, TABLE_INDEX_DIR, VIEW_OUT_DIR, paths
 
 TAGS = [
-    {"name": "system", "description": "상태·경로 확인 (데이터 폴더가 어디로 해석됐는지)"},
-    {"name": "⓪ Ingest 준비 (메타·정규화·색인)", "description": "수집 결과(kosis_data) → 메타 프로필·표 색인·정규화 parquet"},
-    {"name": "① Query 질의 분석", "description": "질문 → 재작성 QueryBundle → View 모듈 입력 (backend/rag/query_analyzer)"},
-    {"name": "② Retrieval 검색·View 생성", "description": "QueryBundle → 표 검색 → View 카드(Record) (backend/rag/retrieval, ingestion)"},
-    {"name": v1_judge.TAG, "description": "View 가 질문 조건(슬롯)을 실제로 담았는가 → pass/partial/fail + 사유 코드 (backend/rag/judge)"},  # [NEW]
-    {"name": "③ Agent 통합 (전체 파이프라인)", "description": "Record → HCX 답변 + 차트 + 출처 (backend/agent)"},
-    {"name": "④ Data 좌표 조회·차트", "description": "Record.source → DuckDB 재조회 (backend/data_engine)"},
+    {"name": "system", "description": "상태·경로 확인"},
+    {"name": ingest.TAG, "description": "수집 결과(kosis_data) → 메타 프로필·표 색인·CSV 값 사전·정규화 (backend/rag/ingestion)"},
+    {"name": csv_index.TAG, "description": "원본 CSV 의 분류 값·항목·단위·기간·주석 → 값 → 표 역색인 (backend/rag/csv_index)"},
+    {"name": query.TAG, "description": "질문 → 재작성(HCX) → CSV 값 사전 접지 → 되묻기 → 서브쿼리 → view_bundle "
+                                       "(backend/rag/query_analyzer)"},
+    {"name": views.TAG, "description": "검색 단위별 표 검색(backend/rag/search) → View 카드 → Point 충돌 판정·선택 "
+                                       "(backend/rag/view)"},
+    {"name": judge.TAG, "description": "View 가 질문 조건(슬롯)을 실제로 담았는가 → pass/partial/fail + 사유 (backend/rag/judge)"},
+    {"name": chat.TAG, "description": "Record → HCX 답변 + 차트 + 출처 (backend/agent)"},
+    {"name": chart.TAG, "description": "질문 + View → 차트 계획(모듈 2) → 계산 계획·계산 결과·차트 내용·검증(모듈 3) "
+                                       "(backend/agent/chart_decision, chart_calculate)"},
+    {"name": answer.TAG, "description": "질문 + View + 계산 결과 → 답변 문장·근거 표·주의사항 (backend/agent/answer_compose)"},
+    {"name": views.DATA_TAG, "description": "Record.source → parquet 재조회 (backend/data_engine)"},
 ]
 
 app = FastAPI(
-    title="KOSIS 통계 Agent API (통합)",
-    description=(
-        "질문 → **① 재작성** → **② 검색·View 생성** → **③ 답변** 을 한 Swagger 에서 단계별·한 번에 테스트\n\n"
-        "- 한 번에: **POST /api/v1/chat**\n"
-        "- 단계별: query-rewrite 응답의 `view_bundle` → /rag/views 응답(Record 목록) → /agent/answer 의 `records`\n"
-        "- 처음 한 번: POST /api/v1/rag/chunk-and-index  (경로 확인: GET /api/v1/system/paths)\n\n"
-        "설명 문서: `MIGRATION.md`, `docs/`"
-    ),
-    version="0.3.0",
+    separate_input_output_schemas=False,   # 요청·응답 스키마 이름을 하나로 (Record-Input/-Output 으로 갈라지지 않게)
+    title="KOSIS 통계 Agent API",
+    description=("질문 → **① 질의 분석** → **② 검색·View** → **③ 답변** 을 단계별 또는 한 번에\n\n"
+                 "- 한 번에: **POST /api/v1/chat**\n"
+                 "- 단계별: /rag/analyze → /rag/views → /agent/answer\n"
+                 "- 처음 한 번: POST /api/v1/ingest/prepare (경로 확인: GET /api/v1/system/paths)"),
+    version="1.0.0",
     openapi_tags=TAGS,
 )
-# [CHANGED] 이전: for r in (meta, normalize, query, search, views): app.include_router(r.router)   (View 모듈만)
-for r in (v1_ingest.prep, v1_ingest.router, v1_query.router, v1_search.router, v1_judge.router, v1_chat.router,
-          v1_search.data):
+for r in (ingest.router, csv_index.router, query.router, views.router, judge.router, chat.router,
+          chart.router, answer.router, views.data):
     app.include_router(r)
-# [CHANGED] 이전: for r in (v1_ingest.prep, v1_ingest.router, v1_query.router, v1_search.router, v1_chat.router, v1_search.data):
-#   (v1_judge.router 를 ② 검색과 ③ 답변 사이에 등록 — 파이프라인 순서 = Swagger 순서)
+
+# 정적 테스트 화면 (frontend/). 같은 주소에서 서빙해 CORS 설정 없이 /api/v1/* 를 부른다. API 경로와 겹치지 않게 /lab 아래
+if FRONTEND_DIR.exists():
+    app.mount("/lab", StaticFiles(directory=FRONTEND_DIR, html=True), name="lab")
 
 
 @app.get("/health", tags=["system"], summary="상태 확인")
 def health():
-    # 구 view_model/main.py health 와 같은 항목 + 경로 (표 색인 위치만 TABLE_INDEX_DIR 로 바뀜)
-    return {"status": "ok", "meta_profiles": (OUT / "meta_profiles.jsonl").exists(),
+    from backend.core.config import CSV_INDEX_DIR
+    return {"status": "ok", "meta_profiles": (VIEW_OUT_DIR / "meta_profiles.jsonl").exists(),
             "table_index": (TABLE_INDEX_DIR / "tokens.json").exists(),
-            "n_normalized": len(list((OUT / "processed").glob("*.parquet"))) if (OUT / "processed").exists() else 0}
+            "csv_index": (CSV_INDEX_DIR / "values.parquet").exists(),
+            "n_normalized": len(list((VIEW_OUT_DIR / "processed").glob("*.parquet")))
+            if (VIEW_OUT_DIR / "processed").exists() else 0}
 
 
-@app.get("/api/v1/system/paths", tags=["system"], summary="데이터 경로 해석 결과 (환경변수 → storage → 예전 위치)")
+@app.get("/api/v1/system/paths", tags=["system"], summary="데이터 경로 해석 결과")
 def system_paths():
     return paths()
 
 
-@app.get("/api/v1/system/pipelines", tags=["system"], summary="[NEW] 사용 가능한 파이프라인 (기본 + 개인 폴더 플러그인)")
+@app.get("/api/v1/system/pipelines", tags=["system"], summary="사용 가능한 파이프라인 (기본 + 개인 폴더 플러그인)")
 def system_pipelines():
     from backend.core import plugins
     from backend.core.config import PRIVATE_DIR

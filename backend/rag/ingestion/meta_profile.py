@@ -1,15 +1,13 @@
 """
-[엔드포인트 0] meta_profile — 카탈로그 전체(992개 표)의 메타 JSON 만 읽어 가벼운 표 프로필 생성
+메타 프로필 — 카탈로그(selected) 표의 메타 JSON 만 읽어 가벼운 표 프로필 생성
 
-입력  kosis_data/catalog.csv (selected == True), kosis_data/meta/<기관_표>.json   (원본 CSV 는 읽지 않음)
-출력  view_model/output/meta_profiles.jsonl   한 줄 = 표 하나
+입력  KOSIS_DATA_DIR/catalog.csv (selected == True), meta/<기관_표>.json   (원본 CSV 는 읽지 않음)
+출력  VIEW_OUT_DIR/meta_profiles.jsonl   한 줄 = 표 하나
 
-용도  ③ resolve 가 "어떤 표로 답할지" 고를 때의 탐색 범위. 표를 미리 정하지 않고 전체에서 찾기 위함
+용도  검색이 표를 고를 때의 탐색 범위 (표 설명문 색인·검색 구조 계수의 입력).
       고른 표만 normalize.ensure_normalized() 로 정규화하고, 실제 parquet 프로필로 조건을 다시 확인한다
 
-실행  API : POST /meta/profiles/build  (routers/meta.py)
-      CLI : python -m backend.rag.ingestion.meta_profile     (저장소 루트에서)
-      [CHANGED] 이전: cd view_model && ../.venv/Scripts/python.exe -m services.meta_profile
+실행  python -m backend.rag.ingestion.meta_profile   (또는 python -m backend.rag.ingestion.prepare)
 
 주의  메타는 "정의된 코드·시점" 이라 실제 수집 데이터와 다를 수 있음 (예: 메타 주기에 월이 있어도 원본에 월 자료 없음)
       그래서 모든 값은 사실 기록만 하고 점수·판단은 하지 않는다 (판단은 resolve 의 일)
@@ -20,13 +18,11 @@ from collections import Counter
 
 import pandas as pd
 
-from backend.core.config import DATA, OUT
+from backend.core.config import KOSIS_DATA_DIR, VIEW_OUT_DIR
 from backend.core.utils import norm_space, safe
 from backend.rag.ingestion.normalize import PRD_SE_MAP, build_level_dims, parse_meta
-# [CHANGED] 이전: from config import DATA, OUT, norm_space, safe
-#                from services.normalize import PRD_SE_MAP, build_level_dims, parse_meta
 
-SAMPLE_NAMES = 300       # 분류마다 기록할 코드 이름 상한 (지역은 전국·시도만 따로 전부 기록)
+SAMPLE_NAMES = 300  # 분류마다 기록할 코드 이름 상한 (지역은 전국·시도만 따로 전부 기록)
 
 
 def se_std(se):
@@ -80,9 +76,9 @@ def cat(v):
 
 def table_profile(row):
     key = f"{row.org_id}_{row.tbl_id}"
-    mp = DATA / "meta" / f"{key}.json"
+    mp = KOSIS_DATA_DIR / "meta" / f"{key}.json"
     meta = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else {}
-    raw = DATA / "raw" / safe(row.category) / f"{key}.csv"
+    raw = KOSIS_DATA_DIR / "raw" / safe(row.category) / f"{key}.csv"
     levels_meta, items_meta = parse_meta(meta)
     levels = [level_summary(*build_level_dims(n, lv)) for n, lv in enumerate(levels_meta, 1)]
     notes = [norm_space(c.get("CMMT_DC")) for c in (meta.get("CMMT") or [])
@@ -107,22 +103,22 @@ def table_profile(row):
 
 def load_meta_profiles():
     # resolve 등에서 쓰는 읽기 함수
-    p = OUT / "meta_profiles.jsonl"
+    p = VIEW_OUT_DIR / "meta_profiles.jsonl"
     return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
 
 
 def build_all():
     # 카탈로그 전체 → meta_profiles.jsonl, 결과 요약 반환 (API·CLI 공용)
-    catalog = pd.read_csv(DATA / "catalog.csv", dtype=str)
+    catalog = pd.read_csv(KOSIS_DATA_DIR / "catalog.csv", dtype=str)
     catalog = catalog[catalog["selected"] == "True"]
-    OUT.mkdir(parents=True, exist_ok=True)
+    VIEW_OUT_DIR.mkdir(parents=True, exist_ok=True)
     profs, failed = [], []
     for r in catalog.itertuples():
         try:
             profs.append(table_profile(r))
-        except Exception as e:   # 표 하나 실패해도 계속
+        except Exception as e:  # 표 하나 실패해도 계속
             failed.append({"tbl_id": r.tbl_id, "error": str(e)[:150]})
-    out = OUT / "meta_profiles.jsonl"
+    out = VIEW_OUT_DIR / "meta_profiles.jsonl"
     with out.open("w", encoding="utf-8") as f:
         for p in profs:
             f.write(json.dumps(p, ensure_ascii=False, default=str) + "\n")

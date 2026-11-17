@@ -1,0 +1,13 @@
+# 5번 차트 그리기 모듈(draw_chart_module/) 실행에 필요한 패키지
+# 확인한 환경: Python 3.12
+# 설치: uv pip install -r requirements.txt   (pip가 있으면 pip install -r requirements.txt)
+langgraph==1.2.20
+plotly==7.1.0
+pandas==3.1.0
+pydantic==2.14.2
+
+# PNG 저장 (save 단계). 없으면 PNG만 저장되지 않고 나머지(json · HTML)는 정상 동작한다
+# kaleido 1.x는 실행 환경에 Chrome(또는 Chromium)이 있어야 한다
+kaleido==1.5.0
+
+# 모듈 3 코드(backend/agent/chart_calculate, backend/schemas)를 import해서 쓴다 → 저장소 안에서 실행해야 한다

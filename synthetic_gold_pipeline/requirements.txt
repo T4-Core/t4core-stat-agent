@@ -1,0 +1,13 @@
+# NOTE: ASCII only (Windows pip may read this file with the cp949 locale)
+# synthetic_gold_pipeline - runtime + test dependencies (Python 3.10+)
+duckdb>=1.0
+pandas>=2.0
+pyarrow>=14.0
+pydantic>=2.5
+scikit-learn>=1.3
+PyYAML>=6.0
+python-dotenv>=1.0
+requests>=2.31
+pytest>=8.0
+# asyncio is part of the standard library.
+# Optional: httpx is not required (LLM clients use requests in worker threads).

@@ -1,4 +1,4 @@
-"""[NEW] judge/adapters.py 단위 테스트 — ViewResult → 단위 입력, adapter notes 해석"""
+"""judge/adapters.py 단위 테스트 — ViewResult → 단위 입력, adapter notes 해석"""
 from backend.rag.judge.adapters import units_from_view_result, upstream_checks, view_note_slots
 from backend.schemas.judge import ReasonCode, SlotStatus
 from tests.judge._records import make_record
@@ -22,10 +22,10 @@ def _view_result():
 def test_units_keep_own_filters():
     units = units_from_view_result(_view_result())
     assert [u.index for u in units] == [0, 1, 2]
-    assert units[1].filters == {"지역": ["부산광역시"]}           # 서브질문 단위는 자기 슬롯
-    assert units[2].filters == {"지역": ["부산광역시", "대구광역시"]}   # 비어 있으면 질문 전체 슬롯
+    assert units[1].filters == {"지역": ["부산광역시"]}  # 서브질문 단위는 자기 슬롯
+    assert units[2].filters == {"지역": ["부산광역시", "대구광역시"]}  # 비어 있으면 질문 전체 슬롯
     assert len(units[0].records) == 1 and units[0].view_notes == [["시점 2024 은 이 표에 없음"]]
-    assert units[1].records == []                                # View 없는 단위도 목록에 남음 (no_views 판정용)
+    assert units[1].records == []  # View 없는 단위도 목록에 남음 (no_views 판정용)
 
 
 def test_upstream_unsupported_and_partial():
@@ -35,7 +35,7 @@ def test_upstream_unsupported_and_partial():
     ])
     assert per_unit[0]["국적"].status == S.unsupported
     assert per_unit[0]["국적"].reason == ReasonCode.slot_dropped_upstream
-    assert per_unit[2]["시점"].status == S.partial                # '(하위 2)' → 2번 서브 단위
+    assert per_unit[2]["시점"].status == S.partial  # '(하위 2)' → 2번 서브 단위
     assert q == []
 
 
@@ -56,7 +56,7 @@ def test_upstream_same_slot_twice_keeps_worse():
     per_unit, _ = upstream_checks(["[시점] '2024년 9월' → 2024 (View 모듈은 연도 단위)",
                                    "[시점] View 모듈이 읽을 수 없는 값: '상반기'"])
     chk = per_unit[0]["시점"]
-    assert chk.status == S.unsupported                           # partial + unsupported → 더 나쁜 쪽
+    assert chk.status == S.unsupported  # partial + unsupported → 더 나쁜 쪽
     assert "9월" in chk.evidence and "상반기" in chk.evidence
 
 

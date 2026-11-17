@@ -1,4 +1,4 @@
-"""[NEW] 테스트용 가짜 KOSIS 수집 결과 + HCX 대역(mock)
+"""테스트용 가짜 KOSIS 수집 결과 + HCX 대역(mock)
 
 실제 kosis_data 와 같은 폴더 모양(catalog.csv, meta/*.json, raw/<조사>/*.csv)을 작게 만들어
 경로 해석·모듈 연결·입출력 계약을 API 키·네트워크 없이 확인한다.
@@ -116,8 +116,7 @@ def fake_vec(text, dim=256):
     return (v + 1e-3).tolist()
 
 
-SLOTS = {   # 질문 속 단어 → HCX 가 돌려줄 슬롯 (재작성 모듈이 검증·보정함). 키 = 2-2 코드 추출 뒤에도 남는 단어
-    # [CHANGED v3] 재작성 모듈 v3 응답 모양: slots.의도 = 목록, sub_questions[].의도 = 문자열 하나
+SLOTS = {  # 질문 속 단어 → HCX 가 돌려줄 슬롯 (재작성 모듈이 검증·보정함). 키 = 2-2 코드 추출 뒤에도 남는 단어
     "대구의 남자": {"slots": {"시점": ["2025년"], "지역": ["대구광역시"], "대상": ["인구"], "성별": ["남자"],
                                        "연령": ["20~29세"], "지표": ["인구수"], "의도": ["값 조회"]}, "sub_questions": []},
     "대전의 인구 변화": {"slots": {"시점": ["2021년", "2022년", "2023년", "2024년", "2025년"],
@@ -141,12 +140,12 @@ def fake_hcx_post(path, body, timeout=60):
         return {"embedding": fake_vec(body["text"])}
     sys_msg = body["messages"][0]["content"]
     user = body["messages"][-1]["content"]
-    if "슬롯" in sys_msg:                                   # 재작성 2-3
+    if "슬롯" in sys_msg:  # 재작성 2-3
         q = re.search(r"<question>(.*?)</question>", user, re.S).group(1)
         out = next((v for k, v in SLOTS.items() if k in q), {"slots": {"의도": "값 조회"}, "sub_questions": []})
         full = {k: [] for k in ["시점", "지역", "전출지", "전입지", "국적", "대상", "성별", "연령", "조건", "이동", "지표", "비교축"]}
         out = {"slots": {**full, **out["slots"]}, "sub_questions": [{**full, **x} for x in out["sub_questions"]]}
-    elif "통계 안내원" in sys_msg:                           # 답변
+    elif "통계 안내원" in sys_msg:  # 답변
         ids = re.findall(r"\[자료 id=([^\]]+)\]", user)
         num = next(iter(re.findall(r"\d{1,3}(?:,\d{3})+", user)), "0")
         out = {"answer": f"자료 기준 값은 {num}명입니다.", "summary": f"{num}명", "key_points": [f"{num}명"],
@@ -154,8 +153,3 @@ def fake_hcx_post(path, body, timeout=60):
     else:
         out = {"rewritten": user, "sub_questions": []}
     return {"message": {"content": json.dumps(out, ensure_ascii=False)}}
-
-
-def fake_dense_post(text, timeout=60):
-    """backend.rag.retrieval.dense._post 대역"""
-    return fake_vec(text)

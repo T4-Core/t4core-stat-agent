@@ -1,28 +1,21 @@
-"""[파트 1] 사용자 질문 재작성 모듈 v3 — 노트북 notebooks/query_rewrite/user_question_rewrite_v3.ipynb 를 나눈 것
-파일 구성·함수 이름은 v2 모듈(user_question_rewrite_v2.ipynb 기준, 이 폴더의 이전 버전)과 같음
+"""질의 분석 — 질문 → QueryAnalysis (analyze.analyze)
 
-질문 → [2-2 코드 추출] → [2-1 용어 사전] → [2-3 HCX 슬롯 추출] → [2-4 슬롯 검증] → [3 슬롯 → 문장] → [4 QueryBundle]
+재작성 (HCX 1회, rewrite.run_pipeline)
+  terms.py      일상어 사전 (dictionary/term_dict.json) — HCX 에 넘길 용어 힌트, 일상어 단어 가리기
+  extract.py    코드 추출: 상대 시점·연도 범위, 시도·성별·연령·국적·출생연도 (dictionary/rule_dict.json)
+  slots.py      HCX 슬롯 추출 (프롬프트)
+  validate.py   슬롯 검증 (질문에 없는 값 빼기, 계산 단어 떼기, 하위 질문 정리)
+  measures.py   계산 단어·일반 지표 구분 (validate · decompose 공용)
+  sentence.py   슬롯 → 문장
+  rewrite.py    위 단계를 묶어 RewriteBundle
 
-    from backend.rag.query_analyzer import rewrite_query
-    bundle = rewrite_query("2025년 전국에서 혼자 사는 가구는 몇 가구로 집계됐지?")
-
-| 모듈        | 노트북 단계 |
-|-------------|-------------|
-| config.py   | 0-1 환경설정, 0-3 HCX 호출 확인, 경로 (HCX 호출은 backend.core.llm) |
-| terms.py    | 2-1 용어 사전 (dictionary/term_dict.json) |
-| extract.py  | 2-2 코드 추출 (dictionary/rule_dict.json) |
-| slots.py    | 2-3 HCX 슬롯 추출 |
-| validate.py | 2-4 슬롯 검증 |
-| sentence.py | 3 슬롯 → 문장 |
-| bundle.py   | 4 QueryBundle, rewrite_query, run_pipeline |
-| trace.py    | 5 대시보드용 중간 결과 |
-
-진입점(구조안 이름): rewriter.py / decomposer.py / filter_extractor.py
-View 모듈 연결: adapter.py (재작성 QueryBundle → View 모듈 QueryBundle), query_bundle.py (슬롯 문자열 파싱)
+분석 (CSV 값 사전 기반, analyze.analyze)
+  lexicon.py    동의어 조회 (rule_dict > CSV 값 사전 > term_dict > 학습 사전)
+  grounding.py  슬롯 값 → CSV 값·표 접지
+  clarify.py    시점 규칙 · 필수 슬롯 확인 · 되묻기 후보 · 선택 반영
+  decompose.py  표 단위 서브쿼리 분리
+  roles.py      분모·조건 검색 단위
+  search_text.py 검색 문장
+  adapter.py    재작성 슬롯(문자열) → View 입력 슬롯 (연도 int · 연령 {from,to} · View 의도 4종)
+  values.py     시점·연령 문자열 파싱
 """
-from .bundle import QueryBundle, load_bundles, make_bundle, rewrite_query, run_pipeline, save_bundles
-from .config import check_hcx, settings
-from .trace import build_trace, save_trace
-
-__all__ = ["QueryBundle", "rewrite_query", "run_pipeline", "make_bundle", "save_bundles", "load_bundles",
-           "build_trace", "save_trace", "check_hcx", "settings"]
