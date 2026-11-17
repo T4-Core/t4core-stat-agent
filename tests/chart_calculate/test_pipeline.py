@@ -18,8 +18,7 @@ def test_whole_output_shape_like_spec():
     assert out.query_id == "27077dec"
     assert [c.chart_id for c in out.chart_contents] == ["c1"] and out.chart_contents[0].chart_type == "line"
     assert [(r.step_id, r.display_ref) for r in out.calc_results] == [("a1", "d2"), ("a2", "d2")]
-    assert [v["key"]["시점"] for v in out.calc_results[0].value] == ["2022", "2023", "2024", "2025"]   # 시점마다 직전 대비
-    assert out.calc_results[0].value[-1]["value"] == pytest.approx((240326 - 222412) / 222412 * 100)
+    assert out.calc_results[0].value == pytest.approx((240326 - 192507) / 192507 * 100)       # 명세 6장 a1: 2021 → 2025 값 하나 (결정 D-1)
     assert {k: d.source_unit for k, d in out.displays.items()} == {"d1": "건", "d2": "%"}
     assert set(out.validation) == {"c1"} and out.validation["c1"].content_built      # 차트 없음(c9)은 validation 에 없다
     assert out.chart_contents[0].axis["y"].display_ref in out.displays
@@ -69,10 +68,9 @@ def test_api_swagger_example_runs_without_hcx():
     body = r.json()
     assert body["chart_contents"][0]["title"] == "2021~2025 혼인건수 연도별 추이"
     assert body["chart_contents"][0]["rows"][0] == ["2021", "혼인건수", 192507]
-    assert [v["value"] for v in body["calc_results"][0]["value"]] == pytest.approx(
-        [(b - a) / a * 100 for a, b in zip([192507, 191690, 193657, 222412], [191690, 193657, 222412, 240326])])
+    assert body["calc_results"][0]["value"] == pytest.approx((240326 - 192507) / 192507 * 100)     # 2021 → 2025 값 하나 (결정 D-1)
     step = body["chart_plan"]["answer_steps"][0]
-    assert step["base"] == "prev" and step.get("from") is None      # 응답은 alias("from")로 나가고, 빈 값은 null
+    assert step["base"] is None and (step["from"], step["to"]) == ("2021", "2025")      # 응답은 alias("from")로 나가고, 빈 값은 null
     assert body["validation"]["c1"]["final_chart_type"] == "line"
     assert body["displays"] == {"d1": {"source_unit": "건", "display_unit": "건", "unit_scale": 1.0, "digits": None},
                                 "d2": {"source_unit": "%", "display_unit": "%", "unit_scale": 1.0, "digits": None}}

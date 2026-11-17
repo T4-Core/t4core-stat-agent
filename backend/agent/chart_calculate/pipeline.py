@@ -2,7 +2,7 @@
 [NEW] 모듈 3 진입점 — Module3Request → Module3Output
 
   run_module3(request)
-    graph.py 의 LangGraph 를 실행한다: decide(HCX) → plan → build_charts ∥ answer_steps → assemble
+    graph.py 의 LangGraph 를 실행한다: decide(HCX) → plan → build_charts → answer_steps → assemble
 
   run_module3_trace(request) 는 같은 일을 하면서 단계별 중간 결과(Module3Trace)를 함께 돌려준다 (테스트 화면 frontend/chart-lab).
   두 함수가 같은 그래프를 타므로 trace.output 은 run_module3 의 결과와 같다.

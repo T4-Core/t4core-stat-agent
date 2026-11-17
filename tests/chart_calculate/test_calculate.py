@@ -185,9 +185,9 @@ def test_share_total_absent_or_zero():
     r = run({"op": "share", "denominator": den, "operands": [op("출생아수(명)", "part", select=PARTS)]},
             [view(SHARE_ROWS)])
     assert r.value is None and "행정구역별에 없는 값: ['세종']" in r.note
-    zero = view([["2025", "가", "출생아수(명)", 0.0]], REGION_COLS)
+    zero = view([["2025", "가", "출생아수(명)", 0.0], ["2025", "나", "출생아수(명)", 0.0]], REGION_COLS)      # 항목이 둘이어야 분모 0 까지 간다 (하나면 M3-17 로 먼저 보류)
     r = run({"op": "share", "operands": [op("출생아수(명)", "part", select={})]}, [zero])
-    assert r.value is None and "분모 0" in r.note
+    assert all(p["value"] is None for p in r.value) and "분모 0" in r.note
 
 
 # ── 단계 연결 ────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ def test_aggregate_refuses_items_with_different_units():
     assert same.value == 240326.0
 
 
-# ── GPT 검토 (2026-11-11) A. 결합 키 ─────────────────────────────
+# ── 검수 (2026-11-11) A. 결합 키 ─────────────────────────────
 def test_join_on_typo_is_refused_not_merged():
     """join_on 오타면 모든 점이 'None' 키로 묶여 2024·2025·2026 이 하나로 계산됐다 (75) → 계산하지 않는다"""
     recs = [flows(BIRTH, "출생아수(명)", [("2024", 100.0)]), flows(DEATH, "사망자수(명)", [("2025", 30.0)]),
@@ -313,7 +313,7 @@ def test_cross_region_combine_keeps_regions_in_inputs():
         ("+", {"행정구역별": "서울특별시", "시점": "2024"}, 100.0), ("-", {"행정구역별": "부산광역시", "시점": "2024"}, 80.0)]
 
 
-# ── GPT 검토 (2026-11-11) B. 단위·주기는 모든 피연산자를 함께 본다 ──
+# ── 검수 (2026-11-11) B. 단위·주기는 모든 피연산자를 함께 본다 ──
 U0, U1, U2 = "view::u0", "view::u1", "view::u2"
 
 
@@ -352,7 +352,7 @@ def test_period_must_be_known_for_all():
     assert r.value is None and r.note == "수록 주기를 확인할 수 없음: Y / ?"
 
 
-# ── GPT 검토 (2026-11-11) C. 합계에 다른 지표가 섞이지 않게 ──────
+# ── 검수 (2026-11-11) C. 합계에 다른 지표가 섞이지 않게 ──────
 def test_aggregate_refuses_births_plus_fertility_rate():
     """실제 DT_1B81A23 2024 전국 행: 출생아수 238,317 + 합계출산율 0.748 = 238,317.748 이 경고 없이 나왔다"""
     rec = view([["2024", "전국", "출생아수", 238317.0], ["2024", "전국", "합계출산율", 0.748]], POP, rid="view::fert",
@@ -376,7 +376,7 @@ def test_aggregate_by_indicator_column_does_not_mix():
     assert [(v["key"], v["value"]) for v in r.value] == [({"항목": "출생아수"}, 2.0), ({"항목": "합계출산율"}, 2.0)]
 
 
-# ── GPT 검토 (2026-11-11) E. 정수 보존 ───────────────────────────
+# ── 검수 (2026-11-11) E. 정수 보존 ───────────────────────────
 def test_big_integers_keep_exact_difference():
     """9,007,199,254,740,993 − 9,007,199,254,740,992 가 0 이 됐다 (합을 0.0 에서 시작해 실수로 바뀜)"""
     big = [flows(BIRTH, "가(명)", [("2024", 9007199254740993)]), flows(DEATH, "나(명)", [("2024", 9007199254740992)])]
@@ -395,7 +395,7 @@ def test_integer_results_stay_int_through_json():
     assert r.model_dump_json().count('"value":47819') == 1
 
 
-# ── GPT 2차 검토 (2026-11-11) P2. 범주인지 지표인지는 View 구조로 ──
+# ── 2차 검수 (2026-11-11) P2. 범주인지 지표인지는 View 구조로 ──
 MARITAL = ["시점", "행정구역(읍면동)별", "혼인상태별", "항목", "값"]
 
 

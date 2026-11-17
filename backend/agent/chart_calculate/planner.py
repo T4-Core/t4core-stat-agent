@@ -34,7 +34,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.agent.chart_calculate.calculate import SELECTED_LABEL, TIME_COL, step_key
 from backend.agent.chart_calculate.validate import TOTAL_LABELS
-from backend.agent.chart_calculate.display import STANDARD_UNITS, make_display, register, result_unit, unit_of
+from backend.agent.chart_calculate.display import (STANDARD_UNITS, data_digits, make_display, ratio_unit, register, result_unit,
+                                                   unit_of)
 from backend.agent.chart_calculate.select import AGE_HINTS, CATEGORY_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL, select_rows
 from backend.schemas.chart import (ChartPlan, ChartRequest, Denominator, Display, Measure, Operand, Plan, PlanOutput,
                                    Role, Select, Step)
@@ -49,12 +50,28 @@ PERIOD_OPS = {"change", "growth_rate", "cagr", "index"}   # from·to·base 시�
 MULTI_BRANCH = {"combo": ("y", "y2"), "scatter": ("x", "y"), "bubble": ("x", "y", "size"), "dumbbell": ("start", "end")}
 REGION = "지역"                        # 고정 조건의 지역 키 (View 의 지역 열 이름은 표마다 다르다)
 GROWTH_OPS = {"change", "growth_rate"}
+# [NEW 11-16] 결과가 원 자료 값의 단위·자릿수를 그대로 잇는 연산 (growth_rate · cagr · share · index · ratio 는 계산 값이라 단위 기본 자릿수)
+SOURCE_DIGITS_OPS = {"raw", "change", "diff", "aggregate", "extreme", "rank", "combine"}
 AGE = "연령"                           # 고정 조건에 함께 싣는 참고 값 (합계 판단용, 고정하지는 않는다)
 INTENT = "의도"
 # [MOVED 11-11] AGE_HINTS · CATEGORY_HINTS → select.py
 PER_CATEGORY_INTENTS = {"비교", "순위"}  # 범주끼리 견주는 질문은 합치지 않는다
 # 질문의 지역이 '진짜 지역 이름'인지: 재작성 모듈이 지역 칸에 지역이 아닌 말('지역 혼인건수')을 넣는 경우가 있어, 그런 값 때문에 계산을 보류하지 않는다
-_REAL_REGION = re.compile(r"(특별시|광역시|특별자치시|특별자치도|도)$")
+# [CHANGED 11-16] 이전: 이름이 특별시·광역시·…·도 로 끝나는지만 봤다 → 시도 · 수도 · 연도 같은 말도 지역으로 판정해 계산 전체가 보류됐다 (검수 M3-11)
+SIDO = {"서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시", "세종특별자치시",
+        "경기도", "강원도", "강원특별자치도", "충청북도", "충청남도", "전라북도", "전북특별자치도", "전라남도", "경상북도", "경상남도",
+        "제주도", "제주특별자치도"}
+
+
+class _RealRegion:
+    """_REAL_REGION.search(이름) 과 같은 모양을 유지한다 (시도 이름과 정확히 같을 때만 참)"""
+
+    @staticmethod
+    def search(name: str):
+        return name.strip() in SIDO or None
+
+
+_REAL_REGION = _RealRegion()
 _AGE = re.compile(r"(\d+)\s*(?:[-~]\s*(\d+))?\s*세(\s*이상)?")
 
 
@@ -139,6 +156,8 @@ class _Args(BaseModel):
     base: str | None = None
     agg: str | None = None
     top_n: int | None = None
+    kind: str | None = None          # [NEW 11-16] extreme: max | min
+    order: str | None = None         # [NEW 11-16] rank: desc | asc
 
     def step_args(self) -> dict:
         return {k: v for k, v in self.model_dump(include=set(_Args.model_fields)).items() if v is not None} \
@@ -220,16 +239,30 @@ class _Planner:
             item = str(items[0])
         return unit_of(item, rec.metadata.get("unit") if rec else None)
 
-    def ref(self, op: str, units: list[str | None]) -> str:
+    def source_digits(self, op: str, picks: list[tuple[str, str | None, Select]], unit: str | None,
+                      agg: str | None = None) -> int | None:
+        """결과가 원 자료 값을 잇는 연산이면 그 행들의 소수 자릿수 (최대 3). 합계출산율 0.721 이 '1명' 이 되지 않게 (검수 M3-03)"""
+        if op not in SOURCE_DIGITS_OPS:
+            return None
+        values = []
+        for record_id, item, select in picks:
+            rec = self.records.get(record_id)
+            if rec is not None:
+                sel = select_rows(rec, select, item)
+                if VALUE_COL in sel.columns:         # [CHANGED 11-16] 이전: r[-1] — 값 열이 마지막이 아니면 항목 이름을 읽었다 (검수 3)
+                    values += [r[sel.col(VALUE_COL)] for r in sel.rows]
+        return data_digits(values, unit, integer_rule=not (op == "aggregate" and agg == "mean"))
+
+    def ref(self, op: str, units: list[str | None], digits: int | None = None) -> str:
         """결과 단위로 표시 설정을 등록 → display_ref. 같은 단위의 결과는 같은 키를 쓴다
 
         TODO(후속): 표시 단위 환산(192,507건 → 19.3만 건)은 아직 누가 정할지 없다. 지금은 원 단위 그대로(unit_scale 1).
         """
-        if op == "ratio" and len(units) == 2 and units[0] != units[1]:
-            unit = f"{units[0]}/{units[1]}"                 # calculate._pair 와 같은 규칙
+        if op == "ratio" and len(units) == 2:
+            unit = ratio_unit(units[0], units[1])           # calculate._pair 와 같은 규칙
         else:
             unit = result_unit(op, units[0] if units else None)
-        return register(self.displays, make_display(unit))
+        return register(self.displays, make_display(unit, digits=digits))
 
     # ── 바로잡기 ─────────────────────────────────────────────────
     def drop_non_operands(self, tag: str, picks: list[Pick]) -> list[Pick]:
@@ -354,12 +387,42 @@ class _Planner:
             out.append(p)
         return out
 
-    def fixed_for(self, sub_ids: list[str | None]) -> dict[str, list[str]]:
+    def fixed_for(self, tag: str, sub_ids: list[str | None]) -> dict[str, list[str]]:
+        """하위 질문의 고정 조건. ID 를 못 찾았을 때는 하위 질문이 하나뿐일 때만 그 조건을 쓴다.
+        [CHANGED 11-16] 이전: 못 찾으면 첫 번째 하위 질문의 조건을 썼다 → 2025년 질문에 2021년이 고정됐다 (검수 M3-05)"""
         hit = next((self.fixed[s] for s in sub_ids if s in self.fixed), None)
-        return hit if hit is not None else next(iter(self.fixed.values()), {})
+        if hit is not None:
+            return hit
+        if len(self.fixed) == 1:
+            return next(iter(self.fixed.values()))
+        if self.fixed:
+            self.note(tag, f"하위 질문 ID {[s for s in sub_ids if s]} 를 찾지 못해 고정 조건을 적용하지 않음 (하위 질문 {list(self.fixed)})")
+        return {}
 
-    def fix_time(self, tag: str, op: str, select: Select, d: _Args, years: list[str] | None) -> tuple[Select, _Args]:
-        """고정 시점 적용. 기간 연산은 기간 전체를 쓰고 계산 방식을 정하고, 그 밖의 연산은 고정 시점 밖의 값만 바꾼다"""
+    def two_points(self, tag: str, op: str, select: Select, d: _Args, years: list[str] | None) -> tuple[Select, _Args] | None:
+        """[NEW 11-16] 질문용 증감·증감률: 처음 → 끝 두 시점으로 값 하나 ('최근 5년 얼마나 변했어' = 2021 → 2025 24.8%).
+        HCX 가 from·to 를 주면 그것, 안 주고 고정 시점이 둘 이상이면 고정 시점의 처음과 끝. 해마다 보려면 HCX 가 base 'prev' 를 적는다.
+        그 밖(시점 정보 없음)이면 None → 기존 규칙. 고정 시점 밖의 시점은 고정 시점의 처음·끝으로 바꾼다 (검수 M3-02, 결정 D-1)"""
+        start, end = d.from_, d.to
+        if years and len(years) >= 2:
+            if not (start and end):
+                start, end = years[0], years[-1]
+            elif start not in years or end not in years:
+                self.note(tag, f"{op}: 기간 {start}~{end} 이 고정 시점 {years[0]}~{years[-1]} 밖 → 고정 시점의 처음과 끝")
+                start, end = years[0], years[-1]
+        if not (start and end):
+            return None
+        new = {**select, TIME_COL: years} if years else select
+        self.note(tag, f"{op}: 처음 → 끝 두 시점으로 계산 ({start} → {end})")
+        return new, d.model_copy(update={"base": None, "from_": start, "to": end})
+
+    def fix_time(self, tag: str, op: str, select: Select, d: _Args, years: list[str] | None,
+                 answer: bool = False) -> tuple[Select, _Args]:
+        """고정 시점 적용. 기간 연산은 기간 전체를 쓰고 계산 방식을 정하고, 그 밖의 연산은 고정 시점 밖의 값만 바꾼다
+
+        증감·증감률(change·growth_rate): 차트용은 시점마다 직전 시점 대비(추이). 질문용(answer)은 두 시점으로 값 하나, HCX 가 base 'prev' 를 적으면 직전 시점 대비"""
+        if op in GROWTH_OPS and answer and d.base != "prev" and (two := self.two_points(tag, op, select, d, years)):
+            return two
         if op in GROWTH_OPS:     # 증감·증감률: 시점마다 직전 시점 대비. HCX 가 두 시점(from·to)만 골랐어도 시점 전체로
             new = {**select, TIME_COL: years} if years else {k: v for k, v in select.items() if k != TIME_COL}
             upd = {"base": "prev", "from_": None, "to": None}
@@ -384,6 +447,15 @@ class _Planner:
         if new != select or any(getattr(d, k) != v for k, v in upd.items()):
             self.note(tag, f"{op}: 고정 시점으로 계산 — {how}")
         return new, d.model_copy(update=upd)
+
+    def add_fixed_time(self, tag: str, select: Select, years: list[str] | None, record_id: str | None) -> Select:
+        """[NEW 11-16] 질문에 시점이 고정돼 있는데 HCX 가 시점 조건을 빼면 View 의 모든 시점이 계산에 든다
+        ('2025년 혼인건수' 가 2021~2025 다섯 값으로 나왔다). View 에 시점 열이 있으면 고정 시점을 조건으로 넣는다 (검수 M3-10)"""
+        rec = self.records.get(record_id or "")
+        if not years or TIME_COL in select or rec is None or TIME_COL not in rec.table.columns:
+            return select
+        self.note(tag, f"시점 조건이 없어 고정 시점 {years} 을 넣음")
+        return {**select, TIME_COL: years}
 
     def fix_region(self, tag: str, select: Select, regions: list[str] | None, record_id: str | None) -> Select:
         """지역 열(열 이름에 행정구역·지역·시도·시군구)의 값이 고정 지역 밖이면 고정 지역으로. 일부만 고른 것은 그대로
@@ -436,8 +508,9 @@ class _Planner:
         return select
 
     def fix_select(self, tag: str, op: str, select: Select, d: _Args, fixed: dict,
-                   record_id: str | None = None) -> tuple[Select, _Args]:
-        select, d = self.fix_time(tag, op, select, d, fixed.get(TIME_COL))
+                   record_id: str | None = None, answer: bool = False) -> tuple[Select, _Args]:
+        select, d = self.fix_time(tag, op, select, d, fixed.get(TIME_COL), answer)
+        select = self.add_fixed_time(tag, select, fixed.get(TIME_COL), record_id)
         select = self.fix_region(tag, select, fixed.get(REGION), record_id)
         select = self.fix_age(tag, select, fixed.get(AGE), record_id)
         return self.fill_period(tag, op, select, d), d
@@ -458,19 +531,34 @@ class _Planner:
             picks = self.fix_branch_roles(tag, chart_type, picks)
         out, d2 = [], d
         for p in picks:
-            sel, d2 = self.fix_select(tag, op, p.select, d, fixed or {}, p.record_id)
+            sel, d2 = self.fix_select(tag, op, p.select, d, fixed or {}, p.record_id, answer=chart_type is None)
             out.append(p.model_copy(update={"select": sel}))
         if tag in self.withheld:                      # 지역 불일치 등 → 이 계산의 피연산자를 비운다
             return [], d2
         return out, d2
 
+    def actual_item(self, tag: str, record_id: str, item: str | None, select: Select) -> tuple[str | None, str | None]:
+        """요청한 항목이 View 의 항목과 괄호 단위만 다르면('인구(명)' ↔ '인구(천명)') View 의 이름을 돌려준다 (notes 에 남긴다).
+        [NEW 11-16] 이전에는 계산 단계(load_series)만 바로잡아 display_ref·답변·차트 축이 요청한 단위('50명')로 남았다 (검수 1)"""
+        rec = self.records.get(record_id)
+        if rec is None or item is None:
+            return item, None
+        found = select_rows(rec, select, item).item
+        if found and found != item:
+            self.note(tag, f"항목 '{item}' 은 자료의 '{found}' 로 바꿈 (괄호 단위가 다름)")
+            # 답변에도 전달한다: Operand.note → CalcResult.note → 모듈 6 주의사항 (검수 6. 이전에는 notes 에만 남아 답변에서 사라졌다)
+            return found, f"항목 '{item}' 은 자료의 '{found}' 로 계산함"
+        return item, None
+
     def operand(self, tag: str, pick: Pick, role: str) -> Operand:
+        item, why = self.actual_item(tag, pick.record_id, pick.item, pick.select)
+        pick = pick.model_copy(update={"item": item})
         self.check(tag, pick.record_id, pick.select, pick.item)
         unit, source = self.unit_with_source(pick.record_id, pick.item, pick.select)
         if unit is None and (unit := self.hcx_unit(tag, pick)):
             source = "hcx"
         return Operand(role=role, record_id=pick.record_id, item=pick.item, select=pick.select, unit=unit,
-                       unit_source=source)
+                       unit_source=source, note=why)
 
     def unit_with_source(self, record_id: str, item: str | None, select: Select) -> tuple[str | None, str | None]:
         rec = self.records.get(record_id)
@@ -492,7 +580,7 @@ class _Planner:
         listed = str(rec.metadata.get("unit") or "") if rec else ""
         if not pick.unit or not listed:
             return None
-        # [CHANGED 11-11] 이전: pick.unit in listed (부분 문자열) — '가임여자 1명당 명' 의 '1명당' 도 승인했다 (GPT 검토)
+        # [CHANGED 11-11] 이전: pick.unit in listed (부분 문자열) — '가임여자 1명당 명' 의 '1명당' 도 승인했다 (검수)
         # 승인: 목록 전체와 같음 (단위가 하나뿐인 표) / 표준 단위이면서 목록 안에 띄어쓰기로 구분된 한 단어로 있음
         unit = pick.unit.strip()
         if unit == listed.strip() or (unit in STANDARD_UNITS and unit in listed.split()):
@@ -537,10 +625,20 @@ class _Planner:
             return False
         return True
 
+    def two_roles(self, tag: str, picks: list[Pick]) -> list[str]:
+        """diff · ratio 의 역할 (a, b). HCX 가 하나만 적거나 둘 다 같은 이름을 적어도 서로 달라야 한다.
+        [CHANGED 11-16] 이전: 역할이 없으면 위치로 정했다 → ['b', 없음] 이 ['b', 'b'] 가 되어 같은 피연산자끼리 뺐다 (검수 M3-07)"""
+        want = [p.role if p.role in ("a", "b") else None for p in picks]
+        if len(set(w for w in want if w)) < len([w for w in want if w]):       # 둘 다 같은 역할: 어느 쪽이 a 인지 알 수 없다
+            self.note(tag, f"피연산자 역할이 겹침 {[p.role for p in picks]} → 적은 순서대로 a, b")
+            want = [None] * len(picks)
+        free = [r for r in "ab" if r not in want]
+        return [w or free.pop(0) for w in want]
+
     def step(self, tag: str, step_id: str, op: str, picks: list[Pick], d: _Args) -> Step:
         """picks 를 피연산자로 쓰는 단계 하나"""
         if op in TWO_OPERAND:
-            roles = [p.role if p.role in ("a", "b") else "ab"[i] for i, p in enumerate(picks[:2])]
+            roles = self.two_roles(tag, picks[:2])
         elif op == "combine":
             roles = ["term"] * len(picks)
         else:
@@ -555,13 +653,15 @@ class _Planner:
             rec = self.records.get(picks[0].record_id) if picks else None
             if rec is not None and TIME_COL in rec.table.columns:
                 extra["by"] = [TIME_COL]
-        return Step(step_id=step_id, op=op, operands=operands, display_ref=self.ref(op, [o.unit for o in operands]),
-                    **self.args(tag, op, d), **extra)
+        digits = self.source_digits(op, [(o.record_id, o.item, o.select) for o in operands], operands[0].unit if operands else None, d.agg)
+        return Step(step_id=step_id, op=op, operands=operands,
+                    display_ref=self.ref(op, [o.unit for o in operands], digits), **self.args(tag, op, d), **extra)
 
     # ── 차트용 ───────────────────────────────────────────────────
     def plan(self, chart: ChartRequest, d: ChartDecision) -> Plan | None:
         tag, op = chart.chart_id, chart.measure
-        fixed = self.fixed_for(chart.sub_question_ids)
+        self.withheld.discard(tag)
+        fixed = self.fixed_for(tag, chart.sub_question_ids)
         picks, d2 = self.normalize(tag, op, d.operands, d, chart.chart_type, fixed)
         select, d3 = self.fix_select(tag, op, d.select, d, fixed, d.record_id or (picks[0].record_id if picks else None))
         d = d2 if d.operands else d3
@@ -582,7 +682,9 @@ class _Planner:
         if not picks:                                  # 갈래 하나, 상위 record_id·select 를 그대로 쓴다
             self.check(tag, record_id, select, None)
             by = {"by": [TIME_COL]} if step_op == "aggregate" and TIME_COL in self.columns(record_id) else {}
-            steps = [Step(step_id="s1", op=step_op, display_ref=self.ref(step_op, [self.unit(record_id, None, select)]),
+            unit = self.unit(record_id, None, select)
+            steps = [Step(step_id="s1", op=step_op,
+                          display_ref=self.ref(step_op, [unit], self.source_digits(step_op, [(record_id, None, select)], unit, d.agg)),
                           **self.args(tag, step_op, d), **by)]
         elif op in MULTI_OPERAND or len(picks) == 1:   # 단계 하나에 피연산자 여럿 (또는 하나)
             if op in TWO_OPERAND and len(picks) != 2:
@@ -609,6 +711,7 @@ class _Planner:
         diff·ratio·combine 은 여러 피연산자를 한 단계에서 쓰므로 쪼개지 않는다.
         """
         tag = d.sub_question_id or f"a{n}"
+        self.withheld.discard(tag)       # [NEW 11-16] 보류는 계산 하나마다 따로 — 같은 하위 질문의 다른 답변까지 지우지 않는다 (검수 M3-04)
         # [NEW] 세트: 이 하위 질문이 속한 세트들. 세트 형식 입력(view_ids 가 하나라도 있음)에서 View 가 없는 세트뿐이면 계산하지 않는다
         sets = [c for c in charts if d.sub_question_id in c.sub_question_ids]
         expected = list(dict.fromkeys(v for c in sets for v in c.view_ids))
@@ -618,7 +721,7 @@ class _Planner:
             return []
         if self.denominator_outside(tag, d, expected):
             return []
-        picks, d = self.normalize(tag, d.op, d.operands, d, fixed=self.fixed_for([d.sub_question_id]))
+        picks, d = self.normalize(tag, d.op, d.operands, d, fixed=self.fixed_for(tag, [d.sub_question_id]))
         if tag in self.withheld:
             return []
         if not picks:                             # answer_steps 는 피연산자를 항상 적는다 (명세 4장)
@@ -630,7 +733,7 @@ class _Planner:
         for c in charts:
             if c.chart_type and d.sub_question_id in c.sub_question_ids and c.measure != d.op:
                 self.note(tag, f"질문용 연산 {d.op} ≠ 모듈 2 measure {c.measure} ({c.chart_id})")
-        fixed = self.fixed_for([d.sub_question_id])
+        fixed = self.fixed_for(tag, [d.sub_question_id])
         groups = [picks] if d.op in MULTI_OPERAND else [[p] for p in picks]     # 단계 하나에 쓸 피연산자들
         steps = []
         for i, group in enumerate(groups, 1):

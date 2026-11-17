@@ -26,7 +26,7 @@ def test_trace_keeps_prompt_raw_reply_and_display_text():
     c1 = t.charts["c1"]
     assert c1.requirements == ["time_axis_required", "min_points_3"]
     assert [(a.content.chart_type, a.check.passed) for a in c1.attempts] == [("line", True)]
-    assert [c.display_text for c in t.calcs] == [["-0.4%", "1.0%", "14.8%", "8.1%"], ["-4.4%", "-7.7%", "3.6%", "6.7%"]]
+    assert [c.display_text for c in t.calcs] == ["24.8%", "-2.4%"]       # 2021 → 2025 (결정 D-1)
 
 
 def test_trace_records_failed_original_and_fallback():
@@ -62,6 +62,6 @@ def test_api_trace_example():
     r = TestClient(app).post("/api/v1/chart/calc/trace", json=EX_CALC)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["decide"]["skipped"] is True and body["calcs"][0]["display_text"] == ["-0.4%", "1.0%", "14.8%", "8.1%"]
+    assert body["decide"]["skipped"] is True and body["calcs"][0]["display_text"] == "24.8%"
     assert body["charts"]["c1"]["attempts"][0]["check"]["passed"] is True
-    assert body["output"]["chart_plan"]["answer_steps"][0]["base"] == "prev"
+    assert body["output"]["chart_plan"]["answer_steps"][0]["base"] is None

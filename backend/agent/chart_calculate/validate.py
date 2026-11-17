@@ -19,6 +19,19 @@ from backend.schemas.chart import ChartContent, CheckResult
 
 PARTS_TOLERANCE = 0.005                              # parts_sum_to_total: 총계 대비 상대 오차 0.5% 까지 허용
 TOTAL_LABELS = {"계", "합계", "총계", "전체", "소계"}   # 구성 항목에 섞이면 안 되는 총계 이름
+REGION_TOTAL_LABELS = {"전국"}                          # [NEW 11-16] 지역 열에서는 '전국' 도 총계다 (시도를 더하면 전국이 되므로 함께 더하면 두 번 센다. 검수 M3-06)
+_REGION_COL = ("행정구역", "지역", "시도", "시군구")
+
+
+def totals_in(col: str | None, values) -> set[str]:
+    """values 중 총계 이름. 지역 열이면 '전국' 도 총계로 본다"""
+    names = {str(v) for v in values}
+    found = names & TOTAL_LABELS
+    if col and any(h in col for h in _REGION_COL):
+        found |= names & REGION_TOTAL_LABELS
+    return found
+
+
 _COUNT = re.compile(r"^(min|max)_(points|categories)_(\d+)$")
 
 
@@ -41,6 +54,14 @@ class _Data:
     def distinct(self, role: str) -> list:
         return list(dict.fromkeys(self.values(role)))
 
+    def distinct_valid(self, role: str) -> list:
+        """값이 있는 행만 센 서로 다른 값. 꺾은선은 계산할 수 없는 시점을 값 None 행으로 넘겨 선을 끊으므로, 점 수·계열 수에는 세지 않는다"""
+        vrole = "y" if "y" in self.enc else "value" if "value" in self.enc else None
+        if role not in self.enc or vrole is None:
+            return self.distinct(role)
+        i, j = self.content.columns.index(self.enc[role]), self.content.columns.index(self.enc[vrole])
+        return list(dict.fromkeys(r[i] for r in self.content.rows if r[j] is not None))
+
     def axis_type(self, role: str) -> str | None:
         ax = self.content.axis.get(role)
         return ax.type if ax else None
@@ -51,7 +72,7 @@ class _Data:
 
 def _count(d: _Data, kind: str, what: str, n: int) -> str | None:
     if what == "points":      # long = 가로축의 서로 다른 값 수 / joined = 점(행) 수
-        got = len(d.distinct("x")) if d.spec.rows == "long" and d.has("x") else len(d.content.rows)
+        got = len(d.distinct_valid("x")) if d.spec.rows == "long" and d.has("x") else len(d.content.rows)
         label = "점"
     else:
         role = d.spec.category or ("label" if d.has("label") else "x")
@@ -84,8 +105,8 @@ def _two_series(d: _Data) -> str | None:
         n = len(d.distinct("group"))
         return None if n == 2 else f"group 이 {n}개 (2개여야 함)"
     if "y2" in d.spec.required:              # 복합: long 형식이라 y·y2 가 같은 '값' 열 → series 로 지표 2개를 구분
-        return None if len(d.distinct("series")) >= 2 else "y 와 y2 에 올릴 지표 2개가 필요"
-    n = len(d.distinct("series"))
+        return None if len(d.distinct_valid("series")) >= 2 else "y 와 y2 에 올릴 지표 2개가 필요"
+    n = len(d.distinct_valid("series"))
     return None if n >= 2 else f"series 가 {n}개 (2개 이상이어야 함)"
 
 
@@ -110,13 +131,15 @@ def _parts(d: _Data) -> str | None:
     group = "x" if part == "series" else None         # 누적 막대는 같은 x 안에서, 원형·트리맵은 전체에서
     value = "y" if d.has("y") and not d.has("value") else "value"
     groups, parts, values = (d.values(group) if group else [None] * len(d.content.rows)), d.values(part), d.values(value)
+    parents = d.values("parent") if d.has("parent") else [None] * len(parts)        # [NEW 11-16] 트리맵은 상위 안에서만 중복을 본다 (검수 M3-15)
     seen, sums = set(), {}
-    for g, p, v in zip(groups, parts, values):
-        if (g, p) in seen:
-            return f"구성 항목 중복: {p}"
-        seen.add((g, p))
+    for g, p, v, up in zip(groups, parts, values, parents):
+        if (g, up, p) in seen:
+            return f"구성 항목 중복: {p}" + (f" ({up})" if up is not None else "")
+        seen.add((g, up, p))
         sums[g] = sums.get(g, 0) + (v or 0)
-    if len(set(parts)) > 1 and (mixed := TOTAL_LABELS & {str(p) for p in parts}):
+    part_col = d.enc.get(part)
+    if len(set(parts)) > 1 and (mixed := totals_in(part_col, parts)):
         return f"구성 항목에 총계가 섞임: {sorted(mixed)}"
     for g, total in (d.totals or {}).items():      # totals 없음 = scope=selected → 합이 정의상 100%
         if g in sums and total and abs(sums[g] - total) / abs(total) > PARTS_TOLERANCE:

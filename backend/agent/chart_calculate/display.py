@@ -53,10 +53,40 @@ PERCENT_POINT = "%p"
 POINT_OPS = {"change", "diff"}
 
 
+def ratio_unit(a: str | None, b: str | None) -> str | None:
+    """ratio 의 결과 단위: 같으면 배, 다르면 a/b. 한쪽이라도 모르면 단위 없음 (예전에는 건/None 글자가 나왔다. 검수 M3-14)"""
+    if a == b:
+        return RESULT_UNIT["ratio"]
+    return f"{a}/{b}" if a and b else None
+
+
 def result_unit(op: str, unit: str | None) -> str | None:
     if op in POINT_OPS and unit == "%":
         return PERCENT_POINT
     return RESULT_UNIT.get(op, unit)
+
+
+MAX_DATA_DIGITS = 3      # [NEW 11-16] 원 자료의 소수 자릿수를 따르되 최대 3자리 (검수 D-2)
+
+
+def decimals_of(value: float | int | None, cap: int = MAX_DATA_DIGITS) -> int:
+    """값의 소수 자릿수 (최대 cap). 0.1 + 0.2 = 0.30000000000000004 같은 부동소수 오차는 6자리 반올림으로 없앤 뒤 센다"""
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        return 0
+    exp = Decimal(repr(round(float(value), 6))).normalize().as_tuple().exponent
+    return min(max(-exp, 0), cap) if isinstance(exp, int) else 0
+
+
+def data_digits(values, unit: str | None, integer_rule: bool = True) -> int | None:
+    """계산하지 않은 원 자료 값들의 표시 자릿수. 단위 기본값보다 소수가 더 필요할 때만 값을 돌려준다 (아니면 None = 기본값).
+    '합계출산율 0.721명' 이 단위(명)의 기본 자릿수 0 때문에 '1명' 이 되던 것을 막는다 (검수 M3-03)"""
+    need = max((decimals_of(v) for v in values), default=0)
+    # integer_rule=False: 평균처럼 정수 입력에서도 소수가 생기는 결과 (50 · 51 의 평균 50.5). 입력이 정수라는 이유로 0자리로 하지 않는다 (검수 6)
+    if integer_rule and need == 0 and unit and unit not in COUNT_UNITS | RATE_UNITS | MONEY_UNITS | {INDEX_UNIT}:
+        return 0           # 표에 없는 단위(천명 · 만원)의 정수 값에 '50.0천명' 처럼 소수를 붙이지 않는다
+    return need if need > default_digits(unit) else None
 
 
 def default_digits(unit: str | None, unit_scale: float = 1) -> int:
@@ -98,5 +128,8 @@ def format_value(value: float | int | None, display: Display) -> str | None:
         digits = 0       # 단위를 모르는데 정수면 소수 자리를 붙이지 않는다 (44,565.0 → 44,565)
     # float 의 round() 는 은행가 반올림(0.5 → 짝수)이라 2.5 → 2 가 된다. 사람이 기대하는 사사오입으로 맞춘다
     scaled = Decimal(repr(value)) / Decimal(repr(display.unit_scale))
-    text = f"{scaled.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP):,}"
+    rounded = scaled.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
+    if rounded == 0:
+        rounded = abs(rounded)      # [NEW 11-16] -0.04 → '-0.0%' · -0.4 → '-0건' 이 아니라 '0.0%' · '0건' (검수 M3-16)
+    text = f"{rounded:,}"
     return text if display.display_unit in NO_SUFFIX_UNITS else text + display.display_unit

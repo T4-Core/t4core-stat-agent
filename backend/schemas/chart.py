@@ -73,6 +73,8 @@ class Operand(BaseModel):
     item: str | None = Field(None, description="대상 항목 (예: 인구수(명))")
     select: Select = Field(default_factory=dict)
     unit: str | None = Field(None, description="원 단위 (항목 이름의 괄호 부분)")
+    # [NEW 11-17] 요청한 항목을 View 의 항목으로 바꿨을 때의 사유 ('인구(명)' → '인구(천명)'). 계산 결과의 note 로 답변까지 전달된다 (검수 6)
+    note: str | None = Field(None, description="항목을 View 의 이름으로 바꾼 사유. CalcResult.note · ChartContent.warnings 로 전달")
 
 
 class Denominator(BaseModel):
@@ -100,6 +102,9 @@ class Step(BaseModel):
     base: str | None = Field(None, description="기준 시점. 'prev' = 직전 시점")
     agg: Literal["sum", "mean"] | None = None
     top_n: int | None = Field(None, ge=1)
+    # [NEW 11-16] 이전: extra="allow" 로만 받았다 → HCX 응답 스키마에 없어 최솟값·오름차순을 고를 길이 없었다 (검수 M3-01)
+    kind: Literal["max", "min"] | None = Field(None, description="extreme 전용: 최댓값(max, 기본) / 최솟값(min)")
+    order: Literal["desc", "asc"] | None = Field(None, description="rank 전용: 큰 값부터(desc, 기본) / 작은 값부터(asc)")
 
 
 class PlanOutput(BaseModel):

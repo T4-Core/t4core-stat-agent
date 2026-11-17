@@ -26,6 +26,8 @@ from backend.schemas.record import Record
 MAX_VALUES = 40          # 열 하나에서 프롬프트에 보여 줄 값 수 (시군구처럼 값이 많은 열)
 MAX_TOKENS = 4000       # [CHANGED 11-11] 이전: 2000 — 범주마다 계산을 따로 적은 응답이 6,036자에서 끊겼다
 _AGGS = {"sum", "mean"}
+_KINDS = {"max", "min"}
+_ORDERS = {"desc", "asc"}
 
 
 def _values(rec: Record, col: str, hint: str) -> str:
@@ -141,6 +143,10 @@ def _args(raw: dict) -> dict:
     out = {k: raw[k] for k in ("from", "to", "base", "join_on", "top_n") if raw.get(k)}
     if raw.get("agg") in _AGGS:
         out["agg"] = raw["agg"]
+    if raw.get("kind") in _KINDS:          # [NEW 11-16] 최댓값/최솟값 (extreme)
+        out["kind"] = raw["kind"]
+    if raw.get("order") in _ORDERS:        # [NEW 11-16] 큰 값부터/작은 값부터 (rank)
+        out["order"] = raw["order"]
     den = raw.get("denominator")
     if isinstance(den, dict) and den.get("scope") in ("question", "selected"):
         operand = _pick(den) if den["scope"] == "question" else None

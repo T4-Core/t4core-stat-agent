@@ -31,14 +31,15 @@ def to_number(v: Any) -> int | float | None:
     if v is None or isinstance(v, bool):
         return None
     if isinstance(v, (int, float)):
-        return None if math.isnan(v) else v
+        return v if math.isfinite(v) else None       # [CHANGED 11-16] 이전: nan 만 거름 — inf 가 계산에 들어갔다 (검수 M3-18)
     s = str(v).strip().replace(",", "")
     if s in MISSING_TEXT:
         return None
     try:
-        return float(s)
+        n = float(s)
     except ValueError:
         return None
+    return n if math.isfinite(n) else None          # [NEW 11-16] 문자열 nan · inf 도 숫자로 받지 않는다 (검수 M3-18)
 
 
 def truncated_reason(record: Record) -> str | None:
@@ -74,6 +75,7 @@ class Selection:
     rows: list[list] = field(default_factory=list)        # 값이 있는 행만. 값 열은 숫자로 바뀌어 있다
     errors: list[str] = field(default_factory=list)       # 이 선택으로 계산하면 안 되는 이유 (검증 ① 실패)
     dropped: list[dict] = field(default_factory=list)     # 값이 비어 제외한 행의 키 {열: 값}
+    item: str | None = None                               # [NEW 11-16] View 에서 실제로 찾은 항목 이름 (요청한 이름과 괄호 단위만 다를 수 있다. 검수 M3-12)
 
     @property
     def ok(self) -> bool:
@@ -112,6 +114,7 @@ def select_rows(record: Record, select: dict[str, list] | None = None, item: str
     if item is not None:
         if hit := find_item_column(cols, rows, item):
             conds[cols.index(hit[0])] = {str(hit[1])}
+            sel.item = str(hit[1])
         else:
             sel.errors.append(f"항목 없음: {item}")
 

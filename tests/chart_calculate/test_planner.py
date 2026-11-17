@@ -44,9 +44,9 @@ def test_spec_scenario_plan_and_displays():
         "measure": "raw", "select": {**NATION, "항목": ["혼인건수(건)"], "시점": YEARS},
         "steps": [{"step_id": "s1", "op": "raw", "display_ref": "d1"}]}
     assert dumped["plans"][1]["steps"] == [{"step_id": "s1", "op": "raw", "display_ref": "d2"}]
-    # 명세 예시는 증감률을 from·to(2021→2025)로 적었지만, 증감률은 시점마다 직전 대비로 계산한다 (2026-11-11 결정)
+    # 질문용 증감률은 명세 예시대로 from·to(2021→2025) 두 시점 (2026-11-16 결정 D-1. 11-11 에는 시점마다 직전 대비였다)
     assert dumped["answer_steps"][0] == {
-        "step_id": "a1", "op": "growth_rate", "base": "prev", "display_ref": "d3",
+        "step_id": "a1", "op": "growth_rate", "from": "2021", "to": "2025", "display_ref": "d3",
         "operands": [{"role": "value", "record_id": VID, "item": "혼인건수(건)", "select": NATION, "unit": "건",
                       "unit_source": "item"}]}
     assert dumped["answer_steps"][1]["display_ref"] == "d3"                # 같은 단위(%) → 같은 표시 설정
@@ -68,15 +68,14 @@ def test_plan_runs_end_to_end_like_spec():
     assert [(c.chart_id, c.chart_type, len(c.rows)) for c in contents] == [("c1", "line", 5), ("c2", "line", 5)]
     assert contents[0].axis["y"].display_ref == "d1" and validation["c2"].content_built
     a1, a2 = run_answer_steps(cp.answer_steps, [view()])
-    assert [v["value"] for v in a1.value] == pytest.approx([-817 / 192507 * 100, 1967 / 191690 * 100,
-                                                            28755 / 193657 * 100, 17914 / 222412 * 100])
-    assert len(a2.value) == 4 and a2.value[0]["value"] == pytest.approx((249186 - 260562) / 260562 * 100)
+    assert a1.value == pytest.approx(24.84013568337775, rel=1e-12)                  # 명세 6장 a1
+    assert a2.value == pytest.approx(-2.3875315663834327, rel=1e-12)                # 명세 6장 a2
 
 
 def test_no_chart_sub_question_still_gets_answer_step():
     cp, _ = plan([chart("c1", chart_type=None)], {"answers": [SCENARIO["answers"][0]]})
     assert cp.plans == [] and [s.step_id for s in cp.answer_steps] == ["a1"]
-    assert cp.notes == ["q-1: growth_rate: 시점마다 직전 시점 대비로 계산 (View 의 모든 시점)"]
+    assert cp.notes == ["q-1: growth_rate: 처음 → 끝 두 시점으로 계산 (2021 → 2025)"]
 
 
 def test_combo_branches_get_steps_output_and_own_displays():
@@ -150,18 +149,20 @@ def test_branch_without_free_role_is_noted():
 
 
 def test_answer_operands_are_normalized():
-    """질문용: 피연산자가 아닌 것은 버리고, 같은 항목은 합치고, 증감률은 시점마다 직전 대비로 (회귀 테스트의 단위 버전)"""
+    """질문용: 피연산자가 아닌 것은 버리고, 같은 항목은 합치고, 증감률은 HCX 의 from·to 두 시점으로 (회귀 테스트의 단위 버전)"""
     cp, _ = plan([], {"answers": [{"op": "growth_rate", "from": "2021", "to": "2025", "operands": [
         pick("혼인건수(건)", "a", {**NATION, "시점": ["2024"]}), pick("혼인건수(건)", "b", {**NATION, "시점": ["2021"]}),
         pick("시점", "join_on", {})]}]})
     (op,) = cp.answer_steps[0].operands
-    assert (op.role, op.item, op.select) == ("value", "혼인건수(건)", NATION)      # 시점 조건 없음 = View 의 모든 시점
+    assert (op.role, op.item) == ("value", "혼인건수(건)")
+    assert op.select == {**NATION, "시점": ["2024", "2021", "2025"]}       # 합친 시점 조건에 계산 시점(to=2025)을 보탠다
     step = cp.answer_steps[0]
-    assert (step.base, step.from_, step.to) == ("prev", None, None)
+    assert (step.base, step.from_, step.to) == (None, "2021", "2025")
     assert cp.notes == ["a1: 피연산자가 아님 → 버림 (role=join_on, item=시점)",
                         "a1: growth_rate 는 피연산자 1개 → 같은 항목의 피연산자를 하나로 합침 "
                         "(2개, 조건 {'행정구역별': ['전국'], '시점': ['2024', '2021']})",
-                        "a1: growth_rate: 시점마다 직전 시점 대비로 계산 (View 의 모든 시점)"]
+                        "a1: growth_rate: 처음 → 끝 두 시점으로 계산 (2021 → 2025)",
+                        "a1: growth_rate 의 시점 조건에 계산 시점을 보탬 (['2024', '2021'] → ['2024', '2021', '2025'])"]
 
 
 def test_answer_different_items_are_split_into_steps():
@@ -271,10 +272,10 @@ def test_fixed_years_subset_is_kept_for_non_growth_ops():
     assert cp.answer_steps[0].operands[0].select["시점"] == ["2021", "2025"] and cp.notes == []
 
 
-def test_growth_uses_all_fixed_years():
-    """증감률을 2021·2025 두 시점으로 골라도 고정 시점(2021~2025) 전체에서 시점마다 직전 대비"""
+def test_growth_prev_uses_all_fixed_years_when_hcx_asks_for_yearly_change():
+    """HCX 가 '매년' 변화를 뜻하는 base "prev" 를 주면 고정 시점(2021~2025) 전체에서 시점마다 직전 대비"""
     bundle = QueryBundle(query_id="q", original="q", filters={"시점": YEARS})
-    cp, _ = fixed_plan([], {"answers": [{"sub_question_id": "q-1", "op": "growth_rate", "from": "2021", "to": "2025",
+    cp, _ = fixed_plan([], {"answers": [{"sub_question_id": "q-1", "op": "growth_rate", "base": "prev",
                                          "operands": [pick("혼인건수(건)", select={**NATION, "시점": ["2021", "2025"]})]}]}, bundle)
     step = cp.answer_steps[0]
     assert (step.base, step.from_, step.operands[0].select["시점"]) == ("prev", None, YEARS)
@@ -374,7 +375,8 @@ def test_preschool_raw_becomes_sum():
         {"sub_question_id": "q-1", "op": "raw", "operands": [age_pick()]}]}), preschool())
     step = cp.answer_steps[0]
     assert (step.op, step.agg, step.model_extra.get("by")) == ("aggregate", "sum", ["시점"])
-    assert cp.notes == ["q-1: raw → aggregate(sum): 연령 0~5세 범위의 값 하나를 묻는 질문"]
+    assert cp.notes == ["q-1: 시점 조건이 없어 고정 시점 ['2025'] 을 넣음",      # HCX 가 시점 조건을 안 적었다 → 고정 시점 (M3-10)
+                        "q-1: raw → aggregate(sum): 연령 0~5세 범위의 값 하나를 묻는 질문"]
     (r,) = run_answer_steps(cp.answer_steps, [rec])
     assert (r.value, r.unit) == (sum(PRESCHOOL_2025), "명") and len(r.inputs) == 6
     assert sum(PRESCHOOL_2025) == 1_551_484
@@ -384,7 +386,7 @@ def test_comparison_by_age_stays_per_age():
     """'나이별 비교' 처럼 범주끼리 견주는 질문은 합치지 않는다"""
     cp, _ = make_plan([], [ages_view()], Decision.model_validate({"answers": [
         {"sub_question_id": "q-1", "op": "raw", "operands": [age_pick()]}]}), preschool("비교"))
-    assert cp.answer_steps[0].op == "raw" and cp.notes == []
+    assert cp.answer_steps[0].op == "raw" and cp.notes == ["q-1: 시점 조건이 없어 고정 시점 ['2025'] 을 넣음"]
 
 
 def test_total_row_mixed_in_is_not_summed():
@@ -392,7 +394,7 @@ def test_total_row_mixed_in_is_not_summed():
     rec = ages_view(extra_rows=[["2025", "전국", "계", "총인구(명)", 9.0]])
     cp, _ = make_plan([], [rec], Decision.model_validate({"answers": [
         {"sub_question_id": "q-1", "op": "raw", "operands": [age_pick(AGES + ["계"])]}]}), preschool())
-    assert cp.answer_steps[0].op == "raw" and cp.notes == ["q-1: 연령별 에 합계 행이 섞여 있어 합치지 않음 (['계'])"]
+    assert cp.answer_steps[0].op == "raw" and cp.notes == ["q-1: 시점 조건이 없어 고정 시점 ['2025'] 을 넣음", "q-1: 연령별 에 합계 행이 섞여 있어 합치지 않음 (['계'])"]
 
 
 def test_sum_is_per_year():
@@ -440,7 +442,8 @@ def test_sum_refused_when_other_column_mixes_items():
         "행정구역별(읍면동)": ["전국"], "연령별": AGES}}]})
     cp, _ = make_plan(charts, [rec], decision, preschool("추이", (2024, 2025)))
     assert cp.plans[0].steps[0].op == "raw"
-    assert cp.notes == ["c1: 항목 에 값이 여럿이라 연령 합계를 내지 않음 ({'항목': ['총인구(명)', '총인구_성비']})"]
+    assert cp.notes == ["c1: 시점 조건이 없어 고정 시점 ['2024', '2025'] 을 넣음",
+                        "c1: 항목 에 값이 여럿이라 연령 합계를 내지 않음 ({'항목': ['총인구(명)', '총인구_성비']})"]
 
 
 # ── HCX 가 쓰는 차트 제목 ─────────────────────────────────────────
@@ -529,7 +532,7 @@ def test_item_bracket_unit_wins_over_hcx_unit():
     assert cp.answer_steps[0].operands[0].unit == "건"
 
 
-# ── GPT 검토 (2026-11-11) D. HCX 단위 승인 기준 ──────────────────
+# ── 검수 (2026-11-11) D. HCX 단위 승인 기준 ──────────────────
 @pytest.mark.parametrize("unit, listed, want", [
     ("명", "명 가임여자 1명당 명", "명"),                       # 표준 단위 + 목록 안의 한 단어
     ("1명당", "명 가임여자 1명당 명", None),                    # 부분 문자열 (예전에는 승인)
