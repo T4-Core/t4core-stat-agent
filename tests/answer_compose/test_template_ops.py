@@ -139,7 +139,7 @@ def test_combine_same_item_different_places():
 # ── 계산 불가 ───────────────────────────────────────────────────
 def test_failure_reasons_are_shown_as_calculation_notes():
     assert say({"op": "growth_rate", "from": "1999", "to": "2009", "operands": [op("인구수(명)", NAT)]}) == \
-        "증감률을 계산하지 못했습니다(1999년 값이 없습니다)."
+        "인구수 증감률을 계산하지 못했습니다(1999년 값이 없습니다)."      # [CHANGED 11-16] 입력이 없어도 계획의 항목 이름을 쓴다 (M6-08)
     unit_mismatch = {"op": "diff", "join_on": ["시점"], "operands": [
         op("인구수(명)", {**NAT, "시점": ["2009"]}, "a"), op("고령인구비율(%)", {**NAT, "시점": ["2009"]}, "b")]}
     assert say(unit_mismatch) == "인구수 차이를 계산하지 못했습니다(단위가 달라 비교할 수 없습니다: 명 / %)."

@@ -9,7 +9,7 @@ from typing import Any
 from backend.agent.answer_compose.caveats import used_record_ids
 from backend.agent.answer_compose.reasons import humanize
 from backend.agent.answer_compose.facts import BETWEEN_OPS, Facts, has_value, is_list, key_label, matching_rows, points
-from backend.agent.chart_calculate.display import format_value, make_display, strip_unit, unit_of
+from backend.agent.chart_calculate.display import data_digits, format_value, make_display, strip_unit, unit_of
 from backend.agent.chart_calculate.select import ITEM_COL, MISSING_TEXT, VALUE_COL, to_number
 from backend.schemas.answer import AnswerTable
 from backend.schemas.chart import CalcInput, CalcResult
@@ -18,6 +18,7 @@ from backend.schemas.record import Record
 SUMMARY_ID = "t_calc"
 SHOW_INPUTS = 5          # 요약표 '입력값' 칸에 보여 줄 입력 수 (합계처럼 입력이 많은 계산)
 TITLE_LEN = 60
+HIGHLIGHT_FACTOR = 2     # 계산에 쓴 행(강조 행)은 max_rows 의 몇 배까지 보여 줄지 (결정 D-5)
 
 
 # ── 계산 요약표 ──────────────────────────────────────────────────
@@ -101,12 +102,27 @@ def _row_value(rec: Record, row: list, item_i: int | None, value_i: int) -> str 
     if n is None:
         return "-" if v is None or str(v).strip() in MISSING_TEXT else str(v)
     unit = unit_of(str(row[item_i]) if item_i is not None else None, rec.metadata.get("unit"))
-    return format_value(n, make_display(unit)) or "-"
+    return format_value(n, make_display(unit, digits=data_digits([n], unit))) or "-"
 
 
 def _title(rec: Record) -> str:
     lines = rec.lexical_text.strip().splitlines()
     return str(rec.metadata.get("survey_nm") or (lines[0] if lines else rec.id))[:TITLE_LEN]
+
+
+def direct_rows(f: Facts, rec: Record) -> list[int]:
+    """[NEW 11-16] 순위 · 극값 결과가 **직접 가리키는** 원본 행 (결과 점과 key · 값이 같은 입력의 행), 결과 점 순서대로.
+    행 제한에 걸려도 1위의 근거 행은 빠지면 안 된다 (검수 4)"""
+    out: list[int] = []
+    for r in f.req.calc_results:
+        if r.op not in ("rank", "extreme"):
+            continue
+        for p in points(r):
+            inp = next((i for i in r.inputs if i.record_id == rec.id and i.key == p.get("key") and i.value == p.get("value")), None)
+            for k in matching_rows(rec, inp, f.selects_of(inp)) if inp else []:
+                if k not in out:
+                    out.append(k)
+    return out
 
 
 def build_view(f: Facts, rec: Record, no: int, max_rows: int) -> AnswerTable:
@@ -115,10 +131,13 @@ def build_view(f: Facts, rec: Record, no: int, max_rows: int) -> AnswerTable:
     hit = highlighted_rows(f, rec, all_inputs)
     if len(rows) <= max_rows:
         keep = list(range(len(rows)))
-    else:                       # 계산에 쓴 행은 제한과 관계없이 넣고, 남는 자리를 앞쪽 행으로 채운다
-        room = max(max_rows - len(hit), 0)
+    else:
+        # [CHANGED 11-16] 이전: 계산에 쓴 행은 제한과 관계없이 모두 — 시군구 순위(250행)면 표가 250행이 됐다. 이제 제한의 2배까지 (결정 D-5)
+        direct = [k for k in direct_rows(f, rec) if k in hit]        # 순위 · 극값이 직접 가리키는 행을 먼저 (그 다음 계산에 쓴 행을 앞에서부터)
+        shown = (direct + [k for k in sorted(hit) if k not in direct])[:max_rows * HIGHLIGHT_FACTOR]
+        room = max(max_rows - len(shown), 0)
         extra = [k for k in range(len(rows)) if k not in hit][:room]
-        keep = sorted(hit | set(extra))
+        keep = sorted(set(shown) | set(extra))
     item_i = cols.index(ITEM_COL) if ITEM_COL in cols else None
     value_i = cols.index(VALUE_COL) if VALUE_COL in cols else len(cols) - 1
     shown = [[_row_value(rec, rows[k], item_i, value_i) if j == value_i else _cell(c) for j, c in enumerate(rows[k])]
