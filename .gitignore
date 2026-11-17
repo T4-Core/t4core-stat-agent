@@ -83,4 +83,3 @@ table_card_expend/out/
 synthetic_gold_pipeline/outputs/
 synthetic_gold_pipeline/outputs_easy/
 outputs/*/.gitkeep
-tests/

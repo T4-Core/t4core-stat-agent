@@ -7,7 +7,9 @@
 안전장치     번호만 받는다(JSON). 빠진 번호·모르는 번호·오류는 원래 순서를 유지. top_n 밖은 건드리지 않음. 같은 질문·후보는 캐시
 비용         질의 단위마다 HCX 1회 (입력 약 1.5~3천 자)
 형제 표        siblings.py 의 무리는 카드에 '형제 A: 성별 … · 수준 …' 로 표시하고, 상위 5개 무리의 빠진 형제를
-              후보에 끼워 넣어(engine._with_siblings) 나란히 비교하게 한다. LLM 뒤에 형제 규칙을 한 번 더 적용
+              상위 top_n 뒤에 붙여(engine._with_siblings) 나란히 비교하게 한다. LLM 뒤에 형제 규칙을 한 번 더 적용
+하위 단위     그 단위가 찾는 것을 [찾는 것]으로, 원래 질문은 맥락으로 준다 (원래 질문 기준으로 줄 세우면 분모·조건 표가 밀림).
+              분모 단위는 규칙(engine._denominator)이 고른 순서를 그대로 둔다 (llm_rerank.skip_roles)
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ SYS = ("너는 국가통계(KOSIS) 표를 고르는 사서다. [질문]에 답�
        "5) '형제' 표시가 같은 표들은 같은 통계의 (계)/(남)/(여) 분할·지역 수준판·연도판이다. 질문에 성별이 없으면 (계),"
        " 남성·여성을 물으면 그 성별 표, 질문의 지역 수준(전국·시도·시군구)에 맞는 판, 질문 연도를 담는 판을 앞에\n"
        "6) '같은 값 묶음' 표시가 같은 표들은 합계 값이 같은 다른 표다. 질문의 조건(분류)을 그대로 나눌 수 있는 표를 앞에\n"
+       "7) [찾는 것]이 따로 있으면 원래 질문 전체가 아니라 그 부분(예: 비율의 분자·조건을 거는 값)을 담은 표를 고른다\n"
        "후보 번호만 적합한 순서대로 모두 나열한다. 설명은 쓰지 않는다. JSON 만.")
 SCHEMA = {"type": "object", "properties": {"order": {"type": "array", "items": {"type": "integer"}}}, "required": ["order"]}
 _cache, _lock = {}, threading.Lock()
@@ -76,12 +79,13 @@ def concept_numbers(head, concept_of):
     return {t: f"C{n}" for n, ts in enumerate((ts for ts in by.values() if len(ts) >= 2), 1) for t in ts}
 
 
-def rerank(question, qv, hits, facets, top_n=12, chat_fn=None, sib=None, concept_of=None):
-    """→ (다시 줄 세운 hits, 메모). 실패하면 hits 그대로. sib: SiblingResolver (있으면 카드에 형제 표시)"""
+def rerank(question, qv, hits, facets, top_n=12, chat_fn=None, sib=None, concept_of=None, context=None, role=None):
+    """→ (다시 줄 세운 hits, 메모). 실패하면 hits 그대로. sib: SiblingResolver (있으면 카드에 형제 표시)
+    context: 하위 검색 단위일 때 원래 질문 (question 은 그 단위가 찾는 것), role: 분모·조건"""
     head, tail = hits[:top_n], hits[top_n:]
     if len(head) < 2:
         return hits, None
-    key = (question, tuple(h["tbl_id"] for h in head))
+    key = (question, context, role, tuple(h["tbl_id"] for h in head))
     with _lock:
         order = _cache.get(key)
     note = "cache"
@@ -89,7 +93,9 @@ def rerank(question, qv, hits, facets, top_n=12, chat_fn=None, sib=None, concept
         cond = (f"연도 {qv.years or '지정 없음(최신)'} · 시도 {qv.sido or '-'} · 시군구 {qv.subs or '-'} · "
                 f"지역 수준 {qv.axis or '-'} · 연령 {'물음' if qv.want_age else '-'} · 성별 {'물음' if qv.want_sex else '-'}")
         sib_of, con_of = sibling_numbers(head, sib), concept_numbers(head, concept_of)
-        user = (f"[질문] {question}\n[읽어 낸 조건] {cond}\n[후보]\n"
+        ask = (f"[찾는 것] {question}{f' (역할: {role})' if role else ''}\n[원래 질문] {context}" if context
+               else f"[질문] {question}")
+        user = (f"{ask}\n[읽어 낸 조건] {cond}\n[후보]\n"
                 + "\n".join(card(n, h, facets[h["tbl_id"]], sib_of, con_of) for n, h in enumerate(head, 1)))
         try:
             if chat_fn is None:

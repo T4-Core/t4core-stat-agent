@@ -37,7 +37,9 @@ DEFAULTS = {
              "sub_named": 1.0, "sub_level": 0.85, "sub_miss": 0.25, "sido_miss": 0.45, "axis_miss": 0.4,
              "age_miss": 0.5, "sex_miss": 0.65, "survey_hit": 1.35, "extra_dim": 0.12, "extra_dim_floor": 0.6,
              "latest_from": None},
-    "llm_rerank": {"enabled": False, "top_n": 12, "add_siblings": 4},
+    # LLM 재정렬: 끼워 넣는 형제·같은 개념 표는 상위 top_n 의 '뒤' 에 붙임 (앞 순위를 밀어내지 않음).
+    # 하위 단위는 그 단위 문장으로, 원래 질문은 맥락으로만. skip_roles 의 단위(분모)는 규칙이 고른 순서를 그대로 둠
+    "llm_rerank": {"enabled": False, "top_n": 12, "add_siblings": 4, "skip_roles": ["분모"]},
     # 분모 단위: '인구'·'가구'·'주택' 뿐인 하위 질의(또는 filters.역할 = 분모)는 본 질의를 다시 찾지 않고
     # '그 말이 제목·항목에 있는 단순한 표' 를 찾는다. 본 질의 1위 표와 같은 조사면 더 앞에 (같은 조사·연도·수준의 인구 표)
     "roles": {"enabled": True, "den_miss": 0.35, "den_dim": 0.2, "den_dim_floor": 0.45, "den_survey": 1.5},
@@ -286,14 +288,16 @@ class TableSearch:
         used = {n for n in rk if float(self.s["weights"].get(n, 0))}
         lr, sb = self.s["llm_rerank"], self.s["siblings"]
         sex_text = question if unit == "main" or self._generic(query) else query  # 하위 질의는 그 문장의 성별로
-        n_head = max(top_k, int(lr.get("top_n", 12)) + int(lr.get("add_siblings", 0))) if self.llm else top_k
+        role = prep.get("role")
+        use_llm = bool(self.llm) and role not in set(lr.get("skip_roles") or [])
+        n_head = max(top_k, int(lr.get("top_n", 12)) + int(lr.get("add_siblings", 0))) if use_llm else top_k
         ids = [self.docs[i].id for i in order[:max(n_head, int(sb.get("window", 12))) + 20] if final[i] > 0]
         sib_notes = {}
         if sb.get("enabled", True):  # 형제 표 해소
             allowed = {self.docs[i].id for i in np.nonzero(final > 0)[0]}
             ids, sib_notes = self.sib.resolve(ids, qv, sex_text, filters, int(sb.get("window", 12)), allowed)
         n_add = int(lr.get("add_siblings", 0)) + (int(self.s["concepts"].get("add", 0)) if self.concepts else 0)
-        if self.llm and n_add:  # LLM 이 형제·같은 개념 표를 나란히 보게 끼움
+        if use_llm and n_add:  # LLM 이 형제·같은 개념 표를 나란히 보게 상위 top_n 뒤에 붙임
             ids = self._with_siblings(ids, int(lr.get("top_n", 12)), int(lr.get("add_siblings", 0)), final,
                                       int(self.s["concepts"].get("add", 0)))
             n_head = max(top_k, int(lr.get("top_n", 12)) + n_add)
@@ -314,10 +318,14 @@ class TableSearch:
 
         hits = [hit(r, t) for r, t in enumerate(ids[:n_head], 1)]
         llm_note = None
-        if self.llm and hits:  # (선택) LLM 재정렬 — 상위 top_n 을 표 구조 요약으로 다시 줄 세움
+        if self.llm and not use_llm:
+            llm_note = f"건너뜀 (역할 {role})"
+        if use_llm and hits:  # (선택) LLM 재정렬 — 상위 top_n 을 표 구조 요약으로 다시 줄 세움
             from backend.rag.search.llm_rerank import rerank
-            hits, llm_note = rerank(question, qv, hits, self.facets, len(hits) if n_add else lr.get("top_n", 12),
-                                    self.chat_fn, sib=self.sib, concept_of=self.concept_of)
+            main_like = unit == "main" or (self._generic(query) and role != "분모")
+            target, context = (question, None) if main_like else (query, question)
+            hits, llm_note = rerank(target, qv, hits, self.facets, len(hits) if n_add else lr.get("top_n", 12),
+                                    self.chat_fn, sib=self.sib, concept_of=self.concept_of, context=context, role=role)
             if sb.get("enabled", True):  # 무리 안의 선택은 좌표 규칙이 마지막으로 (LLM 은 무리 사이 순서)
                 by = {h["tbl_id"]: h for h in hits}
                 again, more = self.sib.resolve([h["tbl_id"] for h in hits], qv, sex_text, filters, len(hits), set())
@@ -336,28 +344,31 @@ class TableSearch:
                 "siblings": sib_notes, "trace": []}
 
     def _with_siblings(self, ids, top_n, extra, final, extra_concept=0):
-        """상위 5개 안의 무리마다 빠진 형제를 그 무리 바로 뒤에 (모두 extra 개까지, 계수가 0 인 표는 빼고).
-        다음 같은 개념(같은 값을 주는 표)도 extra_concept 개까지 — 가장 점수가 높은 것부터"""
-        head, added = list(ids[:top_n]), 0
-        for tid in list(head[:5]):
+        """상위 5개 안의 무리마다 빠진 형제(모두 extra 개까지), 다음 같은 개념(같은 값을 주는 표, extra_concept 개까지)을
+        상위 top_n '뒤' 에 붙임 — 앞 순위는 그대로 두고 LLM 이 나란히 보고 고르게. 계수가 0 인 표는 빼고"""
+        head, extras = list(ids[:top_n]), []
+
+        def take(t):
+            if t not in head and t not in extras and final[self._pos[t]] > 0:
+                extras.append(t)
+                return True
+            return False
+        added = 0
+        for tid in head[:5]:
             for t in self.sib.siblings(tid):
                 if added >= extra:
                     break
-                if t not in head and final[self._pos[t]] > 0:
-                    head.insert(head.index(tid) + 1, t)
-                    added += 1
+                added += take(t)
         added = 0
-        for tid in list(head[:5]):
+        for tid in head[:5]:
             k = self.concept_of.get(tid)
             if k is None:
                 continue
             for t in sorted(self.concepts[k], key=lambda x: -final[self._pos[x]]):
                 if added >= extra_concept:
                     break
-                if t not in head and final[self._pos[t]] > 0:
-                    head.insert(head.index(tid) + 1, t)
-                    added += 1
-        return head + [t for t in ids[top_n:] if t not in head]
+                added += take(t)
+        return head + extras + [t for t in ids[top_n:] if t not in extras]
 
     def _attach_conditions(self, hits, filters):
         """View 단계·화면이 읽는 unmet·cover·cost 를 붙임 (표시용 — 순위에는 쓰지 않음)"""

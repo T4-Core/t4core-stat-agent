@@ -83,6 +83,9 @@ def search_query(text, f):
 # 검색 문장 다듬기 — 임계값 조각('99,000명 이상' 이 남긴 '0명'·'0')과 같은 단어 반복('인구 인구수 인구수')을 뺌
 # '5가구'·'2인' 처럼 숫자가 뜻의 일부인 말은 남김 (단위가 명·원·%·건·호·집·천명·만명 인 숫자 조각만 뺌)
 NUM_TOKEN = re.compile(r"^[\d][\d,.]*(?:명|원|%|퍼센트|건|호|집|천명|만명)?$")
+# 짧은 말을 지우는 건 긴 말이 '짧은 말 + 세는 말' 일 때뿐 ('인구' ⊂ '인구수', '가구' ⊂ '가구수').
+# '이동' ⊂ '인구이동' 처럼 뜻이 다른 복합어 안에 든 말은 남긴다 (짧은 말이 따로 검색 신호가 됨)
+COUNT_SUFFIX = ("수", "건수", "명수", "호수", "가구수")
 
 
 def tidy_query(text):
@@ -94,7 +97,10 @@ def tidy_query(text):
         seen.add(k)
         toks.append((t, k))
     keys = [k for _, k in toks]
-    return " ".join(t for t, k in toks if len(k) < 2 or not any(k != o and k in o for o in keys))
+
+    def covered(k):
+        return any(o != k and o.startswith(k) and o[len(k):] in COUNT_SUFFIX for o in keys)
+    return " ".join(t for t, k in toks if len(k) < 2 or not covered(k))
 
 
 def clean_tokens(toks):

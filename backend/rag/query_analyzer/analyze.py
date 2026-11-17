@@ -60,7 +60,7 @@ def rewrite_state(question, today=None):
 
 
 def tidy_text(text):
-    """검색 문장 다듬기 — resolve.tidy_query 와 같음 (숫자 조각·같은 단어 반복·더 긴 단어에 든 단어 빼기)"""
+    """검색 문장 다듬기 — resolve.tidy_query 와 같음 (숫자 조각·같은 단어 반복·'말+수' 로 다시 나온 말 빼기)"""
     from backend.rag.search.resolve import tidy_query
     return tidy_query(text)
 

@@ -294,7 +294,17 @@ python -m backend.rag.search.tuning.colloq_mine eval --golden <합성 셋.jsonl>
 
 # 개념 카탈로그 (같은 값을 주는 표 묶음) → <CSV 값 사전>/concepts.json
 python -m backend.rag.search.concepts build --alt <alt_positives.jsonl> --golden <합성 셋.jsonl>
+
+# 여러 표 질문 상한: 근거 그룹 설명을 하위 단위로 넣었을 때 Groups@5·10 (분석은 compare 캐시 재사용, HCX 없음)
+python -m backend.rag.search.tuning.oracle_groups --golden <합성 셋.jsonl> --cache <compare 폴더>/analysis_cache.jsonl --multi-only
+
+# 남은 실패 점검표: Hit@1 을 놓친 문항 → 판정(A 진짜 실패 · B 1위도 답 · C 라벨 이상 · D 질문이 표를 못 정함) → 판정 반영 지표
+python -m backend.rag.search.tuning.audit make  --per-query <compare 폴더>/per_query.csv --golden <합성 셋.jsonl> --out audit.csv
+python -m backend.rag.search.tuning.audit score --per-query <compare 폴더>/per_query.csv --audit audit.csv
 ```
+
+- LLM 재정렬(`--llm`): 형제·같은 개념 표는 상위 12개 뒤에 붙여 함께 보여 주고, 하위 검색 단위는 그 단위 문장을 기준으로 줄 세웁니다.
+  분모 단위는 규칙이 고른 순서를 그대로 둡니다 (`configs/search.yaml` 의 `llm_rerank.skip_roles`).
 
 - 합성 셋은 레코드 해시로 dev / heldout 을 나눕니다 (`tuning/splits.py`). 사전·카탈로그를 캐낸 문항과 평가 문항을 가르기 위함입니다.
 - `tests/retrieval_golden.jsonl` 은 손으로 만든 89문항 검색 골든셋입니다 (split: dev / test).
@@ -371,6 +381,9 @@ pytest -q synthetic_gold_pipeline/tests      # 골든셋 생성기
 | `test_query_analysis.py` (`scenario_query.py`) | CSV 값 사전 · 동의어 계층 · 접지 · 시점 규칙 · 되묻기 왕복 · 서브쿼리 분리 정책 · 지역 칸 바로잡기 |
 | `test_views.py` (`scenario_views.py`) | 충돌 재현(단위 환산 포함) · 선택지 주석·설명 · 선택 토큰 왕복·변조·만료 · auto_select · 허용 오차 · `/chat` 선택 왕복 |
 | `query_analyzer/`, `test_decompose_split.py`, `test_resolve.py` | 재작성 단계별 · 변환 · 서브쿼리 · 검색 문장 |
+| `test_search.py` | 표 검색 채널·구조 계수 (작은 코퍼스, 저장소 없음) |
+| `test_search_fixes.py` (`scenario_search_fixes.py` · `scenario_search_cli.py`) | 원문 표현 정리 · 형제 표 · 분모·조건 단위 · LLM 후보 위치·하위 단위 · 개념 카탈로그 / compare · tune · 상한 실험 · 점검표 · View |
+| `test_tuning.py` | dev/heldout 나누기 · 일상어 후보 캐기 · 개념 카탈로그 만들기 |
 | `judge/` | 판단 모듈 |
 
 `tests/fake_kosis.py` 가 가짜 KOSIS 수집 결과(연간·5년 주기·월간 표 등)와 HCX 대역(`llm._post`)을 만듭니다. 시나리오는 저장소 위치를 환경변수로 바꾸려고 별도 프로세스로 실행하며, 되묻기 왕복을 확인하려고 `clarify_mode: strict`, 기준 해 고정(`base_year_mode: fixed`)으로 돕니다 (`tests/helpers.py`).
