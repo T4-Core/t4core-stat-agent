@@ -27,7 +27,7 @@ from backend.agent.answer_compose import placeholder, template
 from backend.agent.answer_compose.caveats import build_caveats
 from backend.agent.answer_compose.facts import Facts
 from backend.agent.answer_compose.tables import build_tables
-from backend.agent.answer_compose.write import allowed_tokens, ask, initial_messages, retry_messages
+from backend.agent.answer_compose.write import ask, initial_messages, retry_messages, shown_tokens
 from backend.schemas.answer import AnswerTable, Caveat, Method, Module6Output, Module6Request
 
 MAX_ATTEMPTS = 2            # HCX 는 처음 한 번 + 재시도 한 번
@@ -94,7 +94,7 @@ def write_node(state: Module6State, config: RunnableConfig) -> dict:
     raw, draft, error = ask(messages, chat)
     out = {"attempt": attempt, "messages": messages, "raw": raw, "draft": draft, "hcx_error": error}
     if attempt == 1:                      # 모델에게 보여 준 자리표시자만 허용한다 (재시도에도 같은 목록)
-        out["allowed"] = allowed_tokens(messages[1]["content"])
+        out["allowed"] = shown_tokens(state["facts"])
     return out
 
 

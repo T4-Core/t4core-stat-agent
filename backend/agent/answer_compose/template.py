@@ -4,6 +4,8 @@
   연산마다 정해진 문장 틀에 CalcResult 를 채운다. 자연스러움보다 '항상 맞는 숫자'가 우선이다.
   계산하지 못한 결과는 "계산하지 못했습니다(사유)"로 밝힌다. 주의사항(caveats)은 마지막에 "※" 줄로 덧붙인다.
 """
+import re
+
 from backend.agent.answer_compose.facts import _YEAR, Facts, has_value, josa, key_text, points
 from backend.agent.answer_compose.reasons import humanize
 from backend.agent.chart_calculate.display import strip_unit
@@ -20,6 +22,8 @@ def _moved(amount: str, v: float, head: str) -> str:
     """head 뒤에 '24.8% 증가했습니다' 를 붙인다. 0 이면 변화 없음"""
     if not v:
         return f"{head}변화가 없습니다."
+    if not re.search(r"[1-9]", amount):         # [NEW 11-16] 표시하면 0.0% 인 값에 증가·감소를 붙이지 않는다 (검수 M6-11)
+        return f"{head}{amount}로 변화가 거의 없습니다."
     return f"{head}{amount} {'증가' if v > 0 else '감소'}했습니다."
 
 
@@ -125,6 +129,14 @@ def _extreme(f: Facts, r: CalcResult, p: dict, item: str) -> str:
     return f"{item} 중 가장 {'작은' if low else '큰'} 값은 {where} {value}입니다."
 
 
+def _extreme_tie(f: Facts, r: CalcResult, pts: list[dict], item: str) -> str:
+    """최댓값·최솟값이 동점일 때: 방향을 말하고 같은 값인 곳(해)을 모두 쓴다 (검수 M6-09)"""
+    low = f.extreme_kind(r) == "min"
+    word = ("낮은" if low else "높은") if r.unit in RATE_LIKE else ("적은" if low else "많은")
+    wheres = ", ".join(key_text(p.get("key") or {}) for p in pts)
+    return f"{josa(item, '이')} 가장 {word} 값은 {f.fmt_result(r, pts[0]['value'])}이며, {josa(wheres, '이')} 같습니다."
+
+
 def _combine_expr(ins: list[CalcInput]) -> str:
     """합산식: '출생아수 − 사망자수', '서울특별시 + 부산광역시 − 대구광역시 출생아수'. 입력의 role 이 부호(+/-)다"""
     items = {strip_unit(i.item or "") for i in ins}
@@ -156,6 +168,8 @@ def sentence(f: Facts, r: CalcResult) -> str:
         return f"{josa(f.label(r), '을')} 계산하지 못했습니다{f'({humanize(r.note, r.inputs)})' if r.note else ''}."
     if r.op == "extreme" and len(pts) == 1:
         return _extreme(f, r, pts[0], item)
+    if r.op == "extreme" and len(pts) > 1 and f.extreme_kind(r) and len({p.get("value") for p in pts}) == 1:
+        return _extreme_tie(f, r, pts, item)
     if r.op == "diff" and len(pts) > 1 and (text := _diff_list(f, r)):
         return text
     if r.op == "aggregate" and len(pts) > 1:

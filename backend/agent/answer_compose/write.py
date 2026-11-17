@@ -21,7 +21,7 @@ LIST_PREVIEW = 10        # 목록 결과에서 프롬프트에 자리표시자�
 
 
 def _result_lines(f: Facts, r: CalcResult) -> list[str]:
-    kind = {"min": " (최솟값)", "max": " (최댓값)"}.get(f.extreme_kind(r) or "") if r.op == "extreme" else ""
+    kind = {"min": " (최솟값)", "max": " (최댓값)"}.get(f.extreme_kind(r) or "", "") if r.op == "extreme" else ""   # [CHANGED 11-16] 이전: 방향을 모르면 None 글자가 프롬프트에 들어갔다 (검수 M6-04)
     head = f"{r.step_id} | {f.label(r)}{kind}"
     pts = points(r)
     if not has_value(r):
@@ -59,6 +59,14 @@ def _result_lines(f: Facts, r: CalcResult) -> list[str]:
 
 _TOKEN = re.compile(r"\{([^{}]*)\}")
 _NOT_A_VALUE = (".key", ".rank", ".abs")
+
+
+def shown_tokens(f: Facts) -> set[str]:
+    """[NEW 11-16] 모델에게 보여 준 자리표시자를 결과 줄에서 직접 모은다. 프롬프트 글자를 '[계산 결과]' 로 잘라 찾으면 질문 문장에
+    그 표지가 들어 있을 때 엉뚱한 곳을 잘라 정상 답변이 모두 거절된다 (검수 M6-06). .abs 는 값을 뜻하는 것에만 허용"""
+    shown = {t.strip() for r in f.req.calc_results for line in _result_lines(f, r) for t in _TOKEN.findall(line)
+             if re.fullmatch(r"[\w\-]+(?:\.[\w\-]+)*", t.strip())}
+    return shown | {t + ".abs" for t in shown if not t.endswith(_NOT_A_VALUE)}
 
 
 def allowed_tokens(prompt: str) -> set[str]:

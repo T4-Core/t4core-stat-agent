@@ -7,7 +7,7 @@
 import re
 from typing import Any
 
-from backend.agent.chart_calculate.display import format_value, make_display, strip_unit
+from backend.agent.chart_calculate.display import data_digits, format_value, make_display, strip_unit
 from backend.agent.chart_calculate.select import ITEM_COL, VALUE_COL, find_item_column, to_number
 from backend.agent.chart_calculate.validate import TOTAL_LABELS
 from backend.schemas.answer import Module6Request
@@ -151,7 +151,10 @@ class Facts:
     def fmt_input(self, i: CalcInput, absolute: bool = False) -> str:
         if i.value is None:
             return "-"
-        return format_value(abs(i.value) if absolute else i.value, self.input_display(i.unit)) or "-"
+        d = self.input_display(i.unit)
+        if d.unit_scale == 1:        # 입력은 원 자료 값이라 그 값의 소수 자릿수를 따른다 (0.721명 이 1명이 되지 않게. 결정 D-2)
+            d = d.model_copy(update={"digits": data_digits([i.value], i.unit)})
+        return format_value(abs(i.value) if absolute else i.value, d) or "-"
 
     # ── 고정 좌표 (지역 · 성별 · 연령 …) ──
     def coords(self, inp: CalcInput) -> dict[str, Any]:
@@ -187,12 +190,16 @@ class Facts:
         for i in r.inputs:
             if i.item:
                 return strip_unit(i.item)
+        st = self.steps.get(r.step_id)           # [NEW 11-16] 입력이 없는 실패 계산은 계산 계획의 피연산자 항목에서 (검수 M6-08)
+        for o in (st.operands or []) if st else []:
+            if o.item:
+                return strip_unit(o.item)
         return OP_LABEL.get(r.op, r.op)
 
     def label(self, r: CalcResult) -> str:
         """표의 '계산' 칸: '혼인건수 증감률'"""
         name = OP_LABEL.get(r.op, r.op)
-        return f"{self.item(r)} {name}" if r.inputs and any(i.item for i in r.inputs) else name
+        return f"{self.item(r)} {name}" if self.item(r) != name else name
 
     def denominator(self, r: CalcResult) -> str | None:
         """share 의 분모 설명: '전국 대비 — 인구수 2025년 51,325,329명'. 계산할 때 쓴 분모(scope_label + role=total 입력)를 그대로 쓴다"""

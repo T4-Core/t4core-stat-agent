@@ -91,6 +91,8 @@ _APPROX_BEFORE = re.compile(r"(?:(?<=\s)|^)(?:약|대략|거의)\s*$")
 # '정도로' · '정도에서' 는 지우면 '건로' 처럼 조사가 어색해져 그대로 둔다 (프롬프트로 막는다)
 _APPROX_AFTER = re.compile(r"\s*(?:정도|가량|쯤)(?=[\s.,)]|$|입니다|이었|이다|이고|이며|이라)")
 _NUMERIC = re.compile(r"^-?\d")
+# 값이 이미 단위로 끝날 때, 템플릿이 같은 뜻으로 또 쓰는 말 (긴 것부터)
+_ECHOES = {"%p": ("퍼센트포인트", "포인트", "%p", "%"), "%": ("퍼센트", "%"), "‰": ("퍼밀", "‰")}
 
 
 def _fill_text(template: str, replace) -> str:
@@ -105,8 +107,11 @@ def _fill_text(template: str, replace) -> str:
         out.append(before)
         out.append(got)
         pos = m.end()
-        if (u := _VALUE_WITH_UNIT.match(got)) and template.startswith(u.group(1), pos):
-            pos += len(u.group(1))
+        if u := _VALUE_WITH_UNIT.match(got):
+            # [CHANGED 11-16] 이전: 같은 단위만 지웠다 → '{a1}%' 가 '2.6%p%', '{a1}포인트' 가 '2.6%p포인트' 가 됐다 (검수 M6-05)
+            echo = next((e for e in _ECHOES.get(u.group(1), (u.group(1),)) if template.startswith(e, pos)), None)
+            if echo:
+                pos += len(echo)
         if _NUMERIC.match(got) and (a := _APPROX_AFTER.match(template, pos)):     # 숫자 값 뒤의 '정도' · '가량' 도
             pos = a.end()
     out.append(template[pos:])
@@ -143,33 +148,74 @@ def _numbers(text: str) -> set[str]:
     return {n.replace(",", "") for n in _NUM.findall(text)}
 
 
-def allowed_numbers(f: Facts, caveats: list[Caveat]) -> set[str]:
-    """문장에 직접 써도 되는 숫자: 질문 · 하위 질문 · 계산의 키(시점) · 항목 이름 · 주의사항에 이미 나온 것"""
+def _allowed_text(f: Facts, caveats: list[Caveat]) -> str:
     b = f.req.query_bundle
     texts = [b.original, b.rewritten or "", *b.sub_questions, *(c.text for c in caveats)]
     for r in f.req.calc_results:
         texts += [r.scope_label or "", f.fixed_text(r)]
         texts += [key_label(i.key) for i in r.inputs] + [i.item or "" for i in r.inputs]
         texts += [key_label(p.get("key")) for p in points(r) if isinstance(p, dict)]
-    return _numbers(" ".join(texts))
+    return " ".join(texts)
+
+
+def allowed_numbers(f: Facts, caveats: list[Caveat]) -> set[str]:
+    """문장에 직접 써도 되는 숫자: 질문 · 하위 질문 · 계산의 키(시점) · 항목 이름 · 주의사항에 이미 나온 것"""
+    return _numbers(_allowed_text(f, caveats))
+
+
+# [NEW 11-16] 숫자 + 수량 단위('2025%', '5배', '2021건'). 연도·나이처럼 이름으로 쓰인 숫자는 허용해도, 수치처럼 쓰면 안 된다 (검수 M6-01)
+# 만 · 억 · 조 · 백만 · 천 이 붙은 수량('2025만 건', '3.5억 원', '2천 건')도 본다. 크기 말만 붙은 것('2025만')도 수량이다 (검수 2)
+_QUANTITY = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*((?:백만|천만|만|억|조|천)?\s*(?:%p|%|퍼센트|‰|배|명|건|가구|호|개|원|천명당|포인트)|백만|천만|만|억|조)")
+
+
+def _quantities(text: str) -> set[tuple[str, str]]:
+    """{(숫자, 단위)}. 단위의 공백은 뗀다 ('만 건' = '만건')"""
+    return {(n.replace(",", ""), re.sub(r"\s+", "", u)) for n, u in _QUANTITY.findall(text)}
+
+
+def _signs(sentence: str, f: Facts) -> list[tuple[str, float]]:
+    """문장이 인용한 증감 계산 값의 방향 [(step_id, 부호)]. 값 하나짜리는 끝 − 처음, 목록은 인용한 점({a1.r2})의 값의 부호.
+    [CHANGED 11-16] 이전: 값 하나짜리 계산만 봤다 → 모듈 3 의 직전 시점 대비 목록이 대부분이라 방향 검사가 거의 일어나지 않았다 (검수 M6-02)"""
+    out = []
+    for tok in _BRACE.findall(sentence):
+        sid, _, part = tok.strip().partition(".")
+        r = f.results.get(sid)
+        if r is None or r.op not in DIRECTIONAL:
+            continue
+        part = part.removesuffix(".abs") if part != "abs" else ""
+        pts = points(r)
+        if is_list(r) and (m := re.fullmatch(r"r(\d+)", part)):
+            n = int(m.group(1))
+            way = pts[n].get("value") if n < len(pts) else None
+        elif part == "" and len(pts) == 1 and is_list(r):
+            way = pts[0].get("value")
+        elif part == "" and not is_list(r):
+            way = f.direction(r)
+        else:
+            continue
+        if isinstance(way, (int, float)) and not isinstance(way, bool) and way:
+            out.append((sid, way))
+    return out
 
 
 def direction_problems(template: str, f: Facts) -> list[str]:
     """부호와 방향 단어의 모순: 감소(음수) 계산을 '증가했습니다'로, 증가(양수)를 '감소했습니다'로 쓴 문장
 
-    문장마다 방향 계산(growth_rate · change · cagr)이 정확히 하나일 때만 본다 (둘 이상이면 어느 단어가 어느 계산 것인지 알 수 없다).
+    문장이 인용한 증감 값이 **모두** 같은 방향이고 문장에 반대 방향 단어만 있을 때 오류다 (방향이 섞였거나 증가·감소 단어가 함께
+    있으면 어느 단어가 어느 값의 것인지 알 수 없어 보지 않는다).
     """
     out = []
     for sentence in _SENTENCE.split(template):
-        ids = {tok.partition(".")[0].strip() for tok in _BRACE.findall(sentence)}
-        dirs = [r for i in ids if (r := f.results.get(i)) and r.op in DIRECTIONAL and not is_list(r) and f.direction(r)]
-        if len(dirs) != 1:
+        signs = _signs(sentence, f)
+        if not signs:
             continue
-        r, text = dirs[0], _NEUTRAL.sub("", _BRACE.sub("", sentence))
+        text = _NEUTRAL.sub("", _BRACE.sub("", sentence))
         up, down = any(w in text for w in UP_WORDS), any(w in text for w in DOWN_WORDS)
-        way = f.direction(r)                       # 끝 − 처음 (음수 기준값의 증감률은 부호가 거꾸로일 수 있어 값의 부호가 아니다)
-        if (way < 0 and up and not down) or (way > 0 and down and not up):
-            out.append(f"방향이 맞지 않음: {{{r.step_id}}} 은 {'감소' if way < 0 else '증가'}인데 반대로 씀 — 계산에 쓴 두 값의 차이로 방향을 맞춘다")
+        sid = signs[0][0]
+        if all(w < 0 for _, w in signs) and up and not down:
+            out.append(f"방향이 맞지 않음: {{{sid}}} 은 감소인데 반대로 씀 — 계산에 쓴 두 값의 차이로 방향을 맞춘다")
+        elif all(w > 0 for _, w in signs) and down and not up:
+            out.append(f"방향이 맞지 않음: {{{sid}}} 은 증가인데 반대로 씀 — 계산에 쓴 두 값의 차이로 방향을 맞춘다")
     return out
 
 
@@ -181,6 +227,11 @@ def check(template: str, filled: Filled, f: Facts, caveats: list[Caveat]) -> lis
     stray = sorted(_numbers(_BRACE.sub("", template)) - allowed_numbers(f, caveats))
     if stray:
         problems.append(f"자리표시자 밖에 숫자를 직접 씀: {', '.join(stray)} — 숫자는 자리표시자로만 쓴다")
+    # 이미 '자리표시자 밖 숫자' 로 걸린 숫자는 한 번만 알린다
+    if quantities := sorted(q for q in _quantities(_BRACE.sub(" ", template)) - _quantities(_allowed_text(f, caveats))
+                            if q[0] not in stray):
+        problems.append("숫자와 단위를 직접 씀: " + ", ".join(f"{n}{u}" for n, u in quantities)
+                        + " — 연도·나이가 아닌 수치는 자리표시자로만 쓴다")
     problems += direction_problems(template, f)
     if _LABEL_THEN_PERCENT.search(template):
         problems.append("시점·이름 자리표시자 뒤에 %를 붙임 — 수치는 결과 값 자리표시자({a1} 등)로 쓴다")
