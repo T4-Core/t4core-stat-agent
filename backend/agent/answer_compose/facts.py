@@ -8,6 +8,8 @@ import re
 from typing import Any
 
 from backend.agent.chart_calculate.display import data_digits, format_value, make_display, strip_unit
+from backend.core.korean import _YEAR, josa, key_text  # noqa: F401  [MOVED 11-17] core/korean.py (예전 import 경로 유지)
+from backend.agent.chart_calculate.planner import SOURCE_DIGITS_OPS
 from backend.agent.chart_calculate.select import ITEM_COL, VALUE_COL, find_item_column, to_number
 from backend.agent.chart_calculate.validate import TOTAL_LABELS
 from backend.schemas.answer import Module6Request
@@ -19,37 +21,9 @@ OP_LABEL = {"raw": "조회값", "change": "증감", "growth_rate": "증감률", 
             "combine": "합산"}
 BETWEEN_OPS = {"change", "growth_rate", "cagr", "index"}      # 두 시점(처음 → 끝)을 잇는 연산
 
-# 받침 판단: 한글은 유니코드로, 숫자는 읽는 소리(영·일·삼·육·칠·팔 = 받침 있음)로 본다
-_DIGIT_FINAL = {"0": True, "1": True, "2": False, "3": True, "4": False, "5": False, "6": True, "7": True, "8": True, "9": False}
-_JOSA = {"은": ("은", "는"), "이": ("이", "가"), "을": ("을", "를"), "과": ("과", "와"), "으로": ("으로", "로")}
-
-
-def josa(word: str, kind: str) -> str:
-    """josa('혼인건수', '은') → '혼인건수는'. kind = 은 · 이 · 을 · 과 · 으로"""
-    with_final, without = _JOSA[kind]
-    last = word.rstrip()[-1:] if word.strip() else ""
-    final = False
-    if "가" <= last <= "힣":
-        n = (ord(last) - 0xAC00) % 28
-        final = n != 0 and not (kind == "으로" and n == 8)     # '으로' 는 ㄹ 받침도 '로'
-    elif last in _DIGIT_FINAL:
-        final = _DIGIT_FINAL[last]
-        if kind == "으로" and last in "178":                    # 일 · 칠 · 팔 = ㄹ 받침
-            final = False
-    return word + (with_final if final else without)
-
-
 def key_label(key: dict[str, Any] | None) -> str:
     """{'시점': '2021'} → '2021', {'행정구역별': '서울', '시점': '2021'} → '서울 2021'"""
     return " ".join(str(v) for v in (key or {}).values())
-
-
-_YEAR = re.compile(r"\d{4}")
-
-
-def key_text(key: dict[str, Any] | None) -> str:
-    """문장용 key_label: 시점이 4자리 연도면 '2021년'. (표는 key_label 그대로 '2021')"""
-    return " ".join(f"{v}년" if c == "시점" and _YEAR.fullmatch(str(v)) else str(v) for c, v in (key or {}).items())
 
 
 def matching_rows(rec: Record, inp: CalcInput, selects: list[dict] | None = None) -> list[int]:
@@ -135,7 +109,15 @@ class Facts:
 
     # ── 표시 ──
     def result_display(self, r: CalcResult) -> Display:
-        return self.displays.get(r.display_ref or "") or make_display(r.unit)
+        if d := self.displays.get(r.display_ref or ""):
+            return d
+        # [CHANGED 11-17] 이전: make_display(r.unit) — displays 를 받지 못하면 단위 기본 자릿수(명 = 0)라 합계출산율 0.748명이 1명이 됐다 (자체 검토 A-4).
+        #   원 자료 값을 잇는 연산이면 모듈 3 계획 단계(planner.source_digits)와 같은 규칙으로 입력 값의 소수 자릿수를 쓴다
+        digits = None
+        if r.op in SOURCE_DIGITS_OPS:
+            mean = r.op == "aggregate" and self.agg(r) == "mean"
+            digits = data_digits([i.value for i in r.inputs] or [p.get("value") for p in points(r)], r.unit, integer_rule=not mean)
+        return make_display(r.unit, auto_digits=digits)
 
     def input_display(self, unit: str | None) -> Display:
         for d in self.displays.values():          # 같은 단위의 설정(예: 만 명 환산)이 있으면 그 모양을 따른다
@@ -199,6 +181,8 @@ class Facts:
     def label(self, r: CalcResult) -> str:
         """표의 '계산' 칸: '혼인건수 증감률'"""
         name = OP_LABEL.get(r.op, r.op)
+        if r.op == "extreme" and r.step_id in self.steps:      # [NEW 11-17] '극값' 대신 방향: '혼인건수 최솟값' (보고서 12.3)
+            name = {"max": "최댓값", "min": "최솟값"}.get(self.extreme_kind(r) or "", name)
         return f"{self.item(r)} {name}" if self.item(r) != name else name
 
     def denominator(self, r: CalcResult) -> str | None:
@@ -217,8 +201,15 @@ class Facts:
         """'max' | 'min'. answer_steps 를 못 받았으면 None — 방향을 추측하면 '가장 적은 해'를 '가장 큰 값'으로 답한다.
         단계는 있는데 kind 가 없으면 모듈 3 기본값(max)"""
         st = self.steps.get(r.step_id)
+        if r.op == "rank":       # [NEW 11-17] 1위 = 정렬 방향의 끝. 모듈 3 의 rank 기본은 큰 값부터(desc) (H6)
+            return "min" if st is not None and st.order == "asc" else "max"
         return None if st is None else str(st.kind or (st.model_extra or {}).get("kind", "max"))
 
-    def agg_name(self, r: CalcResult) -> str:
+    def agg(self, r: CalcResult) -> str | None:
+        """집계 방식. CalcResult.agg 가 우선이고, 없으면(예전 입력) answer_steps 의 agg.
+        [NEW 11-17 외부 피드백] 이전에는 answer_steps 로만 알 수 있어, 그것까지 생략하면 평균이 '집계값 51천명' 으로 나왔다"""
         st = self.steps.get(r.step_id)
-        return {"sum": "합계", "mean": "평균"}.get(st.agg if st and st.agg else "", "집계값")
+        return r.agg or (st.agg if st else None)
+
+    def agg_name(self, r: CalcResult) -> str:
+        return {"sum": "합계", "mean": "평균"}.get(self.agg(r) or "", "집계값")

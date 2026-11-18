@@ -23,7 +23,10 @@ def _moved(amount: str, v: float, head: str) -> str:
     if not v:
         return f"{head}변화가 없습니다."
     if not re.search(r"[1-9]", amount):         # [NEW 11-16] 표시하면 0.0% 인 값에 증가·감소를 붙이지 않는다 (검수 M6-11)
-        return f"{head}{amount}로 변화가 거의 없습니다."
+        # [CHANGED 11-17] 이전: f"{head}{amount}로 변화가 거의 없습니다." — '…100,003건으로 0.0%로 …' 처럼 '으로' 가 겹쳤다 (자체 검토 A-8)
+        if head.rstrip().endswith("로"):         # '…에서 2025년 100,003건으로' 뒤
+            return f"{head.rstrip()}, 변화가 거의 없습니다({amount})."
+        return f"{head}변화가 거의 없습니다({amount})."
     return f"{head}{amount} {'증가' if v > 0 else '감소'}했습니다."
 
 
@@ -166,7 +169,7 @@ def sentence(f: Facts, r: CalcResult) -> str:
     item = " ".join(x for x in (f.fixed_text(r), base) if x)        # 대상이 하나로 고정돼 있으면 앞에: '전국 인구수'
     if not has_value(r):
         return f"{josa(f.label(r), '을')} 계산하지 못했습니다{f'({humanize(r.note, r.inputs)})' if r.note else ''}."
-    if r.op == "extreme" and len(pts) == 1:
+    if r.op in ("extreme", "rank") and len(pts) == 1:      # [CHANGED 11-17] 한 점짜리 순위(top_n 1)도 '가장 ○○한 곳' 문장 (H6)
         return _extreme(f, r, pts[0], item)
     if r.op == "extreme" and len(pts) > 1 and f.extreme_kind(r) and len({p.get("value") for p in pts}) == 1:
         return _extreme_tie(f, r, pts, item)
@@ -216,4 +219,7 @@ def sentence(f: Facts, r: CalcResult) -> str:
 
 def compose(f: Facts, caveats: list[Caveat]) -> str:
     body = " ".join(sentence(f, r) for r in f.req.calc_results)
-    return "\n".join([body, *(f"※ {c.text}" for c in caveats)])
+    # [CHANGED 11-17] 본문이 이미 '…을 계산하지 못했습니다(사유)' 라고 말한 계산의 주의사항은 ※ 줄로 다시 쓰지 않는다 (보고서 12.3).
+    #   Module6Output.caveats 에는 그대로 남는다 (화면 · 모듈 7)
+    said = {r.step_id for r in f.req.calc_results if not has_value(r)}
+    return "\n".join([body, *(f"※ {c.text}" for c in caveats if not (c.source == "calc_note" and c.ref in said))])

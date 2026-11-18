@@ -3,7 +3,7 @@ from backend.agent.answer_compose.facts import Facts, has_value
 from backend.agent.answer_compose.pipeline import run_module6
 from backend.agent.answer_compose.placeholder import check, fill
 from backend.agent.answer_compose.tables import build_tables
-from backend.agent.answer_compose.write import allowed_tokens, build_prompt
+from backend.agent.answer_compose.write import build_prompt, shown_tokens
 from backend.agent.chart_calculate.calculate import run_answer_steps
 from backend.schemas.answer import Module6Request
 from backend.schemas.chart import CalcResult, Step
@@ -42,7 +42,7 @@ def test_only_placeholders_shown_in_the_prompt_are_allowed():
                                    "inputs": [inp("2025", 100)], "record_ids": [VID]})
     f = Facts(request(results=[r]))
     prompt = build_prompt(f, [])
-    allowed = allowed_tokens(prompt)
+    allowed = shown_tokens(f)          # [CHANGED 11-17] 이전: allowed_tokens(prompt) — 함수 삭제 (자체 검토 A-9)
     assert "{a1.r9}" in prompt and "{a1.r10}" not in prompt and "{a1.r11}" not in prompt        # 프롬프트는 10개까지만 보여 준다
     assert {"a1.r0", "a1.r0.abs", "a1.r0.key", "a1.r0.rank", "a1.r9"} <= allowed and "a1.r11" not in allowed
     assert fill("{a1.r11}", f).problems == []                                                    # 허용 목록이 없으면(예전 호출) 풀린다
