@@ -382,6 +382,8 @@ flowchart TD
     SP -->|예| W2["경고 + 그 나눔이 필요한 차트 제외<br/>(성별·연령 → pyramid, 지역 → map)"]
     N --> IN{"지표 없음<br/>또는 빈 표?"}
     IN -->|예| B2["chart_type = null (표만)<br/>+ 경고"]
+    N --> ONE{"차트에 올릴 값<br/>&lt; 2개?"}
+    ONE -->|예| B3["chart_type = null (표만)<br/>+ 경고"]
 ```
 
 | 출력 필드 (`matches[].view_fit`) | 설명 |
@@ -395,6 +397,10 @@ flowchart TD
 
 - 경고는 `errors`에 `{node: "view_check", chart_id, level: "warning", reason}` → `charts[].warnings`로도 간다.
 - 기준 값: `TREND_MIN_POINTS = 2`, `SPLIT_SLOTS`, `SPLIT_CHARTS` (`chart_type_rules.py`)
+- **값 1개 → 표만** (2026-11-18): measure 가 정해진 뒤(④ chart_select 에서 `block_reason`) 차트에 올릴 값 수를 미리 센다 (`expected_values`).
+  `MIN_CHART_VALUES`(2)개 미만이면 `chart_type = null` + 경고 "차트 없음(표만): 차트에 올릴 값이 1개뿐이라 표로 보여 줌 (…)".
+  - raw: 범주 수 × 계열 수 · 증감·증감률·합계(`SCALAR_MEASURES`): 시점을 접으므로 (시점이 아닌 범주 수) × 계열 수 — 시점이 `SCALAR_MAX_POINTS`(2)개 이하일 때만 센다
+  - 미리 못 센 경우의 안전망: bar · stacked_bar · pie · donut · treemap 의 requirements 에 `min_categories_2` → 모듈 3 이 계산 결과로 판정 (dumbbell 은 모듈 3 이 대체 차트를 자기 기본 조건으로 검증해 붙이지 않음)
 
 ### ② measure — 값 가공 방법 정하기
 
@@ -522,9 +528,9 @@ flowchart LR
 | 차트 | requirements (데이터가 지켜야 할 조건) |
 | --- | --- |
 | line · area | `time_axis_required`, `min_points_3` |
-| bar | `max_categories_20` |
-| stacked_bar · treemap | `non_negative`, `parts_sum_to_total` |
-| pie · donut | `non_negative`, `parts_sum_to_total`, `max_categories_5` |
+| bar | `max_categories_20`, `min_categories_2` |
+| stacked_bar · treemap | `non_negative`, `parts_sum_to_total`, `min_categories_2` |
+| pie · donut | `non_negative`, `parts_sum_to_total`, `max_categories_5`, `min_categories_2` |
 | pyramid | `two_series_required`, `non_negative`, `category_axis_required` |
 | combo | `time_axis_required`, `two_series_required`, `min_points_3` |
 | map | `region_dimension_required` |
@@ -574,6 +580,7 @@ flowchart TD
 | "2024년 가구원수별 가구 비중을 원그래프로" (합계 행 없음) | `bar` + 경고 "요청한 pie 차트를 그릴 수 없음 …" |
 | "연도별 고령자 수를 남녀로" (표에 성별 없음) | 경고 "요청한 성별(남자, 여자) 구분이 표에 없음" |
 | "2011~2025년 고령자 수" (표에 시점 1개) | `chart_type: null` + 경고 "차트 없음(표만): 추이를 물었지만 …" |
+| "2018년 부산진구 국제결혼 이주자 수는 2015년에 비해 얼마나 변화" (한 지역 · 두 시점 증감 = 값 1개) | `chart_type: null` + 경고 "차트 없음(표만): 차트에 올릴 값이 1개뿐이라 표로 …" |
 | "오늘 서울 날씨" | measure `범위 밖`, `chart_type: null` |
 | 하위질문 2개, 단위 다른 추이 | 차트 2개 + `overlays` combo |
 

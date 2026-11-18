@@ -344,11 +344,13 @@ View 모듈은 표를 만들며 맞추지 못한 조건을 `record.notes`에 남
 | 의도 **추이**인데 표의 시점이 `TREND_MIN_POINTS`(2)개 미만 | **`chart_type = None` (표만)** + 경고 "차트 없음(표만): 추이를 물었지만 표의 시점이 1개(1995)" |
 | 성별·연령·지역 `missing` (요청한 나눔이 표에 없음) | 경고 + 그 나눔이 꼭 필요한 차트만 후보에서 뺀다 (`SPLIT_CHARTS`: 성별·연령 → pyramid, 지역 → map) |
 | 지표 `missing` · 표 `empty` | **`chart_type = None` (표만)** + 경고 |
+| 차트에 올릴 값이 `MIN_CHART_VALUES`(2)개 미만 (예: 한 지역 2015→2018 증감 = 값 1개, 행 1개짜리 원값) | **`chart_type = None` (표만)** + 경고 "차트 없음(표만): 차트에 올릴 값이 1개뿐이라 표로 보여 줌" |
 | 지표 `default` (맞는 항목이 없어 항목 전체) | 경고 |
 
 - 경고는 `errors`에 `{"node": "view_check" | "chart_select", "chart_id", "level": "warning", "reason"}`로 남는다.
 - 막힌 차트는 combo로 묶지 않고, LLM 차트 선택(`chart_llm`)으로도 보내지 않는다.
-- 기준 값은 `chart_type_rules.py`의 `TREND_MIN_POINTS`, `SPLIT_SLOTS`, `SPLIT_CHARTS`.
+- 기준 값은 `chart_type_rules.py`의 `TREND_MIN_POINTS`, `SPLIT_SLOTS`, `SPLIT_CHARTS`, `SCALAR_MEASURES`, `SCALAR_MAX_POINTS`, `MIN_CHART_VALUES`.
+- 값 수를 미리 못 세는 경우는 bar · stacked_bar · pie · donut · treemap 의 requirements `min_categories_2` 를 모듈 3 이 계산 결과로 판정한다.
 
 ### 5-2. 요청한 나눔 (profile · `chart_type_axes.py`)
 

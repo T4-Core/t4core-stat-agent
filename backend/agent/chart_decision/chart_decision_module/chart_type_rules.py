@@ -51,6 +51,12 @@ SPLIT_SLOTS = ["성별", "연령", "지역"]             # 요청한 나눔으�
 SPLIT_CHARTS = {"성별": ["pyramid"],               # 그 나눔이 표에 없으면 후보에서 빼는 차트
                 "연령": ["pyramid"],
                 "지역": ["map"]}
+# [값 1개 → 표만] 차트에 올릴 값이 MIN_CHART_VALUES 보다 적으면 차트 없음 (표만). 막대 1개짜리 차트를 만들지 않는다
+#   SCALAR_MEASURES: 시점을 접어 범주마다 값 1개를 내는 계산 (2015→2018 증감 = 값 1개). 값 수 = 시점이 아닌 범주 수 × 계열 수
+#   raw: 값 수 = 범주 수 × 계열 수.  그 밖의 measure(share · rank · diff · ratio · index)는 미리 세지 않는다
+SCALAR_MEASURES = ("change", "growth_rate", "aggregate")
+SCALAR_MAX_POINTS = 2      # 시점이 이 이하일 때만 '범주마다 값 1개' 로 센다 (3개 이상이면 해마다의 증감일 수 있어 세지 않음)
+MIN_CHART_VALUES = 2
 
 # ── 사용자용 경고 (고도화 4단계): errors 중 이 노드에서 나온 warning 만 chart_plan.charts[].warnings 로 넘긴다
 #    profile 노드의 메모('요청하지 않은 나눔 … 제외' 등)는 개발자용이라 errors 에만 둔다
@@ -129,17 +135,19 @@ MEASURE_TO_CHARTS = {
 CHART_REQUIREMENTS = {
     "line":        ["time_axis_required", "min_points_3"],
     "area":        ["time_axis_required", "min_points_3"],
-    "bar":         ["max_categories_20"],
-    "stacked_bar": ["non_negative", "parts_sum_to_total"],
+    # [값 1개 → 표만] min_categories_2: 모듈 2 가 미리 세지 못한 경우의 안전망. 모듈 3 이 계산한 차트 내용으로 판정한다
+    #   (대체 차트는 모듈 3 이 자기 기본 조건으로 검증하므로 dumbbell 에는 붙이지 않는다 — 붙여도 효과 없음)
+    "bar":         ["max_categories_20", "min_categories_2"],
+    "stacked_bar": ["non_negative", "parts_sum_to_total", "min_categories_2"],
     "pyramid":     ["two_series_required", "non_negative", "category_axis_required"],
-    "pie":         ["non_negative", "parts_sum_to_total", "max_categories_5"],
-    "donut":       ["non_negative", "parts_sum_to_total", "max_categories_5"],
+    "pie":         ["non_negative", "parts_sum_to_total", "max_categories_5", "min_categories_2"],
+    "donut":       ["non_negative", "parts_sum_to_total", "max_categories_5", "min_categories_2"],
     "bubble":      ["three_measures_required"],
     "combo":       ["time_axis_required", "two_series_required", "min_points_3"],
     "radar":       ["min_categories_3", "max_categories_8"],
     "map":         ["region_dimension_required"],
     "heatmap":     ["two_dimensions_required"],
-    "treemap":     ["non_negative", "parts_sum_to_total"],
+    "treemap":     ["non_negative", "parts_sum_to_total", "min_categories_2"],
     "scatter":     ["two_measures_required", "min_points_5"],
     "dumbbell":    ["two_points_per_category"],
 }
@@ -152,6 +160,9 @@ REQ_CHECKS = {
     "max_categories_20":         lambda p: (p["n_categories"] <= 20,      f'범주 {p["n_categories"]}개 (20개 이하 필요)'),
     "max_categories_5":          lambda p: (p["n_categories"] <= 5,       f'범주 {p["n_categories"]}개 (5개 이하 필요)'),
     "min_categories_3":          lambda p: (p["n_categories"] >= 3,       f'범주 {p["n_categories"]}개 (3개 이상 필요)'),
+    # [값 1개 → 표만] 모듈 2 에서는 범주 × 계열로만 본다 (값 1개가 뻔한 경우는 block_reason 이 먼저 막는다)
+    "min_categories_2":          lambda p: (p["n_categories"] * max(p["n_series"], 1) >= 2,
+                                            f'값 {p["n_categories"] * max(p["n_series"], 1)}개 (2개 이상 필요)'),
     "max_categories_8":          lambda p: (p["n_categories"] <= 8,       f'범주 {p["n_categories"]}개 (8개 이하 필요)'),
     "category_axis_required":    lambda p: (len(p["dims"]) >= 1,          f'나누는 기준 {len(p["dims"])}개 (1개 이상 필요)'),
     "two_series_required":       lambda p: (p["n_series"] == 2,           f'계열 {p["n_series"]}개 (정확히 2개 필요)'),
