@@ -82,7 +82,7 @@ def test_data_error_skips_fallback():
 def test_missing_values_become_warning():
     p = plan("bar", select={"항목": ["혼인건수(건)"], "시점": ["2025"]})          # 서울 2025 는 None
     content, _ = build_chart(p, [view()])
-    assert content.rows == [["2025", "혼인건수", 240326.0]] and content.warnings == ["값이 비어 제외한 행 1개"]
+    assert content.rows == [["2025", "혼인건수", 240326.0]] and content.warnings == ["값이 비어 있는 자료 1개는 계산에서 제외했습니다"]   # [CHANGED 11-17] 차트 경고는 사용자용 문장 (자체 검토 A-6)
 
 
 def combo_plan(fallback="line"):

@@ -444,6 +444,7 @@
         "view::101_DT_1B8000G::Y::27077dec-1-1::trend"
       ],
       "scope_label": null,
+      "agg": null,
       "note": null
     },
     {
@@ -539,6 +540,7 @@
         "view::101_DT_1B8000G::Y::27077dec-2-1::trend"
       ],
       "scope_label": null,
+      "agg": null,
       "note": null
     }
   ],

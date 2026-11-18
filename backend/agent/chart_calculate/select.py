@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.core.korean import strip_unit
 from backend.schemas.record import Record
 
 VALUE_COL = "값"
@@ -18,7 +19,29 @@ REGION_HINTS = ("행정구역", "지역", "시도", "시군구")
 AGE_HINTS = ("연령", "세별", "나이")          # 연령별, 5세별, 모의 연령(5세계급)별 …
 CATEGORY_HINTS = AGE_HINTS + REGION_HINTS + ("성별",)
 MISSING_TEXT = {"", "-", "…", "..."}          # KOSIS 가 빈 값을 표시하는 문자
-_UNIT_TAIL = re.compile(r"\s*\([^()]*\)\s*$")  # '혼인건수(건)' 의 '(건)'
+
+
+_AGE = re.compile(r"(\d+)\s*(?:[-~]\s*(\d+))?\s*세(\s*이상)?")
+
+
+def age_span(label: str) -> tuple[int, int | None] | None:
+    """'0세' → (0, 0), '15~19세' → (15, 19), '65세 이상' → (65, None). 나이가 아니면 None ('계', '합계')"""
+    m = _AGE.fullmatch(label.strip())
+    if not m:
+        return None
+    lo = int(m[1])
+    return lo, (None if m[3] else int(m[2] or lo))
+
+
+def _with_description(wanted: str, have: set[str]) -> str:
+    """[NEW 11-18] HCX 가 값의 앞부분만 적은 경우: '중위 추계' ↔ '중위 추계(기본 추계: 출산율-중위 / …)'. 설명 괄호가 붙은 값 하나만 있으면 그 값으로 읽는다.
+    이전: 시나리오별에 없는 값으로 계산 전체가 실패했다 (Q01 · Q24). 이름 바로 뒤가 설명 괄호일 때만 · 후보가 하나뿐일 때만 · 나이 구간이 아닐 때만 (서울 ↔ 서울특별시, 65세 ↔ 65세 이상 은 건드리지 않는다)"""
+    if wanted in have or len(wanted) < 2:
+        return wanted
+    if age_span(wanted) is not None:
+        return wanted                      # 나이 · 연령 구간은 정확히 맞아야 한다 ('65세' 를 '65세 이상' 으로 바꾸지 않는다. 검토 12)
+    hits = [v for v in have if v.startswith(wanted) and v[len(wanted):len(wanted) + 1] in ("(", "（")]
+    return hits[0] if len(hits) == 1 else wanted
 
 
 def is_category(col: str) -> bool:
@@ -58,13 +81,15 @@ def find_item_column(columns: list[str], rows: list[list], item: str) -> tuple[s
     정확히 같은 값이 없으면 단위 괄호를 떼고 한 번 더 비교한다 ('혼인건수(건)' ↔ '혼인건수').
     """
     order = ([ITEM_COL] if ITEM_COL in columns else []) + [c for c in columns if c not in (ITEM_COL, VALUE_COL)]
-    bare = _UNIT_TAIL.sub("", item)
+    # [CHANGED 11-18] 이전: 끝 괄호를 모두 뗐다 → '인구(1세이상)(명)' 의 '(명)' 만 떼야 하는데 '(1세이상)' 도 떼어 다른 항목과 섞일 수 있었다.
+    #                 단위로 읽히는 끝 괄호만 양쪽에서 뗀다 (설명 괄호는 항목 이름의 일부)
+    bare = strip_unit(item)
     for exact in (True, False):
         for col in order:
             i = columns.index(col)
             for r in rows:
                 cell = str(r[i])
-                if cell == item if exact else _UNIT_TAIL.sub("", cell) == bare:
+                if cell == item if exact else strip_unit(cell) == bare:
                     return col, r[i]
     return None
 
@@ -108,6 +133,7 @@ def select_rows(record: Record, select: dict[str, list] | None = None, item: str
             continue
         i = cols.index(name)
         have = {str(r[i]) for r in rows}
+        wanted = [_with_description(str(w), have) for w in wanted]
         if absent := [w for w in wanted if str(w) not in have]:
             sel.errors.append(f"{name}에 없는 값: {absent}")
         conds[i] = {str(w) for w in wanted}

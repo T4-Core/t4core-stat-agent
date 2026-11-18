@@ -1,0 +1,173 @@
+"""
+[NEW] 계산 불가 사유를 사용자용 문장으로 — 모듈 3 의 CalcResult.note (내부 문구) → 화면 · 답변용
+
+  [MOVED 11-17] 이전 위치: agent/answer_compose/reasons.py (그곳은 이제 이 파일을 다시 내보낸다).
+  모듈 6(답변 · 표 · 주의사항)뿐 아니라 모듈 3 의 ChartContent.warnings 도 이 문장을 쓴다 (자체 검토 A-6)
+
+  원문(note)은 CalcResult 에 그대로 남는다 (QA · 개발자용). 여기서는 보여 주는 문장만 바꾼다.
+  note 는 여러 사유가 '; ' 로 이어져 있고, 사유 하나는 `{'시점': '2008'}: 한쪽 값 없음` 처럼 앞에 key 사전이 붙기도 한다.
+  표에 없는 사유는 바꾸지 않고 원문을 그대로 쓴다 (사유를 지어내지 않는다).
+  문구의 출처: chart_calculate/calculate.py · select.py 의 notes.append / errors.append
+"""
+import ast
+import re
+
+from backend.core.korean import josa, key_text, strip_unit
+from backend.schemas.chart import CalcInput
+
+# (정규식, 문장). 문장의 {1} · {2} 는 정규식 그룹. 위에서부터 처음 맞는 것을 쓴다
+_RULES: list[tuple[re.Pattern, str]] = [(re.compile(p), t) for p, t in [
+    # [NEW 11-16] 사용자에게 내부 문구가 그대로 보이던 사유 (검수 M6-07)
+    # [NEW 11-17] 예기치 못한 예외를 사유로 바꾼 것 (calculate.INTERNAL_ERROR). 예외 이름은 로그에만 남긴다 (자체 검토 A-5)
+    (r"^내부 오류로 계산하지 못함.*$", "계산 중 오류가 발생해 계산하지 못했습니다"),
+    (r"^비교할 값이 하나뿐이라 .*$", "비교할 값이 하나뿐이라 가장 크거나 작은 것을 정할 수 없습니다"),       # [NEW 11-17] H2
+    (r"^자료가 (.+) 한 해뿐이라 해끼리 비교하지 못함$",
+     "자료가 {1} 한 해뿐이라 해끼리 비교하지 못했습니다. 기간(예: 최근 10년)을 넣어 다시 물어봐 주세요"),      # [NEW 11-17] 다시 물을 방법
+    (r"^값이 비어 제외한 행 (\d+)개$", "값이 비어 있는 자료 {1}개는 계산에서 제외했습니다"),
+    (r"^View 없음: .*$", "계산에 쓸 자료를 찾지 못했습니다"),
+    (r"^피연산자 없음.*$", "계산에 쓸 값을 정하지 못했습니다"),
+    (r"^앞 단계 (?:없음|결과 없음).*$", "앞 계산의 결과가 없어 계산하지 못했습니다"),
+    (r"^연수를 알 수 없음$", "시점 표기를 읽지 못해 기간을 계산할 수 없습니다"),
+    (r"^연수가 0 이하$", "기간이 0년 이하라 연평균을 계산할 수 없습니다"),
+    (r"^기준값이 0 이하이거나 끝값이 음수$", "기준 값이 0 이하이거나 끝 값이 음수라 연평균을 계산할 수 없습니다"),
+    (r"^기준값이 음수라 (\S+) 정할 수 없음$", "기준 값이 음수라 {1} 정할 수 없습니다"),
+    (r"^선택한 항목이 하나뿐이라 비중이 항상 100%$", "선택한 항목이 하나뿐이라 비중을 계산하지 않았습니다 (항상 100%)"),
+    (r"^기간이 거꾸로라 (.+) → (.+) 로 바꿈$", "기간의 앞뒤가 바뀌어 있어 {1}부터 {2}까지로 계산했습니다"),
+    (r"^항목 '(.+)' 은 자료의 '(.+)' 로 계산함$", "'{1}' 항목 대신 자료의 '{2}' 값으로 계산했습니다"),
+    (r"^기준 시점 (.+) 값 없음$", "기준 시점인 {1} 값이 없습니다"),
+    (r"^시점 (.+) 값 없음$", "{1} 값이 없습니다"),
+    (r"^기준값 0$", "기준 값이 0이라 비율을 계산할 수 없습니다"),
+    (r"^분모 0$", "분모가 0이라 계산할 수 없습니다"),
+    (r"^분모 총계 없음$", "분모로 쓸 총계 값이 없습니다"),
+    (r"^한쪽 값 없음$", "한쪽 값이 없어 계산하지 못했습니다"),
+    (r"^값 없음 \((.+)\)$", "{1} 값이 없어 계산하지 못했습니다"),
+    (r"^키 중복 \((.+?):.*\)$", "{1}에 같은 조건의 값이 여러 개라 계산하지 못했습니다"),
+    (r"^키 중복$", "같은 조건의 값이 여러 개라 계산하지 못했습니다"),
+    (r"^시점이 하나뿐이라 직전 시점이 없음$", "시점이 하나뿐이라 직전 시점과 비교할 수 없습니다"),
+    (r"^단위가 다름: (.+)$", "단위가 달라 비교할 수 없습니다: {1}"),
+    (r"^단위가 다른 값을 합칠 수 없음: (.+)$", "단위가 다른 값은 합칠 수 없습니다: {1}"),
+    (r"^단위를 확인할 수 없음.*$", "단위를 확인할 수 없어 계산하지 않았습니다"),
+    (r"^수록 주기가 다름: (.+)$", "수록 주기가 달라 비교할 수 없습니다: {1}"),
+    (r"^수록 주기를 확인할 수 없음.*$", "수록 주기를 확인할 수 없어 계산하지 않았습니다"),
+    (r"^join_on 필요.*$", "비교할 시점을 정하지 못했습니다"),
+    (r"^결합 열이 View 에 없음.*$", "짝지을 기준 열이 자료에 없습니다"),
+    (r"^서로 다른 지표를 합칠 수 없음.*$", "서로 다른 지표는 합칠 수 없습니다"),
+    (r"^총계 행이 섞여 두 번 셈.*$", "총계 행이 섞여 있어 두 번 세게 되므로 계산하지 않았습니다"),
+    (r"^combine 은 피연산자가 2개 이상 필요$", "합산할 값이 2개 이상 필요합니다"),
+    (r"^denominator\.operand 없음.*$", "분모로 쓸 총계를 정하지 못했습니다"),
+    (r"^항목 없음: (.+)$", "'{1}' 항목이 자료에 없습니다"),
+    (r"^열 없음: (.+)$", "자료에 '{1}' 열이 없습니다"),
+    (r"^'값' 열 없음$", "자료에 값 열이 없습니다"),
+    (r"^조건에 맞는 값이 없음$", "조건에 맞는 값이 없습니다"),
+    (r"^truncated: .*$", "자료의 행이 잘려 있어 계산하지 않았습니다"),
+    (r"^시점에 없는 값: (.+)$", "{1} 자료가 없습니다"),
+    (r"^(\S+)에 없는 값: (.+)$", "{1}에 {2}이(가) 없습니다"),
+]]
+# 시점 라벨을 문장용으로: 연도 4자리는 '2024년', 월·분기 같은 라벨(2024.01, 2024 1분기)은 그대로
+_WHEN_PATTERNS = {r"^자료가 (.+) 한 해뿐이라 해끼리 비교하지 못함$", r"^기준 시점 (.+) 값 없음$", r"^시점 (.+) 값 없음$", r"^시점에 없는 값: (.+)$",
+                  r"^기간이 거꾸로라 (.+) → (.+) 로 바꿈$"}
+
+
+def _when(label: str) -> str:
+    label = label.strip()
+    return f"{label}년" if re.fullmatch(r"\d{4}", label) else label
+
+
+def _when_text(raw: str) -> str:
+    """'2025' · "['2025', '2026']" → '2025년' · '2025년, 2026년'"""
+    return ", ".join(_when(v) for v in _list_text(raw).split(", "))
+
+
+_KEYED = re.compile(r"^(\{.*?\}): (.+)$")        # '{'시점': '2008'}: 한쪽 값 없음'
+
+
+def _list_text(raw: str) -> str:
+    """"['서울', '부산']" → "서울, 부산" (파이썬 목록 표기를 읽을 수 있으면)"""
+    try:
+        value = ast.literal_eval(raw)
+    except (ValueError, SyntaxError):
+        return raw
+    return ", ".join(map(str, value)) if isinstance(value, (list, tuple)) else raw
+
+
+def _side_name(group: list[CalcInput]) -> str | None:
+    """diff · ratio 한쪽(role a 또는 b)의 이름: '부산광역시 인구수'. 입력마다 다르면 None"""
+    names = {" ".join(x for x in (key_text({c: v for c, v in (i.key or {}).items() if c != "시점"}), strip_unit(i.item or "")) if x)
+             for i in group}
+    return next(iter(names)) if len(names) == 1 else None
+
+
+def _missing_side(key: dict, inputs: list[CalcInput]) -> str | None:
+    """'한쪽 값 없음' 의 어느 쪽인가: 그 key(예: 시점 2008)의 값을 가진 입력이 a · b 중 어느 쪽에 없는지.
+    모듈 3 의 note 에는 쪽이 없어 입력(CalcInput.role)으로 찾는다. 알 수 없으면 None"""
+    roles = {i.role for i in inputs if i.role in ("a", "b")}
+    if roles != {"a", "b"}:
+        return None
+    present = {i.role for i in inputs if all((i.key or {}).get(c) == v for c, v in key.items()) and i.role in ("a", "b")}
+    absent = sorted(roles - present)
+    if len(absent) == 2:
+        return "양쪽"
+    if len(absent) == 1:
+        return _side_name([i for i in inputs if i.role == absent[0]])
+    return None
+
+
+def _one(reason: str, inputs: list[CalcInput] | None = None) -> str:
+    reason = reason.strip()
+    if m := _KEYED.match(reason):
+        try:
+            key = ast.literal_eval(m.group(1))
+        except (ValueError, SyntaxError):
+            key = None
+        if isinstance(key, dict):
+            which, rest = key_text(key), _one(m.group(2), inputs)
+            if m.group(2).strip() == "한쪽 값 없음" and inputs and (side := _missing_side(key, inputs)):
+                rest = "양쪽 값이 없어 계산하지 못했습니다" if side == "양쪽" else f"{side} 값이 없어 계산하지 못했습니다"
+            if rest.endswith("못했습니다"):
+                return f"{josa(which, '은')} {rest}"
+            return f"{which}: {rest}"
+    # [NEW 11-17] 같은 시점에 서로 다른 값이 둘 이상 (검수 9)
+    # [CHANGED 11-17] 시점 라벨을 (\S+) 가 아니라 (.+?) 로: '2024 4분기' 처럼 공백이 있는 분기 · 반기 라벨이 문장으로 바뀌지 않았다 (자체 검토 A-10)
+    if m := re.match(r"^(.+?): 같은 시점에 값이 둘 이상\((.+)\)이라 계산하지 않음$", reason):
+        return f"{josa(_when(m.group(1)), '은')} 같은 시점의 값이 둘 이상({m.group(2)})이라 계산하지 못했습니다"
+    if m := re.match(r"^(.+?): 직전 시점\((.+?)\)에 값이 둘 이상이라 계산하지 않음$", reason):
+        return f"{josa(_when(m.group(1)), '은')} 직전 시점({_when(m.group(2))})의 값이 둘 이상이라 계산하지 못했습니다"
+    # [MOVED 11-17] _RULES 에서 옮김: 조사를 '은' 으로 고정해 '2025 1분기은' 이 됐다. 라벨도 (\S+) 라 분기 라벨을 못 읽었다 (자체 검토 A-10)
+    if m := re.match(r"^(.+?): 직전 시점\((.+)\) 값이 없어 계산하지 않음$", reason):
+        return f"{josa(_when(m.group(1)), '은')} 직전 시점({_when(m.group(2))}) 값이 없어 계산하지 못했습니다"
+    # [NEW 11-17 외부 피드백] 일부 구성원 값이 빈 시점의 합계 · 평균 (calculate._partial_groups)
+    if m := re.match(r"^(.+?): (.+) 값이 없어 (합계|평균)(?:을|를) 내지 않음$", reason):
+        return f"{josa(_when(m.group(1)), '은')} {m.group(2)} 값이 없어 {josa(m.group(3), '을')} 내지 못했습니다"
+    # [NEW 11-17] 행이 없는 구성원을 뺀 부분합 · 값이 하나도 없는 구성원 (calculate._absent_members · _empty_members)
+    if m := re.match(r"^(.+?): (.+) 행이 없어 나머지 (\d+)개 (.+?)만 (합계|평균)$", reason):
+        return f"{josa(_when(m.group(1)), '은')} {m.group(2)} 자료가 없어 {m.group(3)}개 {m.group(4)}의 {m.group(5)}입니다"
+    if m := re.match(r"^(.+) 값이 없어 (합계|평균)(?:을|를) 내지 않음$", reason):
+        return f"{m.group(1)} 값이 없어 {josa(m.group(2), '을')} 내지 못했습니다"
+    # [NEW 11-17] 순위 · 극값에서 뺀 총계 행 (calculate._without_totals, 자체 검토 A-2)
+    if m := re.match(r"^총계 행 제외: (\S+) (\[.+\])$", reason):
+        return f"{josa(_list_text(m.group(2)), '은')} 총계라 비교에서 뺐습니다"
+    # [NEW 11-17] 시점 간격 사유. 묶음 이름(지역 등)이 있으면 문장 앞에 쓴다 ('부산은 …'). 'A 간격' 은 자료 전체의 주기가 아니라 수록된 시점 사이의 간격이다
+    if m := re.match(r"^시점 간격이 일정하지 않음\((.+?)\)(?:\[(.+?)\])?: (\S+) 간격이 아닌 시점은 직전 시점 대비를 계산하지 않음$", reason):
+        who = f"{josa(m.group(2), '은')} " if m.group(2) else ""
+        return f"{who}수록된 시점 사이의 간격이 일정하지 않아({m.group(1)}) {m.group(3)} 간격이 아닌 시점은 직전 시점과 비교하지 못했습니다"
+    if m := re.match(r"^시점 (\S+) 간격(?:\[(.+?)\])?: (\S+) 전 값과 비교함$", reason):
+        who = f"{josa(m.group(2), '은')} " if m.group(2) else ""
+        return f"{who}수록된 시점 사이가 {m.group(1)} 간격이라 {m.group(3)} 전 값과 비교했습니다"
+    if (m := re.match(r"^(\S+)에 없는 값: (.+)$", reason)) and m.group(1) != "시점":
+        return f"{m.group(1)}에 {josa(_list_text(m.group(2)), '이')} 없습니다"        # 조사는 받침으로 (이(가) 로 얼버무리지 않는다)
+    for pattern, text in _RULES:
+        if m := pattern.match(reason):
+            args = [None, *m.groups()]                       # text 의 {1} · {2} = 정규식 그룹 번호
+            args = [a if not (isinstance(a, str) and a.startswith(("['", '["'))) else _list_text(a) for a in args]
+            if pattern.pattern in _WHEN_PATTERNS:
+                args = [None, *(_when_text(a) for a in args[1:])]
+            return text.format(*args)
+    return reason
+
+
+def humanize(note: str | None, inputs: list[CalcInput] | None = None) -> str | None:
+    """CalcResult.note → 사용자용 문장. 여러 사유는 '; '로 이어 쓴다.
+    inputs(CalcResult.inputs)를 주면 '한쪽 값 없음'이 어느 쪽인지(서울 · 부산 …)까지 밝힌다"""
+    if not note:
+        return note
+    return "; ".join(dict.fromkeys(_one(part, inputs) for part in note.split("; ")))

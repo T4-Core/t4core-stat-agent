@@ -30,9 +30,22 @@ _KINDS = {"max", "min"}
 _ORDERS = {"desc", "asc"}
 
 
+def _year_runs(years: list[str]) -> str:
+    """연도 목록 → 연속 구간 요약 ('1970~1999, 2001~2025'). 빠진 해는 구간 사이에 그대로 드러난다 (불연속을 연속처럼 보이게 하지 않는다)"""
+    nums = sorted(int(y) for y in years)
+    runs, start = [], nums[0]
+    for prev, cur in zip(nums, nums[1:] + [None]):
+        if cur != prev + 1:
+            runs.append(f"{start}" if start == prev else f"{start}~{prev}")
+            start = cur
+    return ", ".join(runs) + f" (모두 {len(nums)}개)"
+
+
 def _values(rec: Record, col: str, hint: str) -> str:
     i = rec.table.columns.index(col)
     vals = list(dict.fromkeys(str(r[i]) for r in rec.table.rows))
+    if col == "시점":               # [NEW 11-18] 시점은 자르지 않는다 (F12). 앞 40개만 보여 주면 HCX 가 1970~2009 만 골라 '가장 많은 해' 가 틀렸다 (Q33)
+        return _year_runs(vals) if len(vals) > MAX_VALUES and all(len(v) == 4 and v.isdigit() for v in vals) else ", ".join(vals)
     if len(vals) > MAX_VALUES:      # 값이 많으면 질문에 나온 값을 앞에 두고 자른다 (HCX 는 보이는 값만 고를 수 있다)
         vals.sort(key=lambda v: v not in hint)
         return ", ".join(vals[:MAX_VALUES]) + f" … 외 {len(vals) - MAX_VALUES}개"

@@ -194,6 +194,8 @@ class CalcResult(BaseModel):
     inputs: list[CalcInput] = Field(default_factory=list)
     record_ids: list[str] = Field(default_factory=list)
     scope_label: str | None = None
+    # [NEW 11-17 외부 피드백] aggregate 의 집계 방식. 모듈 6 이 answer_steps 없이 받아도 '평균' 이라 쓰고 평균의 자릿수를 정할 수 있게
+    agg: Literal["sum", "mean"] | None = Field(None, description="aggregate 전용: sum(합계) / mean(평균). 그 밖의 연산은 null")
     note: str | None = Field(None, description="계산하지 못한 이유 (기준값 0, 키 중복, truncated …)")
 
 

@@ -184,7 +184,7 @@ def _plan_and_answer(records, decision, charts=(), bundle=BUNDLE, **kw):
 
 
 def test_recheck1_requested_unit_does_not_survive_into_display_answer_or_chart_axis():
-    """원본 인구(천명) 50, HCX 는 인구(명) → 답변·표시 설정·차트 축이 모두 천명"""
+    """원본 인구(천명) 50, HCX 는 인구(명) → 계산 단위는 천명이고 답변·표시 설정·차트 축은 모두 그 값을 만 명으로 표시한다 (5.0만 명)"""
     from backend.agent.chart_calculate.content import build_charts
     from backend.schemas.chart import ChartRequest
     v = view([["2023", "전국", "인구(천명)", 47.0], ["2024", "전국", "인구(천명)", 48.0], ["2025", "전국", "인구(천명)", 50.0]])
@@ -193,13 +193,13 @@ def test_recheck1_requested_unit_does_not_survive_into_display_answer_or_chart_a
                {"role": "value", "record_id": VID, "item": "인구(명)", "select": {**NAT, "시점": ["2025"]}}]}]}
     ch = ChartRequest(chart_id="c1", sub_question_ids=["q-1"], chart_type="line", fallback_chart="bar")
     cp, displays, res, out = _plan_and_answer([v], dec, [ch])
-    assert res[0].unit == "천명" and displays[res[0].display_ref].display_unit == "천명"
+    assert res[0].unit == "천명" and displays[res[0].display_ref].display_unit == "만 명"      # [11-18] 천명은 만 명으로 환산해 표시
     assert cp.answer_steps[0].operands[0].item == "인구(천명)" and cp.answer_steps[0].operands[0].unit == "천명"
-    assert out.answer.startswith("전국 인구는 2025년 50천명입니다.") and "50명" not in out.answer
+    assert out.answer.startswith("전국 인구는 2025년 5.0만 명입니다.") and "50명" not in out.answer
     contents, validation = build_charts(cp, [v], displays=displays)
     assert validation["c1"].content_built
     axis_ref = contents[0].axis["y"].display_ref
-    assert displays[axis_ref].display_unit == "천명" and contents[0].axis["y"].label == "인구"
+    assert displays[axis_ref].display_unit == "만 명" and contents[0].axis["y"].label == "인구"
     assert any("괄호 단위가 다름" in n for n in cp.notes)
 
 
@@ -284,7 +284,7 @@ def test_recheck5_answer_and_caveat_name_the_actual_previous_period():
 
 # ══ 검수 6 (2026-11-17): 평균 자릿수 · 단위 대체 안내 ═══════════════
 def test_recheck6_mean_of_integers_keeps_its_fraction_in_answer_table_and_chart_axis():
-    """서울 50천명, 부산 51천명의 평균 50.5 → '51천명' 이 아니라 '50.5천명'"""
+    """서울 50천명, 부산 51천명의 평균 50.5천명 = 5.05만 명 → 만 명 표시의 소수 첫째 자리(사사오입)로 '5.1만 명'. (소수를 유지하는 규칙 자체는 환산하지 않는 단위로 test_mean_of_integers_keeps_its_fraction_in_a_non_converted_unit 이 시험한다)"""
     from backend.agent.chart_calculate.content import build_charts
     from backend.schemas.chart import ChartRequest
     v = view([["2025", "서울", "인구(천명)", 50.0], ["2025", "부산", "인구(천명)", 51.0]], ["시점", "행정구역별", "항목", "값"])
@@ -294,8 +294,8 @@ def test_recheck6_mean_of_integers_keeps_its_fraction_in_answer_table_and_chart_
                {"role": "value", "record_id": VID, "item": "인구(천명)", "select": sel}]}]}
     ch = ChartRequest(chart_id="c1", sub_question_ids=["q-1"], chart_type="bar", measure="aggregate", fallback_chart="line")
     cp, displays, res, out = _plan_and_answer([v], dec, [ch])
-    assert res[0].value == 50.5 and out.answer.startswith("2025년 서울·부산 인구의 평균은 50.5천명입니다.")
-    assert next(t for t in out.tables if t.table_id == "t_calc").rows[0][3] == "50.5천명"
+    assert res[0].value == 50.5 and out.answer.startswith("2025년 서울·부산 인구의 평균은 5.1만 명입니다.")
+    assert next(t for t in out.tables if t.table_id == "t_calc").rows[0][3] == "5.1만 명"
     contents, validation = build_charts(cp, [v], displays=displays)
     assert validation["c1"].content_built
     assert contents[0].rows[0][-1] == 50.5 and displays[contents[0].axis["y"].display_ref].digits is None   # 기본 자릿수 (표에 없는 단위 1자리)
@@ -304,7 +304,7 @@ def test_recheck6_mean_of_integers_keeps_its_fraction_in_answer_table_and_chart_
 def test_recheck6_integer_results_in_unknown_units_stay_integer_and_known_unit_means_still_round():
     v = view([["2025", "서울", "인구(천명)", 50.0], ["2025", "부산", "인구(천명)", 51.0]], ["시점", "행정구역별", "항목", "값"])
     sel = {"행정구역별": ["서울", "부산"]}
-    for agg, expected in (("sum", "101천명"),):
+    for agg, expected in (("sum", "10.1만 명"),):      # 50 + 51 = 101천명 = 10.1만 명
         dec = {"answers": [{"sub_question_id": "q-1", "op": "aggregate", "agg": agg, "operands": [
             {"role": "value", "record_id": VID, "item": "인구(천명)", "select": sel}]}]}
         assert expected in _plan_and_answer([v], dec)[3].answer
@@ -322,7 +322,7 @@ def test_recheck6_unit_substitution_note_reaches_the_answer_without_plan_warning
     assert cp.warnings == [] and res[0].note == "항목 '인구(명)' 은 자료의 '인구(천명)' 로 계산함"
     assert [c.source for c in out.caveats] == ["calc_note"]
     assert "'인구(명)' 항목 대신 자료의 '인구(천명)' 값으로 계산했습니다" in out.caveats[0].text
-    assert "50천명" in out.answer and "※ " + out.caveats[0].text in out.answer
+    assert "5.0만 명" in out.answer and "※ " + out.caveats[0].text in out.answer
 
 
 def test_recheck6_unit_substitution_note_reaches_chart_warnings():
@@ -334,7 +334,7 @@ def test_recheck6_unit_substitution_note_reaches_chart_warnings():
     ch = ChartRequest(chart_id="c1", sub_question_ids=["q-1"], chart_type="line", fallback_chart="bar")
     cp, displays = make_plan([ch], [v], Decision.model_validate(dec))
     contents, _ = build_charts(cp, [v], displays=displays)
-    assert any("'인구(천명)' 로 계산함" in w for w in contents[0].warnings)
+    assert any("자료의 '인구(천명)' 값으로 계산했습니다" in w for w in contents[0].warnings)   # [CHANGED 11-17] 사용자용 문장 (A-6)
 
 
 def test_recheck6_no_note_when_the_item_name_already_matches():
