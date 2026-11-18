@@ -95,6 +95,7 @@ CHART_PLAN_SYS = """너는 한국 공식통계(KOSIS) 답변을 위한 계산 �
    - chart_type 이 scatter: role x, y / bubble: role x, y, size
    - measure 가 diff 또는 ratio: 두 값을 role a, b 로 적고 join_on 에 짝지을 열(보통 ["시점"])
    title 에는 [질문]의 말로 차트 제목을 적는다 (30자 이내, 표의 용어보다 질문의 용어, 예: "2024~2025년 미취학아동(0~5세) 수").
+   제목은 질문 문장이 아니라 명사구로 쓴다 (예: "2023년 시도별 인구수", "인구가 가장 많은 시도는?" 은 안 된다).
    숫자는 연도·나이·기간처럼 질문에 있는 것만 쓰고 계산한 값은 넣지 않는다.
 
 [answers] 하위 질문마다 답에 필요한 계산. 차트가 없는 하위 질문도 포함 ([세트]가 있으면 세트의 '질문' 줄마다 answers 를 하나 이상 반드시 적는다 — 비워 두지 않는다. 그 세트의 자료만 쓰고, 차트가 '없음'이어도 자료가 있으면 만든다. sub_question_id 는 '질문' 줄에 적힌 값. 질문이 값만 묻거나 추이면 raw)
@@ -107,6 +108,9 @@ CHART_PLAN_SYS = """너는 한국 공식통계(KOSIS) 답변을 위한 계산 �
    index        지수 (base 시점 = 100)    1개, role "value"
    rank         순위                     1개, role "value"  (큰 값부터면 order "desc", 작은 값부터면 "asc")
    extreme      최댓값·최솟값             1개, role "value"  (가장 많은·큰·높은 → kind "max", 가장 적은·작은·낮은 → kind "min")
+   '가장 많은 · 적은 ○○ 하나' 를 물으면 rank 가 아니라 extreme 이다 (rank 는 여러 개의 순서를 물을 때).
+   rank · extreme 의 conditions 에는 비교할 대상만 적는다. 지역끼리 견줄 때 '전국' 같은 총계는 적지 않는다
+   (전국과 다른 지역을 직접 견주는 질문일 때만 적는다. 적지 않은 총계는 코드가 비교에서 뺀다).
    aggregate    합계(agg "sum")·평균(agg "mean")  1개, role "value"
    share        구성비 %                 1개, role "part"
    diff         두 값의 차 (a − b)        2개, role "a", "b" + join_on

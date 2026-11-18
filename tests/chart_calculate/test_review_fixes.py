@@ -116,4 +116,5 @@ def test_reused_chart_calculation_keeps_the_missing_value_note():
     out = run_module3(req, decision={"charts": [{"chart_id": "c1", "record_id": "v1", "operands": [pick]}],
                                      "answers": [{"sub_question_id": "q-1", "op": "raw", "operands": [pick]}]})
     assert out.chart_plan.answer_reuse == {"a1": "c1.s1"}                                    # 실제로 재사용된 경우
-    assert out.calc_results[0].note == "값이 비어 제외한 행 1개" == out.chart_contents[0].warnings[0]
+    assert out.calc_results[0].note == "값이 비어 제외한 행 1개"                        # 원문은 note 에 그대로
+    assert out.chart_contents[0].warnings[0] == "값이 비어 있는 자료 1개는 계산에서 제외했습니다"   # [CHANGED 11-17] 경고는 사용자용 문장 (A-6)
