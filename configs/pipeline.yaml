@@ -9,6 +9,8 @@ trend_years: 5                           # '추이·변화' 의 기간 (기준 �
 recent_words: [최근, 요즘, 현재, 지금, 근래, 요새]
 trend_words: [추이, 변화, 흐름, 추세, 동향, 변동]
 trend_intents: [추이]                    # 이 의도면 시점이 없을 때 추이 규칙 적용
+year_axes: [연도, 연도별, 년도, 해, 시점, 기간, 연간]   # 이 비교축이면 '해끼리 비교' ('혼인건수가 가장 적은 해는?')
+year_compare_years: 0                    # 해끼리 비교인데 시점이 없을 때: 0 = 표의 수록 기간 전체 / N = 최근 N년 (기준 해 포함)
 n_options: 20                            # 되묻기 후보 수
 clarify_mode: soft                       # soft = 필수 슬롯이 없어도 검색 (없는 시점=최신, 지역=전국). 되묻기 후보는 clarifications 에 남김
                                          # strict = 필수 슬롯이 없으면 needs_clarification 으로 멈춤

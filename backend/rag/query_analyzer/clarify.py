@@ -4,6 +4,9 @@
   시점 규칙 (configs/pipeline.yaml)
     - 시점이 비었는데 질문에 '최근·요즘·현재…' → base_year (2026년)
     - 시점이 비었는데 '추이·변화…' 또는 의도 '추이' → 최근 trend_years 년 (2022~2026년)   ('추이'가 '최근'보다 우선)
+    - 시점이 비었는데 비교축이 연도(해끼리 비교: '혼인건수가 가장 적은 해는?') → year_compare_years
+        0(기본) = 시점을 비워 둠 → View 가 표의 수록 기간 전체를 씀 (되묻기에서도 시점이 빠졌다고 보지 않음)
+        N       = 최근 N년
     - 표에 그 해가 없으면 되묻지 않고 View 단계(resolve·build_view)의 '최신 자료 대체'와 메모로 처리
   대상 = 대상 또는 지표 중 하나라도 CSV 의 행(항목·분류 값)에 접지되면 충족
   지역 = 지역 슬롯 값이 있으면 충족 ('전국' 포함). 없으면 되묻기
@@ -34,6 +37,13 @@ def apply_time_rules(raw_slots, question, intents, s):
     recent = next((w for w in s.recent_words if w in q), None)
     prev = raw_slots.get("시점")
     tag = f" (재작성 모듈 추정 {prev} 대신)" if prev else ""
+    axis = year_axis(raw_slots, s)
+    if axis and not trend:
+        if s.year_compare_years > 0:
+            yrs = list(range(s.base_year - s.year_compare_years + 1, s.base_year + 1))
+            return ({**raw_slots, "시점": [f"{y}년" for y in yrs]},
+                    [f"비교축 '{axis}'(해끼리 비교) → 최근 {s.year_compare_years}년 ({yrs[0]}~{yrs[-1]}년){tag}"])
+        return ({**raw_slots, "시점": []}, [f"비교축 '{axis}'(해끼리 비교) → 시점 없이 표의 수록 기간 전체{tag}"])
     if trend:
         yrs = s.trend_range()
         why = next((w for w in s.trend_words if w in q), None) or "의도 추이"
@@ -44,10 +54,16 @@ def apply_time_rules(raw_slots, question, intents, s):
     return raw_slots, []
 
 
+def year_axis(raw_slots, s):
+    """비교축이 연도(해끼리 비교)면 그 축 이름, 아니면 None"""
+    return next((a for a in (raw_slots or {}).get("비교축") or [] if a in s.year_axes), None)
+
+
 def missing_required(grounded, raw_slots, s):
     """→ [(슬롯, 이유)]"""
     out = []
-    if "시점" in s.required_slots and not grounded.get("시점"):
+    whole_period = year_axis(raw_slots, s) and s.year_compare_years <= 0   # 수록 기간 전체를 쓰므로 시점이 없어도 됨
+    if "시점" in s.required_slots and not grounded.get("시점") and not whole_period:
         out.append(("시점", "시점이 없음 (연도·'최근'·'추이' 같은 표현이 없음)"))
     if "지역" in s.required_slots and not grounded.get("지역"):
         out.append(("지역", "지역이 없음"))

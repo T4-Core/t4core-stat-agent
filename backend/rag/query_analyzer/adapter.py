@@ -4,7 +4,8 @@
   재작성 (RewriteBundle)                            View 입력 (schemas.query.QueryBundle)
   ─────────────────────────────────────────────    ──────────────────────────────────────────
   filters.시점  ['2024년', '2024년 9월']            시점 [2024]          (월은 연도로, notes 에 기록)
-  filters.지역  ['대구광역시', '전국']              지역 ['대구광역시']   ('전국'은 빼면 View 기본값=전국)
+  filters.지역  ['전국']                            (지역 없음)           (전국만 물으면 View 기본값 = 전국 합계)
+  filters.지역  ['전국', '서울특별시']              지역 ['전국', '서울특별시']  (다른 지역과 함께면 전국 합계 행도 조회)
   filters.연령  ['20~24세', '25~29세']              연령 {from:20, to:29} (values.parse_ages 로 병합)
   filters.대상  ['고령자']  (노인 → 고령자)          대상 ['인구'] + 연령 {from:65, to:null}  (AGE_TARGETS, 연령이 비었을 때만)
   filters.비교축 ['시도']                           비교축 '시도'
@@ -100,11 +101,12 @@ def to_view_filters(f, intent=None, notes=None, label=""):
             notes.append(f"{tag}[시점] '{v}' → {m[1]} (View 모듈은 연도 단위)")
     if years:
         out["시점"] = sorted(set(years))
-    regions = [std_geo_name(r) for r in f.get("지역") or []]
+    regions = list(dict.fromkeys(std_geo_name(r) for r in f.get("지역") or []))
     if "전국" in regions:
-        regions = [r for r in regions if r != "전국"]
-        if regions:
-            notes.append(f"{tag}[지역] '전국'과 다른 지역이 함께 있어 '전국'은 뺌 (지역 지정 시 전국 합계는 따로 나오지 않음)")
+        if regions == ["전국"]:      # 전국만 → 지역을 비워 View 기본값(전국 합계)으로
+            regions = []
+        else:                        # 전국과 다른 지역을 함께 → 전국 합계 행도 같이 조회 ('전국과 서울 비교')
+            notes.append(f"{tag}[지역] '전국'과 다른 지역을 함께 물음 → 전국 합계 행도 같이 조회")
     if regions:
         out["지역"] = regions
     for k in ("대상", "성별", "지표"):

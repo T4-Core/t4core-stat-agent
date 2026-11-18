@@ -83,16 +83,27 @@ def check_period(req, c: ViewContents, config: JudgeConfig) -> SlotCheck:
     return SlotCheck(status=S.partial, requested=want, found=found, evidence=", ".join(parts))
 
 
+NATIONAL = ("전국", "전체")
+
+
 def check_region(req, c: ViewContents, config: JudgeConfig) -> SlotCheck:
     """지역 (요청 = 표준 지역 이름 목록, 예: ["대구광역시"])"""
     if not req:
         return _not_requested()
     want = [std_geo_name(r) for r in req]       
     dims = c.dims_of("regions")
-    if all(w in ("전국", "전체") for w in want):  # 전국만 물음 = 합계 행 또는 지역 분류 없는 표면 맞음
-        if not dims or any(d.has_total for d in dims):
+    national_ok = not dims or any(d.has_total for d in dims)       # 합계 행이 있거나 지역 분류 없는 표 = 전국 값
+    if all(w in NATIONAL for w in want):  # 전국만 물음 = 합계 행 또는 지역 분류 없는 표면 맞음
+        if national_ok:
             return SlotCheck(status=S.match, requested=want, found=["전국"],
                              evidence="지역 분류 없음 (전국 값)" if not dims else "합계(전국) 있음")
+    nat_req = [w for w in want if w in NATIONAL]                    # '전국과 서울 비교' → 전국은 합계 행으로 확인
+    if nat_req and national_ok:
+        rest = check_region([w for w in want if w not in NATIONAL], c, config)
+        found = ["전국"] + [x for x in rest.found or [] if x not in NATIONAL]
+        if rest.status == S.match:
+            return SlotCheck(status=S.match, requested=want, found=found, evidence=f"합계(전국) · {rest.evidence}")
+        return SlotCheck(status=rest.status, requested=want, found=found, evidence=f"합계(전국) 있음 · {rest.evidence}")
 
     points: dict[str, int | None] = {}
     for d in dims:
@@ -264,15 +275,28 @@ def check_terms(req, c: ViewContents, config: JudgeConfig) -> SlotCheck:
     return SlotCheck(status=S.missing, requested=want, found=c.items[:10], evidence=f"{want} 를 항목·분류·표 이름에서 못 찾음")
 
 
-def check_intent(req, c: ViewContents, config: JudgeConfig) -> SlotCheck:
-    """의도 (값 조회 / 추이 / 비교 / 순위) — View 의 '모양' 이 질문 의도에 맞는가"""
+YEAR_AXES = {"연도", "연도별", "년도", "해", "시점", "기간", "연간"}   # 해끼리 비교 (view/build.YEAR_AXES 와 같게)
+
+
+def check_intent(req, c: ViewContents, config: JudgeConfig, axis=None, regions=None) -> SlotCheck:
+    """의도 (값 조회 / 추이 / 비교 / 순위) — View 의 '모양' 이 질문 의도에 맞는가
+    axis 가 연도면 해끼리 비교 → 값 있는 해 수로 센다. regions 에 전국이 있으면 합계(전국) 행도 비교 대상"""
     if not req:
         return _not_requested()
+    if req in ("비교", "순위") and axis in YEAR_AXES:
+        n = sum(v > 0 for v in c.year_points.values()) if c.year_points else len(c.years)
+        ok, found = n >= 2, f"비교할 해 {n}개"
+        if ok:
+            return SlotCheck(status=S.match, requested=req, found=found, evidence=f"'{req}' 에 맞는 모양 (해끼리)")
+        return SlotCheck(status=S.missing, requested=req, found=found, reason=ReasonCode.intent_mismatch,
+                         evidence=f"'{req}' 를 보여 주기에 부족 ({found})")
     if req == "추이":
         n = sum(v > 0 for v in c.year_points.values()) if c.year_points else len(c.years)
         ok, found = n >= 2, f"값 있는 시점 {n}개"
     elif req in ("비교", "순위"):
-        counts = [len([lb for lb in d.labels if not is_total(lb) and _has_values(d.label_points, lb) is not False])
+        nat = any(std_geo_name(r) in NATIONAL for r in regions or [])
+        counts = [len([lb for lb in d.labels if (not is_total(lb) or (nat and d.kind == "regions"))
+                       and _has_values(d.label_points, lb) is not False])
                   for d in c.dims]
         n = max(counts + [len(c.items)])           
         ok, found = n >= 2, f"비교 대상 최대 {n}개"
@@ -309,6 +333,6 @@ def check_slots(filters, contents: ViewContents, config: JudgeConfig | None = No
         "연령": check_age(f.get("연령"), c, config),
         "지표": check_terms(f.get("지표"), c, config),
         "대상": check_terms(f.get("대상"), c, config),
-        "의도": check_intent(f.get("의도"), c, config),
+        "의도": check_intent(f.get("의도"), c, config, f.get("비교축"), f.get("지역")),
         "비교축": check_axis(f.get("비교축"), c, config),
     }

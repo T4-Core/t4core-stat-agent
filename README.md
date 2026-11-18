@@ -103,9 +103,13 @@ flowchart LR
 | HCX 슬롯 | `slots.py` | 슬롯 12개(시점·지역·전출지·전입지·국적·대상·성별·연령·조건·이동·지표·비교축) + 의도 9종 + 하위 질문 |
 | 검증 | `validate.py`, `measures.py` | 질문에 근거 없는 값 빼기, 계산 단어('구성비') 떼기, 하위 질문 정리 |
 | 접지 | `lexicon.py`, `grounding.py` | 슬롯 값 → CSV 에 실제로 있는 값·표 (rule_dict > CSV > term_dict > 학습 사전) |
-| 시점 규칙 · 되묻기 | `clarify.py` | '요즘' = 자료의 최신 연도, '추이' = 최근 5개 해. 필수 슬롯(시점·지역·대상) 확인 |
+| 시점 규칙 · 되묻기 | `clarify.py` | '요즘' = 자료의 최신 연도, '추이' = 최근 5개 해, 해끼리 비교 = 표의 수록 기간 전체. 필수 슬롯(시점·지역·대상) 확인 |
 | 서브쿼리 | `decompose.py`, `roles.py` | 표 단위로 나누기 (지표마다), 분모('…중 비율')·조건('…가 N명 이상') 검색 단위 |
 | 검색 문장 · View 입력 | `search_text.py`, `adapter.py` | 지역·시점 단어를 뺀 검색 문장 + View 슬롯(연도 int, 연령 {from,to}, View 의도 4종) |
+
+해끼리 비교: 비교축이 연도(`year_axes`: 연도·해·시점 …)이고 시점이 없으면('혼인건수가 가장 적은 해는?') 시점을 비워 두고, View 가 표의 **수록 기간 전체**를 씁니다 (`year_compare_years: 0`). 최근 N년으로 하려면 `configs/pipeline.yaml` 의 `year_compare_years: N`. '최근 10년 …' 처럼 기간을 적으면 그 기간, '추이' 는 위의 최근 5개 해.
+
+지역: '전국과 서울 비교' 처럼 전국을 다른 지역과 함께 물으면 `지역: [전국, 서울특별시]` 로 넘겨 View 에 전국 합계 행과 서울 행이 함께 들어갑니다. 전국만 물으면 지역을 비워 두고 View 기본값(전국 합계)을 씁니다.
 
 연대: 두 자리 `00·10·20` 은 2000·2010·2020년대, `30~90` 은 1930~1990년대. 초(반) 0~3 · 중(반) 4~6 · 후반·말 7~9 · 전반 0~4 (`extract.DECADE_PART`). 끝은 작년까지, `N0년대생` 은 출생연도.
 
@@ -419,7 +423,8 @@ pytest -q synthetic_gold_pipeline/tests      # 골든셋 생성기
 | `test_pipeline_e2e.py` (`e2e_scenario.py`) | 경로 해석 → 준비 → 분석 → View → 답변 → `/chat` (범위 밖 · 되묻기 이어서 · 충돌 선택 이어서 · 서브쿼리 · soft 모드) → 월간표 좌표 재조회 → 판단 → 일괄 실행 → Swagger |
 | `test_query_analysis.py` (`scenario_query.py`) | CSV 값 사전 · 동의어 계층 · 접지 · 시점 규칙 · 되묻기 왕복 · 서브쿼리 분리 정책 · 지역 칸 바로잡기 |
 | `test_views.py` (`scenario_views.py`) | 충돌 재현(단위 환산 포함) · 선택지 주석·설명 · 선택 토큰 왕복·변조·만료 · auto_select · 허용 오차 · `/chat` 선택 왕복 |
-| `query_analyzer/`, `test_decompose_split.py`, `test_resolve.py` | 재작성 단계별 · 변환 · 서브쿼리 · 검색 문장 |
+| `query_analyzer/`, `test_decompose_split.py`, `test_resolve.py` | 재작성 단계별 · 변환 · 서브쿼리 · 검색 문장 · 해끼리 비교 시점 규칙(`test_time_rules.py`) · 전국 + 다른 지역(`test_adapter.py`) |
+| `test_view_filters.py` (`scenario_view_filters.py`) | View·판단: 전국 + 서울 → 두 행 · 해끼리 비교 → 수록 기간 전체 · '비교할 해 N개' |
 | `test_search.py` | 표 검색 채널·구조 계수 (작은 코퍼스, 저장소 없음) |
 | `test_search_fixes.py` (`scenario_search_fixes.py` · `scenario_search_cli.py`) | 원문 표현 정리 · 형제 표 · 분모·조건 단위 · LLM 후보 위치·하위 단위 · 개념 카탈로그 / compare · tune · 상한 실험 · 점검표 · View |
 | `test_tuning.py` | dev/heldout 나누기 · 일상어 후보 캐기 · 개념 카탈로그 만들기 |
