@@ -32,6 +32,10 @@ RULES: dict[str, Rule] = {
 }
 MAX_RETRY = 1
 
+# 스키마 다음의 규칙 (qa_rules.py: 허용값 · 빈 값 · id 짝) 위반을 어떻게 볼지. "error" = 지금 대응 그대로 (재시도 → 빼기 → 중단)
+# "warning" = 기록만 (진단용: 정상 결과에서 얼마나 걸리는지 볼 때)
+RULE_SEVERITY = "error"
+
 # [형식 밖 예외] 모듈 메모에 이 문구가 있으면 그 모듈을 1번 다시 돌린다 (형식은 맞지만 HCX 편차로 계산을 못 한 경우)
 #   M3-out: Module3Output.chart_plan.notes · calc_results[].note 에서 찾는다
 #     '열 없음'       HCX 가 표에 없는 열을 조건으로 골라 계산을 포기함 (예: '…-1: 열 없음: 연령')

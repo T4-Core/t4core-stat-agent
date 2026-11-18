@@ -165,7 +165,10 @@ class _Walk:
         return val
 
 
-def check(point: str, raw) -> Checked:
+def check(point: str, raw, ctx: dict | None = None) -> Checked:
+    """스키마 검사 → (통과하면) 규칙 검사 (qa_rules: 허용값 · 빈 값 · id 짝). ctx = id 짝을 볼 참조 목록"""
+    from . import qa_policy
+    from .qa_rules import rule_issues
     model = SCHEMAS[point]
     try:
         inst = model.model_validate(raw)
@@ -177,7 +180,15 @@ def check(point: str, raw) -> Checked:
     for kind, n in w.counts.items():
         if n > MAX_ISSUES_PER_KIND:
             w.issues.append(Issue(point, "", kind, INFO, f"같은 종류 {n - MAX_ISSUES_PER_KIND}건 더 (생략)"))
-    return Checked(True, value if w.changed else raw, w.issues, [], w.changed)
+    checked_value = value if w.changed else raw
+    found = rule_issues(point, checked_value, ctx)
+    if not found:
+        return Checked(True, checked_value, w.issues, [], w.changed)
+    sev = ERROR if qa_policy.RULE_SEVERITY == "error" else WARNING
+    rules = [Issue(point, path_str(loc), kind, sev, msg, None if v is None else _short(v)) for loc, kind, msg, v in found]
+    if sev != ERROR:                                  # 기록만 (진단 모드)
+        return Checked(True, checked_value, w.issues + rules, [], w.changed)
+    return Checked(False, checked_value, w.issues + rules, [loc for loc, *_ in found], w.changed)
 
 
 def drop_items(raw, locs, prefixes):

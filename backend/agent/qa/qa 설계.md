@@ -10,15 +10,15 @@
 - **무엇을 하나**: 에이전트(`backend/agent`)로 **들어오는 입력**과 **모듈 사이를 오가는 값**이 스키마에 맞는지 검사한다. 맞지 않으면 정해 둔 방식으로 대응한다.
 - **어디에 적용하나**: `backend/agent` 안의 모듈 경로(`answer_mode="modules"`, `run_modules`)에만 적용한다.
   - 질의 분석·검색·View(`backend/rag`)는 QA 대상이 아니다. 그 결과(ViewSet)가 에이전트에 **들어오는 순간**만 검사한다.
-- **검사 범위**: 필드 · 타입 · 허용값 (+ 스키마에 없는 키)
-  - **보지 않는 것**: 모듈 간 id 짝(`view_ids` ↔ records, `display_ref` ↔ displays 등), 내부 구조(행 길이 = 열 수, encoding 이 가리키는 열이 있는지 등), 값의 의미(재계산).
+- **검사 범위**: 필드 · 타입 · 허용값 (+ 스키마에 없는 키) · **비어 있으면 안 되는 값 · 모듈 간 id 짝** (2026-11-18 추가, 5장)
+  - **보지 않는 것**: 내부 구조(행 길이 = 열 수, encoding 이 가리키는 열이 있는지 등), 값의 의미(재계산).
 - **제약**: 팀원 모듈(모듈 3·6, `modules.py`, `from_module2.py`, 스키마 파일)은 고치지 않는다. QA 는 `backend/agent/qa/` 에서 팀 코드를 import 해서 감싸는 방식으로만 만든다 (처음에는 `private/qa/` 에서 만들고 2026-11-18 옮김).
 
 ## 2. 합의된 결정
 
 | # | 항목 | 결정 |
 |---|---|---|
-| 1 | 검사 범위 | 필드·타입·허용값. id 짝·내부 구조는 보지 않음 |
+| 1 | 검사 범위 | 필드·타입·허용값 + (2026-11-18) 빈 값 · id 짝. 내부 구조는 보지 않음 |
 | 2 | 보정 | **B안**: pydantic 수준만 (손실 없는 타입 변환 · 빠진 선택 필드 기본값 · 모르는 키는 그대로 두고 기록). 변환표 없음, 값 추측 없음 |
 | 3 | 재시도 | LLM 을 쓰는 모듈만 **1회** |
 | 4 | 실행 방식 | **(a)** QA runner 가 모듈 2→3→5→6 전체를 감싸서 실행 |
@@ -86,6 +86,33 @@ QA 가 새로 정의하는 스키마는 **팀 스키마가 없는 곳만** 쓴�
 | `type` | 타입이 다름 | `Display.digits` 에 `"1"` 이 아닌 `"한 자리"` |
 | `enum` | 허용값 밖 | `chart_type: "막대"`, `ViewSet.status: "needs_selection"` |
 | `extra` | 스키마에 없는 키 | `units[].search_query` 가 `UnitResult` 에 없는 경우 (경고) |
+
+### 스키마 다음의 규칙 (2026-11-18, `qa_rules.py`)
+
+스키마는 통과해도 느슨한 곳이 있다 (그냥 `str` 인 필드 · 빈 목록 · 다른 모듈을 가리키는 id). 스키마 검사를 통과한 값에 아래 규칙을 더 본다.
+위반은 **오류** (`qa_policy.RULE_SEVERITY = "error"`) → 지금 대응 그대로 (재시도 → 그 항목만 빼기 → 중단). `"warning"` 으로 바꾸면 기록만 (진단용).
+
+| 종류 | 지점 | 규칙 |
+|---|---|---|
+| `enum` 허용값 | A0 · M2-in · M3-in | `QueryBundle.intent` ∈ `Intent` 9종 (`schemas/query.py`) 또는 None |
+| | M2-out | `charts[].measure` ∈ `Measure` 12종 + `'범위 밖'` 또는 None · `fallback_charts[]` ∈ `ChartType` 15종 |
+| | M2-out · M3-in | `requirements[]` ∈ 모듈 3 검사기가 아는 조건 (`validate._CHECKS` + `min/max_points/categories_N`) |
+| `empty` 빈 값 | A0 | status=ok 이면 `units` · `records` 1개 이상 |
+| | M2-out | `chart_id` · `overlay_id` · chart_type 이 있으면 `view_ids` |
+| | M3-in | 차트가 있으면 `records` |
+| | M3-out | `chart_contents[]` 의 `chart_id` · `title` · `columns` · `rows` · `encoding`, `step_id` |
+| | M5-out | `status=drawn` 이면 `figure` |
+| | M6-out | `answer` · `tables[].table_id` · `tables[].columns` |
+| `ref` id 짝 | M2-out | `charts[].view_ids` → 모듈 2 입력 View · `overlays[].charts` → `charts[].chart_id` · chart_id 중복 금지 |
+| | M3-in | `charts[].view_ids` → records · `sub_question_ids` → QueryBundle 하위 질문 id · chart_id 중복 금지 |
+| | M3-out | `chart_contents[]` · `plans[]` · `validation` 키의 chart_id → 요청 차트 · `record_ids` · `inputs[].record_id` → records · 모든 `display_ref` → displays |
+| | M5-out | `results[].chart_id` → 차트 내용 · 계획 차트 · 겹친 차트 id |
+| | M6-in · M6-out | calc 의 `display_ref` → displays · `used_step_ids` · `tables[].step_ids` → calc step_id · `tables[].record_ids` → records · `caveats[].ref` → record id 또는 step_id |
+
+- 허용값은 **스키마에 있는 값 목록**만 쓴다. 필드가 그냥 `str` 이어도 같은 뜻의 `Literal` 이 다른 스키마에 있으면 적용 (모듈 2 measure ← 모듈 3 `Measure`). 설명 글에만 적힌 목록(`Note.type` · `Filters.의도`)은 쓰지 않는다. None 은 스키마가 허용할 때만.
+- 예외: 모듈 6 은 계산 보류 사유 caveat(`source="plan_warning"`)의 `ref` 에 `"plan"` 을 넣는다 (`answer_compose/caveats.py`). 스키마 설명(`Record.id 또는 CalcResult.step_id`)에는 빠져 있음 → 허용 (**모듈 6 담당자에게 알릴 내용**).
+- 진단 (오류로 켜기 전): 정상 입력 19개(녹화 재생) + 골든 결과 14개에 '기록만' 으로 돌림 → 위 예외 한 가지만 걸림.
+- 시험: `private/qa/qa_regression.py` 의 `R_*` 9개 (허용값 · 빈 값 · id 짝).
 
 `Issue` 한 건의 모양 (초안):
 
@@ -250,7 +277,8 @@ backend/agent/qa/            실제 실행 (패키지 backend.agent.qa, 안에�
   qa 설계.md
   __init__.py      run_modules_with_qa · run_chat
   qa_schemas.py    지점별 기준 스키마 + QA 가 정의하는 스키마 (Module2Error · DrawResultQA · DrawnChart · 묶음 모델)
-  qa_check.py      check(point, raw) → Checked(ok, value, issues, error_locs) · drop_items
+  qa_check.py      check(point, raw, ctx) → Checked(ok, value, issues, error_locs) · drop_items (스키마 → 규칙)
+  qa_rules.py      스키마 다음의 규칙: 허용값 · 빈 값 · id 짝 (5장)
   qa_policy.py     지점별 대응 표 (7장) + 단계 이름 · 안내 문구 · RETRY_NOTES
   qa_state.py      그래프 State (QAInput · QAResult · QAState · 모듈 6 갈래 AnswerState) · QA 기록 요약
   qa_nodes.py      그래프 노드 (모듈 실행 · 검사 · 대응) · 분기 함수

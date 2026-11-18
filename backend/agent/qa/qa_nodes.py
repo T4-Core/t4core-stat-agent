@@ -71,9 +71,9 @@ def _run(state: QAState, point: str, fn) -> dict:
         return {"outs": {point: None}, "excs": {point: e}, "tries": {point: n}}
 
 
-def judge(state: QAState, point: str, to_raw, rebuild, can_retry: bool, value=None) -> tuple[dict, Any]:
+def judge(state: QAState, point: str, to_raw, rebuild, can_retry: bool, value=None, ctx: dict | None = None) -> tuple[dict, Any]:
     """검사 → (state 갱신, 다음에 넘길 값). routes[point] = ok | partial | retry | fail
-    value 를 주면 실행 노드 없이 그 값을 검사한다 (입력 검사 · 재시도 없음)"""
+    value 를 주면 실행 노드 없이 그 값을 검사한다 (입력 검사 · 재시도 없음). ctx = id 짝 참조 목록 (qa_rules)"""
     rule = RULES[point]
     n = (state.get("tries") or {}).get(point, 1)
     last = n >= 1 + (MAX_RETRY if (rule.retry and can_retry) else 0)
@@ -96,7 +96,7 @@ def judge(state: QAState, point: str, to_raw, rebuild, can_retry: bool, value=No
         return {**upd, "routes": {point: "fail"}}, None
     out = value if value is not None else (state.get("outs") or {}).get(point)
     raw = to_raw(out)
-    c = check(point, raw)
+    c = check(point, raw, ctx)
     if c.ok:
         close("passed")
         _add(upd, issues=mark(c.issues))
@@ -107,13 +107,37 @@ def judge(state: QAState, point: str, to_raw, rebuild, can_retry: bool, value=No
     close("failed")
     d = drop_items(raw, c.error_locs, rule.drop) if rule.drop else None
     if d is not None:
-        c2 = check(point, d[0])
+        c2 = check(point, d[0], ctx)
         if c2.ok:
             _add(upd, issues=mark(c.issues, "drop") + mark(c2.issues),
                  dropped=[{"point": point, "path": p} for p in d[1]])
             return {**upd, "routes": {point: "partial"}}, rebuild(c2.value)
     _add(upd, issues=mark(c.issues, fail_action))
     return {**upd, "routes": {point: "fail"}}, None
+
+
+def ref_ctx(state: QAState, point: str) -> dict:
+    """id 짝을 볼 참조 목록 (qa_rules.rule_issues 의 ctx)"""
+    if point == M2:
+        vi = state.get("view_input") or {}
+        return {"view_ids": {v["record"]["id"] for u in vi.get("units") or [] for v in u.get("views") or []}}
+    if point == "M3-in":
+        from backend.agent.chart_calculate.planner import sub_question_ids
+        return {"record_ids": {r.id for r in state.get("records") or []},
+                "sub_ids": {sid for sid, _ in sub_question_ids(state["bundle"])}}
+    if point == M3:
+        req3 = state["req3"]
+        return {"chart_ids": {c.chart_id for c in req3.charts}, "record_ids": {r.id for r in req3.records}}
+    if point == "M5-out":
+        m3, plan = state["m3"], state.get("plan") or {}
+        return {"drawn_ids": {c.chart_id for c in m3.chart_contents} | {c.get("chart_id") for c in plan.get("charts") or []}
+                | {o.get("overlay_id") for o in plan.get("overlays") or []}}
+    if point == "M6-in":
+        return {"record_ids": {r.id for r in state.get("records") or []}}
+    if point == M6:
+        req6 = state["req6"]
+        return {"record_ids": {r.id for r in req6.records}, "step_ids": {c.step_id for c in req6.calc_results}}
+    return {}
 
 
 def _route(state: QAState, point: str) -> str:
@@ -162,7 +186,7 @@ def module2(state: QAState, config: RunnableConfig) -> dict:
 def check_m2(state: QAState) -> dict:
     upd, val = judge(state, M2, lambda o: {"chart_plan": o.get("chart_plan"), "filtered_views": o.get("filtered_views"),
                                            "errors": o.get("errors") or []},
-                     lambda v: v, can_retry=state.get("use_llm_chart", True))
+                     lambda v: v, can_retry=state.get("use_llm_chart", True), ctx=ref_ctx(state, M2))
     route = upd["routes"][M2]
     if route == "fail":
         return {**upd, "stopped_at": M2}
@@ -208,7 +232,8 @@ def adapt(state: QAState) -> dict:
         _add(upd, notes=[f"역할 단위(분모·조건)의 View 를 세트에 붙임: {extra_ids}"])
     upd.update(charts=charts, records=records, chart_errors=errors, charts_dump=[c.model_dump(mode="json") for c in charts])
     req3 = Module3Request.model_construct(records=records, query_bundle=bundle, charts=charts)
-    j, val = judge(state, "M3-in", dump, Module3Request.model_validate, False, value=req3)
+    j, val = judge(state, "M3-in", dump, Module3Request.model_validate, False, value=req3,
+                   ctx=ref_ctx({**state, "records": records}, "M3-in"))
     _add(upd, issues=j.pop("issues", []), dropped=j.pop("dropped", []), checked=j.pop("checked", []))
     upd.update(j)
     route = j["routes"]["M3-in"]
@@ -229,7 +254,8 @@ def check_m3(state: QAState) -> dict:
     from backend.schemas.chart import Module3Output
     if state.get("note_mode"):                      # 메모 재시도의 결과 → 처음 결과와 견준다
         return _note_compare(state)
-    upd, val = judge(state, M3, dump, Module3Output.model_validate, can_retry=state.get("decision") is None)
+    upd, val = judge(state, M3, dump, Module3Output.model_validate, can_retry=state.get("decision") is None,
+                     ctx=ref_ctx(state, M3))
     route = upd["routes"][M3]
     if route == "fail":
         return {**upd, "stopped_at": M3}
@@ -271,7 +297,7 @@ def _note_compare(state: QAState) -> dict:
         return {**upd, "issues": mark([exc_issue(M3, exc)], "warn"), "m3": first,
                 "retries": [{**rec, "result": "failed", "kept": "first"}]}
     out = (state.get("outs") or {}).get(M3)
-    c = check(M3, dump(out))
+    c = check(M3, dump(out), ref_ctx(state, M3))
     if not c.ok:
         for i in c.issues:
             i.action = i.action or "warn"
@@ -301,11 +327,11 @@ def draw(state: QAState, config: RunnableConfig) -> dict:
     raw = {"results": [draw_result_raw(r) for r in results], "html": out.get("html"),
            "load_errors": out.get("load_errors") or {}}
     upd: dict = {"checked": ["M5-out"]}
-    c = check("M5-out", raw)
+    c = check("M5-out", raw, ref_ctx(state, "M5-out"))
     bad: set[int] = set()
     if not c.ok:
         d = drop_items(raw, c.error_locs, RULES["M5-out"].drop)
-        if d is None:
+        if d is None or not check("M5-out", d[0], ref_ctx(state, "M5-out")).ok:
             return {**upd, "drawn": [], "issues": mark(c.issues, "skip"), "skipped": ["M5-out"]}
         bad = {loc[1] for loc in c.error_locs}
         upd.update(issues=mark(c.issues, "drop"),
@@ -337,7 +363,8 @@ def build_m6(state: QAState) -> dict:
     except Exception as e:  # noqa: BLE001
         return {"checked": ["M6-in"], "issues": mark([exc_issue("M6-in", e)], "skip"), "skipped": ["M6-in"],
                 "routes": {"M6-in": "fail"}}
-    upd, val = judge(state, "M6-in", dump, Module6Request.model_validate, False, value=req6)
+    upd, val = judge(state, "M6-in", dump, Module6Request.model_validate, False, value=req6,
+                     ctx=ref_ctx(state, "M6-in"))
     if upd["routes"]["M6-in"] == "fail":
         return {**upd, "skipped": ["M6-in"]}
     return {**upd, "req6": val}
@@ -350,7 +377,7 @@ def module6(state: QAState, config: RunnableConfig) -> dict:
 
 def check_m6(state: QAState) -> dict:
     from backend.schemas.answer import Module6Output
-    upd, val = judge(state, M6, dump, Module6Output.model_validate, can_retry=True)
+    upd, val = judge(state, M6, dump, Module6Output.model_validate, can_retry=True, ctx=ref_ctx(state, M6))
     route = upd["routes"][M6]
     if route == "fail":
         return {**upd, "skipped": [M6]}
