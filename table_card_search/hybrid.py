@@ -200,7 +200,7 @@ class HybridCardPipeline:
         elif cfg["rank"] != "none":
             raise ValueError(f"rank 는 soft | cost_first | none: {cfg['rank']}")
         if cfg.get("rerank_model") and cands:
-            cands = self._rerank(cands, original or query, query)
+            cands = self._rerank(cands, original or query, query, filters)
         first = {"bm25": next((s for s in self.lists if s.startswith("bm25")), None),
                  "dense": next((s for s in self.lists if s.startswith("dense")), None)}
         hits = []
@@ -223,32 +223,74 @@ class HybridCardPipeline:
                 "seconds": round(time.time() - t0, 3), "trace": []}
 
     # ── ⑤ [NEW 11-17] 리랭커 (cross-encoder) — 상위 rerank_top 개를 (질문, 카드 설명) 쌍으로 다시 점수 ──
-    def _ce_scores(self, q, ids):
-        """리랭커 점수 (0~1). (질문, 표) 쌍마다 한 번만 계산해 기억 (설정 바꿔 가며 채점할 때 다시 안 돎)"""
+    def _ce_scores(self, q, docs):
+        """리랭커 점수 (0~1). docs = [카드 쪽 글]. (질문, 글) 쌍마다 한 번만 계산해 기억 (설정 바꿔 가며 채점할 때 다시 안 돎)"""
         if not hasattr(self, "_ce"):
             from backend.rag.retrieval.rerankers import CrossEncoderReranker
             self._ce = CrossEncoderReranker(self.cfg["rerank_model"], max_length=self.cfg.get("rerank_max_length", 512),
                                             batch_size=8, device="cpu")
             self._ce_memo = {}
-        todo = [t for t in ids if (q, t) not in self._ce_memo]
+        todo = list(dict.fromkeys(d for d in docs if (q, d) not in self._ce_memo))
         if todo:
-            pairs = [(q, self.docs_by_id[t].meta.get("dense_text") or self.docs_by_id[t].text) for t in todo]
-            s = np.asarray(self._ce.model.predict(pairs, batch_size=8, show_progress_bar=False), dtype=float)
+            s = np.asarray(self._ce.model.predict([(q, d) for d in todo], batch_size=8, show_progress_bar=False),
+                           dtype=float)
             s = s[:, -1] if s.ndim > 1 else s
             if s.min() < 0 or s.max() > 1:           # 로짓이면 0~1 로 (이미 확률이면 그대로)
                 s = 1 / (1 + np.exp(-s))
-            self._ce_memo.update({(q, t): float(v) for t, v in zip(todo, s)})
-        return [self._ce_memo[(q, t)] for t in ids]
+            self._ce_memo.update({(q, d): float(v) for d, v in zip(todo, s)})
+        return [self._ce_memo[(q, d)] for d in docs]
 
-    def _rerank(self, cands, original, sq):
+    @staticmethod
+    def _slot_query(filters, sq):
+        """[NEW 11-18] rerank_query=slots: 질의 분석 조건으로 만든 짧은 문장 (예: '인천광역시 혼인 혼인건수 1973년 1979년')"""
+        f = filters or {}
+        parts = [v for k in ("지역", "성별", "연령", "대상", "지표") for v in (f.get(k) or []) if v and v != "전국"]
+        years = [f"{y}년" for y in (f.get("시점") or []) if isinstance(y, int)]
+        if len(years) > 4:
+            years = [f"{years[0]}~{years[-1]}"]
+        return " ".join(dict.fromkeys(parts + years)) or sq
+
+    def _cond_summary(self, c, filters):
+        """[NEW 11-18] rerank_doc=card+cond: 조건표를 질문에 맞춰 한 줄로 (지역 목록 전체는 너무 길어서)
+        예) '조건표: 인천광역시 자료 있음 · 1973년, 1979년 자료 있음 · 기간 1970~2025년'"""
+        f = filters or {}
+        out = []
+        miss_region = {r for u in c.get("unmet") or [] if u.get("slot") == "지역" for r in (u.get("requested") or [])}
+        for r in f.get("지역") or []:
+            if r != "전국":
+                out.append(f"{r} 자료 {'없음' if r in miss_region else '있음'}")
+        have, miss = c.get("years_have"), c.get("years_missing")
+        if have:
+            out.append(f"{', '.join(map(str, have[:6]))}년 자료 있음")
+        if miss:
+            out.append(f"{', '.join(map(str, miss[:6]))}년 자료 없음")
+        spans = _years_of(self.docs_by_id[c["tbl_id"]].meta.get("profile"))
+        if spans:
+            out.append(f"기간 {min(a for a, _ in spans)}~{max(b for _, b in spans)}년")
+        return "조건표: " + " · ".join(out) if out else ""
+
+    def _rerank(self, cands, original, sq, filters=None):
         """rerank_mode  ce  = 리랭커 점수 × 조건 감점(soft 와 같은 비율)
                         rrf = 지금 순서와 리랭커 순서를 RRF 로 섞음 (리랭커 가중치 rerank_weight)
-        rerank_query    orig = 사용자가 쓴 질문 그대로 | sq = 분석된 검색 문장"""
+        rerank_query    orig = 사용자가 쓴 질문 그대로 | sq = 분석된 검색 문장 | slots = 조건으로 만든 짧은 문장 [NEW 11-18]
+                        both = 원래 질문 + ' 검색: ' + 조건 문장 [NEW 11-18]
+        rerank_doc      card = 카드 설명(dense_text) | card+cond = 카드 설명 + 조건표 요약 [NEW 11-18]"""
         cfg = self.cfg
         n = int(cfg.get("rerank_top", 30))
         head, tail = cands[:n], cands[n:]
-        q = original if cfg.get("rerank_query", "orig") == "orig" else sq
-        ce = self._ce_scores(q, [c["tbl_id"] for c in head])
+        mode_q = cfg.get("rerank_query", "orig")
+        if mode_q == "both":                          # [NEW 11-18] 원래 질문 + 조건 문장을 한 줄로
+            q = f"{original} 검색: {self._slot_query(filters, sq)}"
+        else:
+            q = original if mode_q == "orig" else self._slot_query(filters, sq) if mode_q == "slots" else sq
+        docs = []
+        for c in head:
+            d = self.docs_by_id[c["tbl_id"]]
+            text = d.meta.get("dense_text") or d.text
+            if cfg.get("rerank_doc", "card") == "card+cond":
+                text = f"{text}\n{self._cond_summary(c, filters)}"
+            docs.append(text)
+        ce = self._ce_scores(q, docs)
         for c, v in zip(head, ce):
             c["ce"] = round(v, 4)
         if cfg.get("rerank_mode", "ce") == "ce":
@@ -264,10 +306,11 @@ class HybridCardPipeline:
             head.sort(key=lambda c: -c["score"])
         return head + tail
 
-    def search_compat(self, query, top_k=10, filters=None, pool=None):
+    def search_compat(self, query, top_k=10, filters=None, pool=None, original=None):
+        """views.run_query 의 search_fn 모양. original = 사용자 원래 질문 ([NEW 11-18] View 에서 넘김 → orig 순위 2개에 씀)"""
         keep = ("rank", "tbl_id", "tbl_nm", "survey_nm", "score", "dense", "bm25_rank", "bm25", "unmet", "cover", "cost",
                 "years_have", "years_missing", "stitch")
-        return [{k: h[k] for k in keep if k in h} for h in self.search(query, filters, top_k)["hits"]]
+        return [{k: h[k] for k in keep if k in h} for h in self.search(query, filters, top_k, original=original)["hits"]]
 
 
 _pipes = {}

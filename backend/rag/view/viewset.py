@@ -26,6 +26,33 @@ def _settings(overrides=None):
     return with_overrides(overrides)
 
 
+def _hybrid_search_fn(cfg, original):
+    """[NEW 11-18] 검색 구성 이름이 하이브리드(table_card_search/configs/hybrid.yaml)면 그 검색 함수, 아니면 None.
+    원래 질문(original)을 함께 넘김 — 하이브리드는 분석 문장과 원래 질문으로 각각 BM25·dense 순위를 냄"""
+    if not isinstance(cfg, str):
+        return None
+    try:
+        from table_card_search.search import get_pipeline_for, hybrid_methods
+    except ImportError:
+        return None
+    if cfg not in hybrid_methods():
+        return None
+    p = get_pipeline_for(cfg, "hcx")
+    return lambda q, top_k=10, filters=None, pool=None: p.search_compat(q, top_k, filters=filters, original=original)
+
+
+def _first_only(views, filters, conf):
+    """[NEW 11-18] 1순위만 넘길까: 두 View 가 겹치는 교차점에서 값이 모두 같고(status ok + 비교한 교차점 있음),
+    2순위에만 있는 교차점이 없을 때. 비교 불가(겹치는 교차점 없음)·값 다름은 둘 다"""
+    if len(views) != 2 or conf["status"] != "ok" or not conf["n_compared_keys"]:        # View 2개일 때만 (n_views=2)
+        return False
+    from backend.rag.view.points import record_points
+
+    def keys(v):
+        return {p.key_str() for p in record_points(v["record"], filters)[0] if p.value is not None}
+    return not (keys(views[1]) - keys(views[0]))
+
+
 # ── 선택지 설명 ─────────────────────────────────────────────────
 def _csv_table(tbl_id):
     try:
@@ -141,8 +168,10 @@ def build_viewset(source, *, today=None, retrieval_config=None, top_k=None, n_vi
     cfg = retrieval_config or s.view_retrieval_config
     search_fn = None
     if cfg:
-        from backend.rag.retrieval.factory import get_pipeline
-        search_fn = get_pipeline(cfg).search_compat
+        search_fn = _hybrid_search_fn(cfg, vb.get("original"))          # [NEW 11-18] 하이브리드 구성
+        if search_fn is None:
+            from backend.rag.retrieval.factory import get_pipeline
+            search_fn = get_pipeline(cfg).search_compat
     from backend.rag.ingestion.views import run_query
     with maybe_step(tracer, "2-1·2-2 검색 + View", top_k=top_k or s.view_top_k, n_views=n_views or s.view_n_views,
                     retrieval_config=cfg) as st:
@@ -155,6 +184,10 @@ def build_viewset(source, *, today=None, retrieval_config=None, top_k=None, n_vi
         with maybe_step(tracer, f"2-3 Point 비교:{uid}", rel_tol=s.conflict_rel_tol, abs_tol=s.conflict_abs_tol,
                         allow_partial=s.conflict_allow_partial) as st:
             conf = detect(u["views"], u["filters"], s, uid)
+            if s.view_first_only_when_same and _first_only(u["views"], u["filters"], conf):   # [NEW 11-18]
+                u["views"] = u["views"][:1]
+                conf["first_only"] = True
+                conf["notes"].append(f"2순위 표 {conf['views'][1]['tbl_id']} 와 겹치는 교차점 값이 모두 같아 1순위만 넘김")
             views_by_id = {v["record"]["id"]: v for v in u["views"]}
             if conf["status"] == "ambiguous":
                 conf["options"] = build_options(conf, views_by_id, s)

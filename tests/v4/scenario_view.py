@@ -135,7 +135,15 @@ assert a["records"][0]["source"]["tbl_id"] == cf["options"][0]["tbl_ids"][0]
 t = ok(c.post(V, json={"view_bundle": VB, "n_views": 5, "overrides": {"conflict_rel_tol": 5.0}}))
 assert t["status"] == "ok" and t["units"][0]["conflict"]["status"] == "ok" and "교차 확인" in t["units"][0]["conflict"]["notes"][0]
 assert len(t["records"]) == len(t["units"][0]["views"])
-px = ok(c.post(V, json={"view_bundle": {**VB, "filters": {**VB["filters"], "지표": ["외계인수"]}}, "n_views": 3}))
+# [NEW 11-18] View 2개 · 값이 모두 같음(허용 오차 크게) → 1순위만 넘김 / 규칙을 끄면 둘 다
+t2 = ok(c.post(V, json={"view_bundle": VB, "n_views": 2, "overrides": {"conflict_rel_tol": 5.0}}))
+c2 = t2["units"][0]["conflict"]
+assert c2["status"] == "ok" and c2.get("first_only") and len(t2["units"][0]["views"]) == 1 and len(t2["records"]) == 1, c2
+assert t2["records"][0]["source"]["tbl_id"] == c2["views"][0]["tbl_id"]
+t3 = ok(c.post(V, json={"view_bundle": VB, "n_views": 2,
+                        "overrides": {"conflict_rel_tol": 5.0, "view_first_only_when_same": False}}))
+assert len(t3["units"][0]["views"]) == 2 and not t3["units"][0]["conflict"].get("first_only")
+px =ok(c.post(V, json={"view_bundle": {**VB, "filters": {**VB["filters"], "지표": ["외계인수"]}}, "n_views": 3}))
 assert px["units"][0]["conflict"]["status"] == "partial" and px["status"] == "ok" and px["records"]   # 비교 없이 기존처럼 전달
 one = ok(c.post(V, json={"view_bundle": {**VB, "search_text": "2025년 대전광역시 이동자수",
                                            "filters": {"시점": [2025], "지역": ["대전광역시"], "지표": ["총전입"]}}, "n_views": 3}))

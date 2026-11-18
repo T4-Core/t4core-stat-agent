@@ -135,12 +135,22 @@ def test_lexicon_prefers_exact_name():
     assert Lexicon._hit(None, "가구수", rows, "지표", "csv").value == "가구수"   # 이전: 표가 더 많은 '가구'
 
 
+def legacy_search_config(tmp_path, **extra):
+    """[NEW 11-18] 기본 설정의 View 검색이 하이브리드(실제 카드 992개 + HCX 임베딩)로 바뀜 → 가짜 표로 보는 테스트는
+    예전 검색(table_search)을 쓰도록 configs/query_v4.yaml 을 복사해 view_retrieval_config 만 null 로 (+ extra). 경로 반환"""
+    import yaml
+    cfg = yaml.safe_load((ROOT / "configs" / "query_v4.yaml").read_text(encoding="utf-8"))
+    p = tmp_path / "query_v4.yaml"
+    p.write_text(yaml.safe_dump({**cfg, "view_retrieval_config": None, **extra}, allow_unicode=True), encoding="utf-8")
+    return str(p)
+
+
 def test_view_conflict(tmp_path):
     storage = tmp_path / "storage"
     build_conflict_data(storage / "kosis_data")
     r = _run(["-m", "tests.v4.scenario_view"], ROOT,
-             _env(STORAGE_DIR=str(storage), HCX_API_KEY="test-key", CSV_INDEX_DIR="", RUNS_DIR="", QUERY_V4_CONFIG="",
-                  VIEW_SELECTION_SECRET=""))
+             _env(STORAGE_DIR=str(storage), HCX_API_KEY="test-key", CSV_INDEX_DIR="", RUNS_DIR="",
+                  QUERY_V4_CONFIG=legacy_search_config(tmp_path), VIEW_SELECTION_SECRET=""))
     print(r.stdout)
     assert r.returncode == 0, r.stdout[-4000:] + r.stderr[-4000:]
     assert '"VIEW_V4": "PASS"' in r.stdout

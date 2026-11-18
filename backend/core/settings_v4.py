@@ -33,8 +33,12 @@ class QueryV4Settings(BaseModel):
     save_runs: bool = False
     # [Step 4] View 묶음 · Point 충돌 · 선택
     view_top_k: int = 10
-    view_n_views: int = 3
-    view_retrieval_config: str | None = None
+    view_n_views: int = 2               # [CHANGED 11-18] 3 → 2: 검색 1·2순위로 View
+    # [CHANGED 11-18] None(예전 순차 table_search) → hybrid_all (table_card_search 하이브리드: 조건표 거르기 → BM25·dense RRF)
+    view_retrieval_config: str | None = "hybrid_all"
+    # [NEW 11-18] 두 View 가 겹치는 교차점 값이 모두 같고 2순위에만 있는 교차점이 없으면 1순위만 넘김
+    #   값이 다르면 둘 다 + 사용자 선택(기존), 겹치는 교차점이 없으면(비교 불가) 둘 다
+    view_first_only_when_same: bool = True
     view_keep_unusable: bool = True
     view_main_with_subs: bool = False
     conflict_rel_tol: float = 0.0

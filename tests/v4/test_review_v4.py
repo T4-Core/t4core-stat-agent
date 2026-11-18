@@ -1,13 +1,15 @@
 """[NEW v4] v4 단계별 검수 카드 — 질문 문장만 사용, 단계별 근거·원본 대조·사람 판정 저장 (HCX·네트워크 없음)"""
 from tests.test_pipeline_e2e import ROOT, _env, _run
-from tests.v4.test_view_v4 import build_conflict_data
+from tests.v4.test_view_v4 import build_conflict_data, legacy_search_config
 
 
 def test_review_v4(tmp_path):
     storage = tmp_path / "storage"
     build_conflict_data(storage / "kosis_data")
+    # [CHANGED 11-18] 가짜 표 3개 비교(값 다름 → 선택) 를 보는 테스트 → 예전 검색 + View 3개
+    cfg = legacy_search_config(tmp_path, view_n_views=3)
     r = _run(["-m", "tests.v4.scenario_review"], ROOT,
-             _env(STORAGE_DIR=str(storage), HCX_API_KEY="test-key", CSV_INDEX_DIR="", RUNS_DIR="", QUERY_V4_CONFIG="",
+             _env(STORAGE_DIR=str(storage), HCX_API_KEY="test-key", CSV_INDEX_DIR="", RUNS_DIR="", QUERY_V4_CONFIG=cfg,
                   VIEW_SELECTION_SECRET="", TEST_DATA_DIR=str(tmp_path / "test_data"), EVAL_RUNS_DIR=""))
     print(r.stdout)
     assert r.returncode == 0, r.stdout[-4000:] + r.stderr[-4000:]
