@@ -10,7 +10,8 @@
       성별 외국인-시군구 (2010) + 성별 외국인 - 시군구 (2015~2025)
       시도별 외국인주민 현황(2006) + (2007~2015) + 시도별 외국인주민 현황 (2015~2024)
       연령/성별 인구-읍면동 (2005) + 연령 및 성별 인구 - 읍면동 (2010) + 연령 및 성별 인구 – 읍면동 (2015~2025)
-  못 잡는 것: 이름 자체가 바뀐 경우 (국제결혼 이주자 ↔ 결혼이민자)
+  · [NEW 11-18] 이름 자체가 바뀐 경우(국제결혼 이주자 ↔ 결혼이민자)는 사람이 확인한 연결 configs/period_links.csv 로 합침
+    (후보 124쌍 중 25쌍 ○ 표시. A–B, B–C 면 A·B·C 한 묶음, 표가 이미 묶음에 있으면 묶음째 합침)
 
 이어붙이기 (stitch_plan)
   요청 연도마다 그 연도를 담은 표를 고름 — 지금 검색된 표를 먼저, 없으면 같은 묶음에서 최신 표
@@ -48,7 +49,8 @@ def title_key(title):
     return _MARKS.sub("", t)
 
 
-def build(card_dir=CARD_DIR):
+def build(card_dir=CARD_DIR, links=None):
+    links = load_links() if links is None else links
     cards = [json.loads(x) for x in (card_dir / "cards.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     years, cycles = {}, {}
     for line in (card_dir / "conditions.jsonl").read_text(encoding="utf-8").splitlines():
@@ -60,15 +62,54 @@ def build(card_dir=CARD_DIR):
     g = defaultdict(list)
     for c in cards:
         g[(c["조사명"], title_key(c["제목_원래"]))].append(c)
+    # [NEW 11-18] 사람이 확인한 연결(이름이 바뀐 같은 통계) → 두 표가 속한 키를 하나로 합침 (A–B, B–C 면 A·B·C 한 묶음)
+    key_of = {c["tbl_id"]: k for k, cs in g.items() for c in cs}
+    parent = {k: k for k in g}
+
+    def root(k):
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+    used = defaultdict(list)
+    for a, b in links:
+        if a in key_of and b in key_of:
+            ra, rb = root(key_of[a]), root(key_of[b])
+            if ra != rb:
+                parent[rb] = ra
+            used[a].append(b)
+    merged = defaultdict(list)
+    for k in g:
+        merged[root(k)].append(k)
     groups = []
-    for (survey, key), cs in g.items():
+    for keys in merged.values():
+        keys.sort(key=lambda k: -len(g[k]))                 # 표가 많은 키를 대표로
+        cs = [c for k in keys for c in g[k]]
         if len(cs) < 2:
             continue
         members = sorted(({"tbl_id": c["tbl_id"], "title": c["제목_원래"], "years": years.get(c["tbl_id"], []),
                            "cycle": cycles.get(c["tbl_id"], [])} for c in cs),
                          key=lambda m: (m["years"][-1] if m["years"] else 0, m["years"][0] if m["years"] else 0))
-        groups.append({"group": f"G{len(groups) + 1:03d}", "survey": survey, "key": key, "members": members})
+        ids = {m["tbl_id"] for m in members}
+        grp = {"group": f"G{len(groups) + 1:03d}", "survey": " + ".join(dict.fromkeys(k[0] for k in keys)),
+               "key": " + ".join(k[1] for k in keys), "members": members}
+        if len(keys) > 1:
+            grp["links"] = [[a, b] for a, bs in used.items() if a in ids for b in bs]
+        groups.append(grp)
     return groups
+
+
+LINKS = PACKAGE / "configs" / "period_links.csv"
+
+
+def load_links(path=LINKS):
+    """[NEW 11-18] 사람이 확인한 연결 [(옛 표 ID, 새 표 ID)]. 파일이 없으면 빈 목록"""
+    import csv
+    if not path.exists():
+        return []
+    with path.open(encoding="utf-8-sig") as f:
+        return [(r["옛 표 ID"].strip(), r["새 표 ID"].strip()) for r in csv.DictReader(f)
+                if r.get("옛 표 ID") and r.get("새 표 ID")]
 
 
 def save(groups, path=OUT):
@@ -141,6 +182,12 @@ def main():
     print(f"묶음 {len(groups)}개 · 표 {n}개 → {OUT}\n표로 보기 → {csv_path}")
     mixed = [g for g in groups if len({c for m in g["members"] for c in m["cycle"]}) > 1]
     print(f"주기가 섞인 묶음 {len(mixed)}개: {[g['key'] for g in mixed][:5]}")
+    linked = [g for g in groups if g.get("links")]                    # [NEW 11-18]
+    print(f"사람이 연결한 쌍 {len(load_links())}개 → 연결로 합쳐진 묶음 {len(linked)}개")
+    for g in linked:
+        ys = [y for m in g["members"] for y in m["years"]]
+        dup = sorted({y for y in ys if ys.count(y) > 1})
+        print(f"  {g['group']} 표 {len(g['members'])}개 | {g['key'][:70]}" + (f" | 겹친 연도 {dup}" if dup else ""))
 
 
 if __name__ == "__main__":
