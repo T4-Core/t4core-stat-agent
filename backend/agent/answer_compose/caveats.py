@@ -31,6 +31,15 @@ def _is_derived_indicator_missing(n: Note) -> bool:
     return bool(wanted) and all(_DERIVED.search(str(v)) for v in wanted if v)
 
 
+# [NEW 11-18] 조사명이 추계 · 전망 · 예측이면 표의 값은 실제 통계가 아니다. '2025년 서울 인구' 에 장래인구추계 표가 골라져도 실제 인구처럼 답했다 (Q01·Q23)
+_PROJECTION = re.compile(r"추계|전망|예측")
+
+
+def _projection_text(rec: Record) -> str | None:
+    survey = str(rec.metadata.get("survey_nm") or "")
+    return f"이 값은 '{survey}' 표의 추계(전망·예측)값이며 실제로 조사된 값이 아닙니다." if _PROJECTION.search(survey) else None
+
+
 def _note_text(n: Note) -> str:
     return n.text.strip()
 
@@ -65,6 +74,7 @@ def build_caveats(f: Facts) -> list[Caveat]:
         for n in [*rec.notes, *(rec.match.unmet if rec.match else [])]:
             if not _is_derived_indicator_missing(n):
                 add("view_note", rid, _note_text(n))
+        add("view_note", rid, _projection_text(rec) or "")      # 같은 조사의 표가 여럿이어도 한 번만 (add 가 같은 문장을 걸러 낸다)
 
     for r in f.req.calc_results:
         if not has_value(r):
