@@ -86,16 +86,46 @@ def search_fn(method, dense="hcx", set_name="full", dirs=None):
     return lambda query, top_k=10, filters=None, pool=None: p.search_compat(query, top_k, filters=filters)
 
 
+def clarification_bundle(a, question):
+    """[NEW 11-17] 되묻기(needs_clarification) 분석 결과 → 검색용 view_bundle.
+    분석기는 필수 조건(주로 시점)이 비면 되묻기로 멈추지만, 그때도 지역·지표·대상은 이미 뽑아 둠.
+    그 단서로 ok 일 때와 같은 방법(canonical_slots → to_view_bundle → v3_text)으로 검색 문장·조건을 만듦.
+    빠진 조건은 비워 둔 채 검색 (backend 분석기는 바꾸지 않음)"""
+    from backend.rag.query_analyzer.adapter import to_view_bundle
+    from backend.rag.query_analyzer.query_bundle import slot_text
+    from backend.rag.query_analyzer.v4.decompose import concepts
+    from backend.rag.query_analyzer.v4.pipeline import canonical_slots
+    from backend.rag.query_analyzer.v4.search_text import v3_text
+    state, grounded = a.get("state") or {}, a.get("slots") or {}
+    raw = state.get("raw_slots") or {}
+    if not raw:
+        return None
+    b = state.get("bundle") or {}
+    rb = {"original": question, "rewritten": b.get("rewritten") or question,
+          "intent": (state.get("intents") or [b.get("intent")])[0], "filters": canonical_slots(raw, grounded),
+          "sub_questions": [], "sub_filters": None}
+    vb, _ = to_view_bundle(rb, None, "rewritten", None)
+    weak = (rb["rewritten"] or "").strip() == question.strip()
+    no_intent = {k: v for k, v in (vb.get("filters") or {}).items() if k != "의도"}
+    vb["search_text"] = v3_text(slot_text(no_intent) if weak else rb["rewritten"], vb.get("filters"),
+                                [c["name"] for c in concepts(grounded)])
+    return vb
+
+
 def analyze_units(question, mode="v4", today=None):
-    """질문 → 검색 단위 [{unit, text, search_query, filters}] (기존 lab 과 같은 처리: v4 분석 → views.units_of → search_query)"""
+    """질문 → 검색 단위 [{unit, text, search_query, filters}] (기존 lab 과 같은 처리: v4 분석 → views.units_of → search_query)
+    mode = v4 | v4c ([NEW 11-17] v4 + 되묻기 상태에서도 이미 뽑은 조건으로 검색) | none"""
     if mode == "none":
         return [{"unit": "main", "text": question, "search_query": question, "filters": None, "status": "none"}]
     from backend.rag.query_analyzer.v4 import analyze
     from backend.rag.retrieval.lab import _units_from_bundle
     a = analyze(question, today=today)
-    if not a.get("view_bundle"):
+    vb = a.get("view_bundle")
+    if not vb and mode == "v4c" and a["status"] == "needs_clarification":
+        vb = clarification_bundle(a, question)
+    if not vb:
         return [{"unit": "main", "text": question, "search_query": question, "filters": None, "status": a["status"]}]
-    units = _units_from_bundle({**a["view_bundle"], "_view": True}, "q", question)
+    units = _units_from_bundle({**vb, "_view": True}, "q", question)
     return [{"unit": u["unit"], "text": u["text"], "search_query": u["search_query"], "filters": u["filters"],
              "status": a["status"], "notes": a.get("notes", [])} for u in units]
 
@@ -107,7 +137,7 @@ def main(argv=None):
     ap.add_argument("--method", default="all", choices=[*METHODS, "all"])
     ap.add_argument("--dense", default="hcx", choices=["hcx", "hash", "none"])
     ap.add_argument("--set", dest="set_name", default="full", choices=["full", "sample", "both"])
-    ap.add_argument("--analyze", default="v4", choices=["v4", "none"])
+    ap.add_argument("--analyze", default="v4", choices=["v4", "v4c", "none"])
     ap.add_argument("--top-k", type=int, default=10)
     a = ap.parse_args(argv)
     q = " ".join(a.question)

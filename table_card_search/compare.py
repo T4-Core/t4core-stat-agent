@@ -46,8 +46,10 @@ PACKAGE = Path(__file__).resolve().parent
 KS = (1, 3, 5, 10)
 FAIL_LABEL = {"not_in_corpus": "코퍼스에 정답 표 없음", "prefilter_cut": "조건표 거르기에서 탈락 (하이브리드)",
               "bm25_miss": "1단계 후보에 없음 (순차 = BM25 50, 하이브리드 = 합친 후보)",
-              "condition_cut": "조건 단계에서 상위 top_k 밖으로 밀림", "rank_6_10": "상위 10 안이지만 5 밖",
-              "no_filters_cut": "슬롯 없음 — BM25 상위 top_k 밖"}
+              "condition_cut": "순차: 조건 단계에서 상위 top_k 밖으로 밀림",
+              "pool_out_10": "하이브리드: 후보 안에 있지만 10등 밖",       # [NEW 11-17] 하이브리드 전용
+              "rank_6_10": "상위 10 안이지만 5 밖",
+              "no_filters_cut": "슬롯(지역·시점) 없음 — 10등 밖"}
 
 
 # ── 골든셋 ───────────────────────────────────────────────────────
@@ -135,6 +137,13 @@ def analyze_all(rows, mode, today, cache_path: Path, log=print):
     with cache_path.open("a", encoding="utf-8") as f:
         for i, r in enumerate(rows, 1):
             key = hashlib.sha1(f"{mode}|{today}|{r['question']}".encode()).hexdigest()[:16]
+            if key not in cache and mode == "v4c":
+                # [NEW 11-17] v4c 는 되묻기 문항만 달라짐 → v4 캐시가 되묻기가 아니면 그대로 씀 (HCX 재호출 없음)
+                k4 = hashlib.sha1(f"v4|{today}|{r['question']}".encode()).hexdigest()[:16]
+                old = cache.get(k4)
+                if old and old["units"][0].get("status") != "needs_clarification":
+                    cache[key] = {**old, "key": key, "mode": mode}
+                    f.write(json.dumps(cache[key], ensure_ascii=False, default=str) + "\n")
             if key not in cache:
                 try:
                     units = analyze_units(r["question"], mode, today)
@@ -232,7 +241,7 @@ def evaluate_one(pipe, bm25, row, units, top_k, pool):
     elif pos and pos <= 10:
         res["fail"] = "rank_6_10"
     elif n_filters:
-        res["fail"] = "condition_cut"
+        res["fail"] = "pool_out_10" if hybrid else "condition_cut"   # [FIX 11-17] 하이브리드는 조건 단계가 따로 없음
     else:
         res["fail"] = "no_filters_cut"
     res["top5"] = " ".join(ranking[:5])
@@ -397,7 +406,7 @@ def main(argv=None):
     ap.add_argument("--set", dest="set_name", default="full", choices=["full", "sample", "both"])
     ap.add_argument("--table-card-dir", nargs="*", default=None)
     ap.add_argument("--expend-dir", nargs="*", default=None)
-    ap.add_argument("--analyze", default="v4", choices=["v4", "none"])
+    ap.add_argument("--analyze", default="v4", choices=["v4", "v4c", "none"])
     ap.add_argument("--today", default=str(date.today()))
     ap.add_argument("--top-k", type=int, default=10)
     ap.add_argument("--pool", type=int, default=50)
@@ -407,6 +416,8 @@ def main(argv=None):
     ap.add_argument("--alt", default=None, help="[NEW 11-12] 대체 정답 파일 (alt_gold.py 의 alt_positives.jsonl) → 엄격/완화 지표")
     ap.add_argument("--alt-exact-only", action="store_true", help="반올림 일치(rounded)는 대체 정답으로 치지 않음")
     ap.add_argument("--split", nargs="*", default=None, help="[NEW 11-12] retrieval_golden 형식: dev / test 만 (기본 전부)")
+    ap.add_argument("--analysis-cache", default=None,
+                    help="[NEW 11-17] 질의 분석 캐시 파일 (기본 <out>/analysis_cache.jsonl). 다른 실행의 캐시를 주면 HCX 재호출 없음")
     a = ap.parse_args(argv)
 
     out = Path(a.out) if a.out else PACKAGE / "runs" / f"{datetime.now():%Y%m%d_%H%M%S}_{a.name}"
@@ -419,7 +430,8 @@ def main(argv=None):
         for r in rows:
             r["alt_groups"] = alt.get(r["record_id"], {})
         print(f"[대체 정답] {sum(bool(any(v.values())) for v in alt.values())}/{len(alt)} 레코드 ← {a.alt}", flush=True)
-    analysis = analyze_all(rows, a.analyze, a.today, out / "analysis_cache.jsonl")
+    analysis = analyze_all(rows, a.analyze, a.today, Path(a.analysis_cache) if a.analysis_cache
+                           else out / "analysis_cache.jsonl")
     dirs = {"table_card": a.table_card_dir, "table_card_expend": a.expend_dir}
     per, info = run(rows, analysis, a.methods, a.dense, a.set_name, dirs, a.top_k, a.pool)
     table, fails, wins = summarize(per)

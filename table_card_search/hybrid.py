@@ -15,8 +15,10 @@
   prefilter  true | false (거르기 끄기 = 비교용)
   rank       soft(관련도 우선 + 감점) | cost_first(예전처럼 벌점이 1순위) | none(RRF 그대로)
 
+  기본 구성 = hybrid_all (세 채점셋 모두에서 가장 좋았음, 11-17)
+
   from table_card_search.hybrid import get_hybrid
-  p = get_hybrid("hybrid", dense="hcx")
+  p = get_hybrid(embedder={"type": "hcx_bge_m3"}, dense_name="hcx")      # 구성 생략 = hybrid_all
   p.search("1인가구 수", {"지역": ["서울특별시"], "시점": [2010, 2015, 2020]}, original="2010년부터 서울 혼자 사는 가구 수")
 """
 from __future__ import annotations
@@ -31,6 +33,7 @@ import yaml
 
 PACKAGE = Path(__file__).resolve().parent
 CONFIG = PACKAGE / "configs" / "hybrid.yaml"
+DEFAULT_VARIANT = "hybrid_all"     # [NEW 11-17] 기본으로 쓰는 구성 (BM25·dense × 분석 문장·원래 질문 4개 순위를 합침)
 DEFAULT = {"lists": ["bm25:sq", "dense:sq"], "weights": {}, "rrf_k": 60, "pool": 100, "prefilter": True,
            "min_pass": 20, "rank": "soft", "alpha": 0.5, "beta": 0.3, "top_k": 10,
            "tokenizer": {"type": "kiwi", "variant": "table"}}
@@ -196,6 +199,8 @@ class HybridCardPipeline:
             cands.sort(key=lambda c: (c["cost"], -c["rrf"]))
         elif cfg["rank"] != "none":
             raise ValueError(f"rank 는 soft | cost_first | none: {cfg['rank']}")
+        if cfg.get("rerank_model") and cands:
+            cands = self._rerank(cands, original or query, query)
         first = {"bm25": next((s for s in self.lists if s.startswith("bm25")), None),
                  "dense": next((s for s in self.lists if s.startswith("dense")), None)}
         hits = []
@@ -207,21 +212,68 @@ class HybridCardPipeline:
                          "rrf": round(float(c["rrf"]), 5), "dense": dn["score"] if dn else None,
                          "dense_rank": dn["rank"] if dn else None, "bm25_rank": b["rank"] if b else None,
                          "bm25": b["score"] if b else None, "unmet": c["unmet"], "cover": c["cover"], "cost": c["cost"],
-                         "years_have": c["years_have"], "years_missing": c["years_missing"], "stages": c["stages"]})
+                         "years_have": c["years_have"], "years_missing": c["years_missing"], "stages": c["stages"],
+                         "ce": c.get("ce")})
+        if want and cfg.get("stitch", True):              # ⑥ [NEW 11-17] 기간 이어붙이기 (순위는 그대로, 정보만 붙임)
+            from table_card_search.period_groups import stitch_plan
+            for h in hits:
+                h["stitch"] = stitch_plan(h["tbl_id"], want)
         return {"config": self.name, "query": query, "search_query": query, "queries": queries, "filters": filters,
                 "top_k": top_k, "hits": hits, "prefilter": pre, "pool_ids": [c["tbl_id"] for c in cands],
                 "seconds": round(time.time() - t0, 3), "trace": []}
 
+    # ── ⑤ [NEW 11-17] 리랭커 (cross-encoder) — 상위 rerank_top 개를 (질문, 카드 설명) 쌍으로 다시 점수 ──
+    def _ce_scores(self, q, ids):
+        """리랭커 점수 (0~1). (질문, 표) 쌍마다 한 번만 계산해 기억 (설정 바꿔 가며 채점할 때 다시 안 돎)"""
+        if not hasattr(self, "_ce"):
+            from backend.rag.retrieval.rerankers import CrossEncoderReranker
+            self._ce = CrossEncoderReranker(self.cfg["rerank_model"], max_length=self.cfg.get("rerank_max_length", 512),
+                                            batch_size=8, device="cpu")
+            self._ce_memo = {}
+        todo = [t for t in ids if (q, t) not in self._ce_memo]
+        if todo:
+            pairs = [(q, self.docs_by_id[t].meta.get("dense_text") or self.docs_by_id[t].text) for t in todo]
+            s = np.asarray(self._ce.model.predict(pairs, batch_size=8, show_progress_bar=False), dtype=float)
+            s = s[:, -1] if s.ndim > 1 else s
+            if s.min() < 0 or s.max() > 1:           # 로짓이면 0~1 로 (이미 확률이면 그대로)
+                s = 1 / (1 + np.exp(-s))
+            self._ce_memo.update({(q, t): float(v) for t, v in zip(todo, s)})
+        return [self._ce_memo[(q, t)] for t in ids]
+
+    def _rerank(self, cands, original, sq):
+        """rerank_mode  ce  = 리랭커 점수 × 조건 감점(soft 와 같은 비율)
+                        rrf = 지금 순서와 리랭커 순서를 RRF 로 섞음 (리랭커 가중치 rerank_weight)
+        rerank_query    orig = 사용자가 쓴 질문 그대로 | sq = 분석된 검색 문장"""
+        cfg = self.cfg
+        n = int(cfg.get("rerank_top", 30))
+        head, tail = cands[:n], cands[n:]
+        q = original if cfg.get("rerank_query", "orig") == "orig" else sq
+        ce = self._ce_scores(q, [c["tbl_id"] for c in head])
+        for c, v in zip(head, ce):
+            c["ce"] = round(v, 4)
+        if cfg.get("rerank_mode", "ce") == "ce":
+            for c in head:
+                pen = c["score"] / c["rrf"] if c["rrf"] else 1.0
+                c["score"] = c["ce"] * pen
+            head.sort(key=lambda c: -c["score"])
+        else:
+            k, w = cfg["rrf_k"], float(cfg.get("rerank_weight", 1.0))
+            ce_rank = {c["tbl_id"]: r for r, c in enumerate(sorted(head, key=lambda c: -c["ce"]), 1)}
+            for r, c in enumerate(head, 1):
+                c["score"] = 1 / (k + r) + w / (k + ce_rank[c["tbl_id"]])
+            head.sort(key=lambda c: -c["score"])
+        return head + tail
+
     def search_compat(self, query, top_k=10, filters=None, pool=None):
         keep = ("rank", "tbl_id", "tbl_nm", "survey_nm", "score", "dense", "bm25_rank", "bm25", "unmet", "cover", "cost",
-                "years_have", "years_missing")
+                "years_have", "years_missing", "stitch")
         return [{k: h[k] for k in keep if k in h} for h in self.search(query, filters, top_k)["hits"]]
 
 
 _pipes = {}
 
 
-def get_hybrid(variant="hybrid", embedder=None, set_name="full", dirs=None, top_k=None, dense_name=""):
+def get_hybrid(variant=DEFAULT_VARIANT, embedder=None, set_name="full", dirs=None, top_k=None, dense_name=""):
     """variant = configs/hybrid.yaml 의 이름, embedder = 임베더 구성 dict (None 이면 dense 없이 BM25 만)"""
     from backend.rag.retrieval import factory
     variants = load_variants()
