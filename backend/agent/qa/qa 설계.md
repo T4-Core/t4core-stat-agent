@@ -328,7 +328,7 @@ PYTHONPATH=".;private" python -m qa.qa_regression     # 회귀 시험 (HCX 없�
 
 ## 12. git 폴더로 옮기기
 
-**진행 상황 (2026-11-18)**: QA 파일을 `backend/agent/qa/` 로 옮김 (회귀 결과 위치 `storage/runs/qa`). **팀원 코드(pipeline.py · chat.py)는 아직 안 고침** → QA 는 지금도 플러그인(`private/pipelines/qa.py` → `from backend.agent.qa import run_chat`)으로만 돈다. 아래 'QA 가 늘 돌게' 는 팀 합의 후.
+**진행 상황 (2026-11-18)**: QA 파일을 `backend/agent/qa/` 로 옮김 (회귀 결과 위치 `storage/runs/qa`). ~~팀원 코드(pipeline.py · chat.py)는 아직 안 고침~~ → **2026-11-18 고침 (PR 전)**: `pipeline.py` 의 `answer_mode="modules"` 분기와 `chat.py` 의 `POST /agent/modules` 가 `run_modules_with_qa` 를 부른다 (`run_modules` 는 그대로 남김). 답변이 없으면 멈춘 단계를 답변 칸에. 플러그인(`private/pipelines/qa.py`)과 `qa_runner.run_chat` 은 이제 필요 없음 (지울지 결정 전).
 
 
 - 위치: `backend/agent/qa/` (패키지 `backend.agent.qa`). 안쪽은 상대 import 라 import 줄은 그대로.

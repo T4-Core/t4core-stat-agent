@@ -60,6 +60,6 @@ def agent_modules(body: ModulesRequest):
         vs = body.views.model_dump(mode="json")
         if vs.get("status") != "ok":
             raise HTTPException(409, f"views.status 가 ok 가 아님 ({vs.get('status')}) — 되묻기·선택을 먼저 끝내야 함")
-        from backend.agent.modules import run_modules
-        return JSONResponse(jsonable_encoder(run_modules(vs, use_llm_chart=body.use_llm_chart, draw=body.draw,
-                                                         max_rows=body.max_rows)))
+        from backend.agent.qa import run_modules_with_qa      # QA: 모듈 사이마다 형식 검사·대응 (backend/agent/qa)
+        return JSONResponse(jsonable_encoder(run_modules_with_qa(vs, use_llm_chart=body.use_llm_chart, draw=body.draw,
+                                                                 max_rows=body.max_rows)))

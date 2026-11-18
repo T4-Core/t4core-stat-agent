@@ -93,9 +93,17 @@ def run_chat(question, today=None, top_k=None, n_views=None, max_rows=40, auto_s
         return _finish(out, t0, save)
     t = time.time()
     if answer_mode == "modules":
-        from backend.agent.modules import as_answer_result, run_modules
-        out["modules"] = run_modules(vs, draw=draw, max_rows=max_rows)
-        out["result"] = as_answer_result(out["modules"])
+        from backend.agent.modules import as_answer_result
+        from backend.agent.qa import run_modules_with_qa      # QA: 모듈 사이마다 형식 검사·대응 (backend/agent/qa)
+        out["modules"] = run_modules_with_qa(vs, draw=draw, max_rows=max_rows)
+        qa = out["modules"]["qa"]
+        if out["modules"].get("answer"):
+            out["result"] = as_answer_result(out["modules"])
+            if qa["message"]:                                  # 일부만 (예: 차트 없이 답변만)
+                out["result"]["caveats"] = list(out["result"]["caveats"]) + [qa["message"]]
+        else:                                                  # QA 중단 · 모듈 6 실패 → 멈춘 단계를 답변 칸에
+            out["result"] = {**OUT_OF_SCOPE_RESULT, "answer": qa["message"] or "답변을 만들지 못했습니다.",
+                             "caveats": []}
         if missing := _missing_notes(vs):
             out["result"]["caveats"] = list(dict.fromkeys(missing + out["result"]["caveats"]))
         out["notes"] += out["modules"]["notes"]
