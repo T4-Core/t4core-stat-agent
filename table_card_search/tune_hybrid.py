@@ -36,11 +36,13 @@ BASE = {"w_bm25": 1.0, "w_orig": 1.0, "rrf_k": 60, "alpha": 0.5, "beta": 0.3}   
 # [NEW 11-17] 리랭커 조정 (--grid rerank): 비교 기준 = 채택한 설정(rrf_k 20) + 리랭커 없음
 RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
 RERANK_BASE = {**BASE, "rrf_k": 20, "rerank_model": "", "rerank_mode": "", "rerank_query": "", "rerank_top": 0,
-               "rerank_weight": 0.0}
-RERANK_GRID = [{**RERANK_BASE, "rerank_model": RERANK_MODEL, "rerank_mode": m, "rerank_query": q, "rerank_top": n,
-                "rerank_weight": w}
-               for m, ws in (("ce", [1.0]), ("rrf", [1.0, 2.0])) for w in ws
-               for q in ("orig", "sq") for n in (20, 30)]
+               "rerank_weight": 0.0, "rerank_doc": ""}
+# [CHANGED 11-18] 1차(11-17): 질문 orig|sq × 상위 20|30 × ce|rrf → 원문 질문이면 모든 표 점수가 0.001 로 같아지는 문제 발견
+#   2차: 질문 orig|slots(조건으로 만든 짧은 문장) × 글 card|card+cond(카드 + 조건표 요약) × ce|rrf, 상위 20
+RERANK_GRID = [{**RERANK_BASE, "rerank_model": RERANK_MODEL, "rerank_mode": m, "rerank_query": q, "rerank_top": 20,
+                "rerank_weight": 1.0, "rerank_doc": d}
+               for m in ("ce", "rrf") for q in ("orig", "slots", "both") for d in ("card+cond",)]
+#   (card 만은 예시에서 점수가 0.001~0.02 로 구분이 안 돼 2차에서 뺌)
 
 
 def read_cache(path, rows, mode, today):
@@ -67,7 +69,7 @@ def apply(pipe, p):
     pipe.cfg.update(rrf_k=p["rrf_k"], alpha=p["alpha"], beta=p["beta"],
                     weights={s: (p["w_bm25"] if s.startswith("bm25") else 1.0) * (p["w_orig"] if s.endswith("orig") else 1.0)
                              for s in lists})
-    for k in ("rerank_model", "rerank_mode", "rerank_query", "rerank_top", "rerank_weight"):   # 없으면 리랭커 끔
+    for k in ("rerank_model", "rerank_mode", "rerank_query", "rerank_top", "rerank_weight", "rerank_doc"):  # 없으면 끔
         pipe.cfg[k] = p.get(k) or None
 
 
