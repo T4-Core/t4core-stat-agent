@@ -23,6 +23,8 @@ class Settings(BaseModel):
     recent_words: list[str] = Field(default_factory=lambda: ["최근", "요즘", "현재", "지금", "근래", "요새"])
     trend_words: list[str] = Field(default_factory=lambda: ["추이", "변화", "흐름", "추세", "동향", "변동"])
     trend_intents: list[str] = Field(default_factory=lambda: ["추이"])
+    year_axes: list[str] = Field(default_factory=lambda: ["연도", "연도별", "년도", "해", "시점", "기간", "연간"])
+    year_compare_years: int = 0                  # 해끼리 비교(비교축 연도)인데 시점이 없을 때: 0 = 표의 수록 기간 전체 / N = 최근 N년
     n_options: int = 20
     clarify_mode: str = "soft"                   # soft = 없는 시점=최신·지역=전국으로 진행 / strict = needs_clarification
     # 동의어·CSV 값 사전

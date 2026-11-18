@@ -109,6 +109,9 @@ def _geo_key(name):
     return squash(std_geo_name(str(name)))
 
 
+NATIONAL = {"전국", "전체", "전국계", "전국합계"}
+
+
 def match_regions(codes, regions, axis_level=None):
     """슬롯 지역 → 이 표의 지역 코드. 반환 (고른 코드, 못 찾은 지역, 같은 이름이 여러 곳인 지역)
       · '수원시 권선구' — 끝 이름(권선구)으로 찾고 앞 이름(수원시)은 상위 지역으로 확인
@@ -116,8 +119,11 @@ def match_regions(codes, regions, axis_level=None):
       · 같은 이름이 여러 곳('고성군'·'중구')이고 상위 지역을 말하지 않았으면 모두 고르고 dup 에 적음
       · 같은 지역이 여러 깊이에 있으면(세종: 시도·시군구) 위쪽 하나
       · '동부'·'읍부'·'면부' 는 그 이름을 물었을 때만 고름
-      · 시도만 물었고 비교축이 시군구(axis_level)면 그 시도 아래 시군구들"""
+      · 시도만 물었고 비교축이 시군구(axis_level)면 그 시도 아래 시군구들
+      · '전국' 은 전국 합계 행 ('전국과 서울 비교' → 전국 + 서울)"""
     by_code = {c["code"]: c for c in codes}
+    nat = [r for r in regions if _geo_key(r) in NATIONAL]
+    regions = [r for r in regions if _geo_key(r) not in NATIONAL]
 
     def ancestors(c):
         out, seen, p = set(), set(), c.get("parent")
@@ -163,6 +169,14 @@ def match_regions(codes, regions, axis_level=None):
         kids = [c for c in codes if axis_level in ("시군구", "읍면동") and c.get("geo_type") == axis_level
                 and _geo_key(r) in ancestors(c)]
         sel += kids or [head]
+    if nat:
+        top = min((c["depth"] for c in codes), default=0)
+        tot = ([c for c in codes if c.get("geo_type") == "전국"]
+               or [c for c in codes if c["is_total"] and c["depth"] == top])
+        if tot:
+            sel = tot[:1] + sel
+        else:
+            miss.append(nat[0])
     uniq, seen = [], set()
     for c in sel:
         if c["code"] not in seen:
@@ -250,6 +264,9 @@ def years_text(ys):
     return ", ".join(f"{a}~{b}" if b > a else str(a) for a, b in out)
 
 
+YEAR_AXES = {"연도", "연도별", "년도", "해", "시점", "기간", "연간"}  # 해끼리 비교하는 비교축 (configs/pipeline.yaml year_axes 와 같게)
+
+
 def match_period(prof, f, notes, outside=None):
     """outside: 요청 기간이 표 수록 기간과 하나도 겹치지 않으면 {requested, available, applied} 를 채움
     (build_view 가 metadata.period_outside 로 — 모듈 3·6 이 '그 기간 자료는 2000년부터' 로 안내)"""
@@ -272,7 +289,9 @@ def match_period(prof, f, notes, outside=None):
                  requested=list(want), applied=use)
             if outside is not None:
                 outside.update(requested=years_text(want), available=span, applied=near)
-    elif f.get("의도") == "추이":
+    elif f.get("의도") == "추이" or f.get("비교축") in YEAR_AXES:
+        # 추이, 또는 해끼리 비교('혼인건수가 가장 적은 해는?' = 비교축 연도 · 의도 순위) → 수록 기간 전체
+        # (메모는 남기지 않음 — 요청한 값을 바꾼 것이 아니라서. 모듈 2 는 시점 default 메모를 '대체' 로 읽는다)
         use = avail
     else:
         use = [avail[-1]]
