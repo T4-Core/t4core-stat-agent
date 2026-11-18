@@ -39,6 +39,9 @@ class QueryV4Settings(BaseModel):
     # [NEW 11-18] 두 View 가 겹치는 교차점 값이 모두 같고 2순위에만 있는 교차점이 없으면 1순위만 넘김
     #   값이 다르면 둘 다 + 사용자 선택(기존), 겹치는 교차점이 없으면(비교 불가) 둘 다
     view_first_only_when_same: bool = True
+    # [NEW 11-18] 기간 이어붙이기: 검색 결과의 stitch(같은 통계의 다른 연도 표)를 읽어 그 표가 맡은 연도로 View 를 더 만듦
+    #   이어붙인 View 는 비교(선택) 대상이 아님. 끝내 없는 연도는 메모로
+    view_stitch: bool = True
     view_keep_unusable: bool = True
     view_main_with_subs: bool = False
     conflict_rel_tol: float = 0.0
