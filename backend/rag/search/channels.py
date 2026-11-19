@@ -5,7 +5,7 @@
   title   질문 안에 표 이름이 (거의) 그대로 들어 있는가 — 표 이름 글자쌍 중 질문에 있는 비율 (IDF 가중)
   value   값 연결: 질문 속 표현이 어느 표의 '항목·분류 값·분류 이름' 인가 (드문 값일수록 큰 점수)
           '유학생'·'국제결혼 이주자'·'슬레이트'·'옥탑' 처럼 표를 사실상 지정하는 단어를 놓치지 않기 위함
-  dense   (선택) 문서 임베딩 전체 코사인
+  dense   (선택) 문서 임베딩 전체 코사인. dense 문서 묶음이 여럿이면(dense_docs 'slot+def') 표마다 최댓값
 """
 from __future__ import annotations
 
@@ -110,7 +110,8 @@ class ValueChannel:
 
 
 class Channels:
-    def __init__(self, corpus, facets, embedder=None, log=None):
+    def __init__(self, corpus, facets, embedder=None, log=None, dense_groups=None):
+        """dense_groups = [(채널 이름, [(문서 묶음 이름, 글 목록)])] — 첫 채널이 'dense', 나머지는 'dense_<이름>'"""
         from backend.rag.search.index import BM25Retriever, CharNgramTokenizer, DenseRetriever, Doc, KiwiTokenizer
         self.docs = corpus.docs()
         self.facets = [facets[d.id] for d in self.docs]
@@ -120,14 +121,18 @@ class Channels:
         self.ngram = BM25Retriever(CharNgramTokenizer((2, 3), keep_words=False), name="ngram", cache=False).fit(mini)
         self.title = TitleChannel(self.facets)
         self.value = ValueChannel(self.facets)
-        self.dense = DenseRetriever(embedder, name="dense").fit(corpus) if embedder is not None else None
+        self.denses = []
+        if embedder is not None:
+            for gname, views in (dense_groups or [("rule", None)]):
+                self.denses.append((gname, DenseRetriever(embedder, name=f"dense:{gname}", views=views).fit(corpus)))
+        self.dense = self.denses[0][1] if self.denses else None
         # 분류마다 '그 분류를 쓴다'고 볼 표현 집합 (분류 이름·값의 표기 변형) — 질문이 건드리지 않은 분류 수를 세는 데 씀
         self.dim_keys = [[(k, {x for n in [obj, *names[:300]] for x in variants(n)}) for obj, k, names in f.dims]
                          for f in self.facets]
         self.region_dict = {r for f in self.facets if f.regions_full for r in f.regions} or None
         if log:
             log(f"[search] 채널 준비: 표 {self.n} · 값 사전 {len(self.value.table)}개 표현 · "
-                f"지역 사전 {len(self.region_dict or [])} · dense {'있음' if self.dense else '없음'}")
+                f"지역 사전 {len(self.region_dict or [])} · dense {', '.join(g for g, _ in self.denses) or '없음'}")
 
     def _bm25(self, r, text):
         toks = r.tok(text)
@@ -139,7 +144,8 @@ class Channels:
         out = {"lex": self._bm25(self.lex, lex_text), "ngram": self._bm25(self.ngram, lex_text),
                "title": self.title.scores(link), "value": val}
         if self.dense is not None and dense_text:
-            out["dense"] = np.asarray(self.dense.M @ self.dense.emb.embed_queries([dense_text])[0], dtype=float)
+            for k, (gname, r) in enumerate(self.denses):
+                out["dense" if k == 0 else f"dense_{gname}"] = np.asarray(r.scores(dense_text), dtype=float)
         return out, found
 
 

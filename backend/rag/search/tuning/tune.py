@@ -5,7 +5,12 @@
 
   python -m backend.rag.search.tuning.tune --golden tests/retrieval_golden.jsonl --split dev                # 손 골든셋 (dev / test)
   python -m backend.rag.search.tuning.tune --golden synthetic_gold_pipeline/outputs/datasets/synthetic_gold_dataset.jsonl --variants P
-  → configs/search.tuned.yaml  (확인 후 configs/search.yaml 로 옮김)
+  python -m backend.rag.search.tuning.tune --golden <합성 셋> --dense arctic-ko --cache <compare 폴더>/analysis_cache.jsonl
+  → configs/search.tuned.yaml  (dense none) · configs/search.tuned.<dense>.yaml  (확인 후 configs/search.yaml 로 옮김)
+     compare --tuned 는 dense 마다 search.tuned.<dense>.yaml 을 읽어 그 모델에 맞춘 가중치로 비교한다
+
+맞출 문항: --split 을 주면 그 split, 합성 셋은 splits.split_of 의 dev (compare --split heldout 과 겹치지 않음),
+           그 밖에는 record_id 해시로 절반
 
 목표 = MRR + Hit@5 + 0.5 × Groups@5 (compare.py 와 같은 정의: 단위별 순위를 (순위, 단위 순서)로 합침)
 """
@@ -53,20 +58,58 @@ def metrics(s, data, weights, rrf_k, top_k=10):
     return out
 
 
+def tuned_path(dense, configs_dir=None, docs=None):
+    """dense 별 맞춘 가중치 파일 (none 은 예전 이름 그대로). dense 문서가 rule 이 아니면 이름에 붙임
+    (search.tuned.bge-m3-ko.slot-def-rw.yaml)"""
+    if configs_dir is None:
+        from backend.core.config import CONFIGS_DIR as configs_dir
+    if dense in (None, "none"):
+        return Path(configs_dir) / "search.tuned.yaml"
+    tail = f".{str(docs).replace('+', '-').replace(',', '_')}" if docs and docs != "rule" else ""
+    return Path(configs_dir) / f"search.tuned.{dense}{tail}.yaml"
+
+
+def load_tuned(dense, configs_dir=None, docs=None):
+    """search.tuned.<dense>[.<docs>].yaml → {rrf_k, weights} (없으면 None — 문서별 파일이 없으면 dense 파일도 보지 않음:
+    다른 문서로 맞춘 가중치를 섞지 않게)"""
+    f = tuned_path(dense, configs_dir, docs)
+    if not f.exists():
+        return None
+    import yaml
+    d = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+    return {k: d[k] for k in ("rrf_k", "weights") if k in d} or None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m backend.rag.search.tuning.tune")
-    ap.add_argument("--golden", required=True)
-    ap.add_argument("--dense", default="none", choices=["none", "hcx", "hash"])
+    ap.add_argument("--golden", default=None)
+    ap.add_argument("--from-run", default=None, metavar="이름", help="이전 compare 실행의 골든셋 · 질의 분석 캐시를 씀 (compare --list-runs)")
+    from backend.rag.search.index import dense_names
+    ap.add_argument("--dense", default="none", choices=dense_names())
+    ap.add_argument("--dense-docs", default="rule", help="dense 문서 (rule | def | slot | … '+' 로, +rw) — compare --dense-docs 와 같은 값")
+    ap.add_argument("--cards", default=None, help="dense 카드 파일")
+    ap.add_argument("--kos14", default=None, help="팀 카드 cards.jsonl")
     ap.add_argument("--variants", nargs="*", default=["O", "P"])
     ap.add_argument("--split", nargs="*", default=None, help="맞출 문항 (retrieval_golden 의 split). 없으면 record_id 해시로 절반")
     ap.add_argument("--analyze", default="analyze", choices=["analyze", "none"])
     ap.add_argument("--today", default=str(date.today()))
     ap.add_argument("--cache", default=None, help="질의 분석 캐시 (compare 실행 폴더의 analysis_cache.jsonl 을 주면 HCX 를 다시 부르지 않음)")
     ap.add_argument("--rounds", type=int, default=3)
-    ap.add_argument("--out", default=None, help="기본 configs/search.tuned.yaml")
+    ap.add_argument("--raw-units", action="store_true", help="캐시된 질의 분석에 하위 질문 검증을 다시 적용하지 않음 (compare 와 맞춤)")
+    ap.add_argument("--out", default=None, help="기본 configs/search.tuned.yaml (dense none) · search.tuned.<dense>.yaml")
     a = ap.parse_args(argv)
+    if a.from_run:
+        from backend.rag.search.tuning.compare import find_run
+        prev = find_run(a.from_run)
+        cfg = json.loads((prev / "config.json").read_text(encoding="utf-8")) if (prev / "config.json").exists() else {}
+        a.golden = a.golden or cfg.get("golden")
+        if a.cache is None and (prev / "analysis_cache.jsonl").exists():
+            a.cache = str(prev / "analysis_cache.jsonl")
+        print(f"[이전 실행] {prev.name} → golden {a.golden} · 캐시 {a.cache or '-'}", flush=True)
+    if not a.golden:
+        ap.error("--golden 또는 --from-run 이 필요합니다")
     from backend.core.config import CONFIGS_DIR
-    a.out = a.out or str(CONFIGS_DIR / "search.tuned.yaml")
+    a.out = a.out or str(tuned_path(a.dense, CONFIGS_DIR, a.dense_docs))
 
     from backend.rag.search import get_search
     from backend.rag.search.tuning.compare import analyze_all, load_golden
@@ -74,11 +117,17 @@ def main(argv=None):
     cache = Path(a.cache) if a.cache else Path(a.out).with_suffix(".analysis_cache.jsonl")
     cache.parent.mkdir(parents=True, exist_ok=True)
     analysis = analyze_all(rows, a.analyze, a.today, cache)
-    s = get_search(dense=a.dense)
+    if not a.raw_units:  # compare 와 같은 단위 (하위 질문 검증 — query_analyzer/subcheck.py)
+        from backend.rag.search.tuning.compare import prune_analysis
+        analysis, _ = prune_analysis(rows, analysis)
+    st = {"dense_docs": a.dense_docs, "dense_cards": a.cards, "kos14_cards": a.kos14} if a.dense_docs != "rule" else None
+    s = get_search(dense=a.dense, settings=st)
 
     def is_dev(r):
         if a.split:
             return r.get("difficulty") in a.split
+        if r.get("split") in ("dev", "heldout"):          # 합성 셋: compare --split heldout 과 같은 나누기
+            return r["split"] == "dev"
         return int(hashlib.sha1(str(r["record_id"]).encode()).hexdigest(), 16) % 2 == 0
     data = [(r, [s.prepare(u["search_query"], u.get("filters"), r["question"], u.get("unit") or "main", a.today)
                  for u in analysis[r["qid"]]]) for r in rows]

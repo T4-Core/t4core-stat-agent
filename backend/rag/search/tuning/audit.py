@@ -130,6 +130,7 @@ def score(per_query, audit, config=None):
 
 
 def main(argv=None):
+    from backend.rag.search.index import dense_names
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(prog="python -m backend.rag.search.tuning.audit")
     ap.add_argument("cmd", choices=["make", "score"])
@@ -138,7 +139,7 @@ def main(argv=None):
     ap.add_argument("--config", default=None, help="per_query 의 구성 (기본 search+llm[hcx] → search[hcx])")
     ap.add_argument("--audit", default="audit.csv")
     ap.add_argument("--out", default="audit.csv")
-    ap.add_argument("--dense", default="none", choices=["none", "hcx", "hash"], help="표 이름·구조만 읽으므로 none 이면 충분")
+    ap.add_argument("--dense", default="none", choices=dense_names(), help="표 이름·구조만 읽으므로 none 이면 충분")
     a = ap.parse_args(argv)
     if a.cmd == "make":
         return make(a.per_query, a.golden, a.config, a.out, a.dense)

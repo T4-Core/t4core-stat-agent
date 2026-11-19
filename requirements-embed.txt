@@ -1,0 +1,8 @@
+# NOTE: keep this file ASCII-only (Windows pip reads it with the cp949 locale)
+# Optional: local embedding models for the dense channel (backend/rag/search/embedders.py)
+#   --dense arctic-ko | bge-m3-ko | ens-ko
+# Not installed in the Docker image. For a GPU, install the CUDA build of torch first
+# (https://pytorch.org/get-started/locally/), then this file.
+-r requirements.txt
+sentence-transformers>=3.0
+torch>=2.1

@@ -53,6 +53,26 @@ def main():
     summ_all = next(t for t in summ["table"] if t["config"] == "search[none]" and t["group"] == "ALL")
     assert summ_all["hit@3"] == 1.0 and summ_all["groups@5"] == 1.0, summ_all
 
+    # dense 여러 개: 첫 dense 가 기준 → 'dense 비교' (질문별 득실 · 부호 검정)
+    out2 = compare(["--golden", str(gold), "--dense", "none", "hash", "--analyze", "none", "--out", str(gold.parent / "run2")])
+    dv = json.loads((out2 / "summary.json").read_text(encoding="utf-8"))["dense_vs_base"]
+    assert {(d["base"], d["dense"]) for d in dv} == {("none", "hash")} and {d["metric"] for d in dv} >= {"hit@1", "hit@5", "mrr"}, dv
+    assert "## dense 비교 (기준 = 첫 dense 'none'" in (out2 / "report.md").read_text(encoding="utf-8")
+
+    # 모델별로 맞춘 가중치: tune --dense hash → search.tuned.hash.yaml → compare --tuned (hash 는 맞춘 값, none 은 기본)
+    from backend.rag.search.tuning import tune as tune_mod
+    tdir = gold.parent / "tuned"
+    tdir.mkdir(exist_ok=True)
+    tune_mod.main(["--golden", str(gold), "--dense", "hash", "--analyze", "none", "--rounds", "1",
+                   "--cache", str(out2 / "analysis_cache.jsonl"), "--out", str(tune_mod.tuned_path("hash", tdir))])
+    assert tune_mod.load_tuned("hash", tdir)["weights"] and tune_mod.load_tuned("none", tdir) is None
+    out3 = compare(["--golden", str(gold), "--dense", "none", "hash", "--analyze", "none", "--tuned", str(tdir),
+                    "--cache", str(out2 / "analysis_cache.jsonl"), "--out", str(gold.parent / "run3")])
+    assert (out3 / "analysis_cache.jsonl").read_bytes() == (out2 / "analysis_cache.jsonl").read_bytes()
+    s3 = json.loads((out3 / "summary.json").read_text(encoding="utf-8"))
+    assert {t["config"] for t in s3["table"]} == {"search[none]", "search[hash*]"}, {t["config"] for t in s3["table"]}
+    assert {(d["base"], d["dense"]) for d in s3["dense_vs_base"]} == {("none", "hash*")}
+
     # 남은 실패 점검표: 만들기 → 판정 → 판정 반영 지표
     from backend.rag.search.tuning import audit
     per_q = out / "per_query.csv"

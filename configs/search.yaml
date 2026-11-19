@@ -1,10 +1,14 @@
 # 검색 설정 (backend/rag/search/engine.py) — 비워 두면 engine.DEFAULTS. 바꿀 값만 적는다
 # 가중치는 `python -m backend.rag.search.tuning.tune` 이 dev 문항으로 맞춘 값을 configs/search.tuned.yaml 에 써 준다 (확인 후 여기로)
 #
-# dense: hcx                      # hcx | none | hash — BM25 와 함께 쓰는 임베딩
+# dense: hcx                      # hcx | arctic-ko | bge-m3-ko | ens-ko | none | hash — BM25 와 함께 쓰는 임베딩 (로컬 모델: search/embedders.py)
+# dense_docs: rule              # dense 에 넣을 표 문서: rule(표 설명문) | def | slot | tmpl | tslot (dense 카드) | kos14 — '+' 로 여러 개(최댓값), 끝에 +rw
+# dense_cards: null             # dense 카드 파일 (기본 storage/indices/dense_cards/cards.jsonl ← python -m backend.rag.ingestion.dense_cards build)
 # rrf_k: 20
 # weights: {q_dense: 1.6, q_value: 1.6, q_title: 1.4, q_lex: 1.0, q_ngram: 0.8, rw_lex: 0.7}
 # feas: {year_floor: 0.12, year_partial: 0.6, age_miss: 0.5, extra_dim: 0.12}
+#   앞단 수정 (1.0 = 끔): cycle_derived 0.9 (분기를 월로 계산) · move_miss 0.6 / move_derived 0.9 (이동 범위·방향, movement.py)
+#   geo_finer 0.92 (시군구만 물었는데 읍면동 표) · cond_miss 0.8 / cond_floor 0.64 / cond_df 8 (드문 조건어가 없는 같은 조사 표)
 # llm_rerank: {enabled: false, top_n: 12, add_siblings: 4, skip_roles: [분모]}  # true 면 질의 단위마다 HCX 1회로 상위 후보를 다시 줄 세움 (끼운 후보는 top_n 뒤, 분모 단위는 건너뜀)
 # siblings: {enabled: true, window: 12, margin: 0.75, max_outside: 3}   # 형제 표 해소 (siblings.py)
 # roles: {enabled: true, den_miss: 0.35, den_dim: 0.2, den_survey: 1.5}  # 분모 단위 ('인구' 뿐인 하위 질의)

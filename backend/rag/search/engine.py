@@ -21,25 +21,43 @@ import numpy as np
 from backend.rag.search.channels import Channels, ranks
 from backend.rag.search.facets import URBAN, build_facets
 from backend.rag.search.query import parse_question
-from backend.rag.search.text import norm
+from backend.rag.search.text import TOTALS, norm
 
 DEFAULTS = {
     "dense": "hcx",  # 1단계부터 BM25 와 함께 (none 이면 어휘 채널만)
+    # dense 에 넣을 표 문서 (index.dense_doc_views): rule = 표 설명문(BM25 와 같은 글) · def / slot = dense 카드의
+    # 정의문 / 슬롯 정규문 (ingestion/dense_cards.py) · tmpl / tslot = 그 코드 템플릿판 · kos14 = 팀 카드(kos14_cards).
+    # '+' 로 여러 개 = 표마다 최댓값. 끝에 '+rw' = 재작성 문장(검색 문장)으로도 dense 를 한 번 더 (rw_dense 채널)
+    # ',' 로 나누면 묶음마다 dense 채널을 따로 (RRF 로 합침 — 점수 크기가 다른 묶음을 공정하게). 둘째 채널부터 가중치 q_dense_<묶음>
+    # (없으면 dense_extra_weight). vals = 표의 항목·분류 값 조각 (표 하나 = 여러 글, 표마다 최댓값)
+    "dense_docs": "rule", "dense_cards": None, "kos14_cards": None, "dense_extra_weight": 1.0,
     "rrf_k": 20, "depth": 200,
     # 본 질의: 원문(q_*) + 재작성 문장(rw_*). 하위 질의: 그 단위 문장(q_*) + 원문은 약하게(ctx_*)
     # dense 를 어휘 채널보다 크게: 일상어 질문(concept)은 단어가 표와 겹치지 않아 임베딩이 주 신호
     "weights": {"q_value": 1.6, "q_title": 1.4, "q_lex": 1.0, "q_ngram": 0.8, "q_dense": 1.6,
-                "rw_lex": 0.7, "rw_value": 0.5, "rw_ngram": 0.3,
+                "rw_lex": 0.7, "rw_value": 0.5, "rw_ngram": 0.3, "rw_dense": 1.0,  # rw_dense 는 dense_docs 에 +rw 일 때만
                 "ctx_value": 0.4, "ctx_lex": 0.3, "ctx_title": 0.4},
     # 가능성 계수 (곱). 시점: 하나도 못 담으면 year_floor, 일부라도 담으면 year_partial + (1 - year_partial) × 담은 비율
     # → 요청 연도를 다 담지 못한 표도 후보로 남고(2005·2025 를 서로 다른 연도판이 나눠 가진 경우), View 가 있는 연도만 줌
     "feas": {"year_floor": 0.12, "year_partial": 0.6, "stale": 0.5, "cycle_miss": 0.4,
              "sub_named": 1.0, "sub_level": 0.85, "sub_miss": 0.25, "sido_miss": 0.45, "axis_miss": 0.4,
              "age_miss": 0.5, "sex_miss": 0.65, "survey_hit": 1.35, "extra_dim": 0.12, "extra_dim_floor": 0.6,
-             "latest_from": None},
+             "latest_from": None,
+             # 주기: 분기를 물었는데 분기가 없고 월만 있음(계산으로 얻음) → cycle_derived (반기 ← 분기·월도 같음)
+             "cycle_derived": 0.9,
+             # 인구 이동 범위·방향 (movement.py): 묻는 이동이 표에 없음 → move_miss · 전출지×전입지 행렬로 계산 가능 → move_derived
+             "move_miss": 0.6, "move_derived": 0.9,
+             # 시군구 이름만 물었는데(읍면동 수준을 묻지 않음) 읍면동까지 나뉜 표 → geo_finer (같은 값을 더 단순한 표에서)
+             "geo_finer": 0.92,
+             # 조건 누락: 질문의 드문 표현(값 사전에서 cond_df 개 이하 표에만 있는 말, 3자 이상)을 가진 표가 있으면,
+             # 같은 조사의 그 말이 없는 표에 cond_miss (말마다 곱, 바닥 cond_floor). '쌍태아' 를 물었는데 일반 출생 표가 1위이던 문제
+             "cond_miss": 0.8, "cond_floor": 0.64, "cond_df": 8},
     # LLM 재정렬: 끼워 넣는 형제·같은 개념 표는 상위 top_n 의 '뒤' 에 붙임 (앞 순위를 밀어내지 않음).
     # 하위 단위는 그 단위 문장으로, 원래 질문은 맥락으로만. skip_roles 의 단위(분모)는 규칙이 고른 순서를 그대로 둠
     "llm_rerank": {"enabled": False, "top_n": 12, "add_siblings": 4, "skip_roles": ["분모"]},
+    # (선택) 교차 인코더 재정렬 — ce_rerank.py. 상위 top_n 을 [질문, 표 글] 쌍으로 다시 채점해 순위 융합(blend)
+    "ce_rerank": {"enabled": False, "model": "bge-reranker-ko", "top_n": 20, "mode": "blend", "k": 5, "weight": 1.0,
+                  "base_weight": 1.0, "doc": "struct+def", "max_length": 512, "batch": 16, "skip_roles": ["분모"]},
     # 분모 단위: '인구'·'가구'·'주택' 뿐인 하위 질의(또는 filters.역할 = 분모)는 본 질의를 다시 찾지 않고
     # '그 말이 제목·항목에 있는 단순한 표' 를 찾는다. 본 질의 1위 표와 같은 조사면 더 앞에 (같은 조사·연도·수준의 인구 표)
     "roles": {"enabled": True, "den_miss": 0.35, "den_dim": 0.2, "den_dim_floor": 0.45, "den_survey": 1.5},
@@ -78,6 +96,11 @@ DEN_BASE = {"인구": "인구", "인구수": "인구", "총인구": "인구", "�
             "세대": "세대", "세대수": "세대"}
 
 
+def _is_sido_key(key):
+    from backend.rag.ingestion.normalize import SIDO_ALIAS
+    return bool(SIDO_ALIAS.get(key))
+
+
 def den_base(lex_text, role=None):
     """분모로 볼 하위 질의인가 → 기준 말('인구'·'가구'·'주택'·'세대') 또는 None"""
     keys = [norm(t) for t in str(lex_text or "").split() if norm(t) and not norm(t).endswith("별")]
@@ -97,7 +120,16 @@ class TableSearch:
         self.docs = corpus.docs()
         self.docs_by_id = {d.id: d for d in self.docs}
         self.facets = build_facets(self.docs, facets_source, log)
-        self.ch = Channels(corpus, self.facets, embedder, log)
+        from backend.rag.search.index import dense_doc_views, group_name, parse_docs
+        groups, self.dense_rw = parse_docs(self.s.get("dense_docs"))
+        groups_in = None
+        if embedder is not None:
+            texts = dense_doc_views(corpus, self.s.get("dense_docs"), self.s.get("dense_cards"), self.s.get("kos14_cards"),
+                                    log, facets=self.facets)
+            groups_in = [(group_name(g), [(v, texts[v]) for v in g]) for g in groups]
+            for g in groups_in[1:]:  # 둘째 채널부터: 가중치가 없으면 dense_extra_weight
+                self.s["weights"].setdefault(f"q_dense_{g[0]}", float(self.s.get("dense_extra_weight", 1.0)))
+        self.ch = Channels(corpus, self.facets, embedder, log, groups_in)
         from backend.rag.search.siblings import SiblingResolver
         sb = self.s["siblings"]
         self.sib = SiblingResolver(self.facets, sb.get("margin", 0.75), sb.get("max_outside", 3))
@@ -114,6 +146,8 @@ class TableSearch:
             self.concept_of = {t: k for k, ts in enumerate(self.concepts) for t in ts}
         if log:
             log(f"[search] 형제 표 무리 {self.sib.info()} · 개념 {len(self.concepts)}개")
+        from backend.rag.search.movement import table_move
+        self.move = [table_move(f) for f in self.ch.facets]  # 표마다 이동 범위·방향 (이동 표가 아니면 move=False)
         self.cfg = {"name": name, "top_k": 10}
         self._qcache, self._lock = {}, threading.Lock()
 
@@ -121,7 +155,34 @@ class TableSearch:
         from collections import Counter
         return {"name": self.name, "corpus": self.corpus.signature(), "n_docs": len(self.docs), "settings": self.s,
                 "facet_sources": dict(Counter(f.source for f in self.facets.values())),
-                "dense": self.ch.dense is not None}
+                "dense": self.ch.dense is not None,
+                "dense_docs": [g for g, _ in self.ch.denses] or None, "dense_rw": self.dense_rw}
+
+    def _ce_cards(self, ce):
+        """교차 인코더 표 글에 붙일 dense 카드 (doc 이 struct+def 일 때만, 한 번 읽음. 없으면 빈 사전)"""
+        if ce.get("doc", "struct+def") != "struct+def":
+            return None
+        if not hasattr(self, "_ce_cards_cache"):
+            try:
+                from backend.rag.ingestion.dense_cards import load_cards
+                self._ce_cards_cache = load_cards(self.s.get("dense_cards"))
+            except Exception:  # noqa: BLE001  (카드가 없으면 struct 만)
+                self._ce_cards_cache = {}
+        return self._ce_cards_cache
+
+    def dense_scores(self, query, question=None, unit="main"):
+        """dense 채널만의 점수 (평가용: 'dense 혼자 정답을 얼마나 찾나') → {"q": [채널마다 배열], "rw": 배열 또는 None}
+        q = prepare 와 같은 글 (본 질의·뜻 없는 하위 질의는 원 질문, 그 밖의 하위 질의는 그 문장),
+        rw = 본 질의의 검색 문장 (dense_docs 에 +rw 일 때만 — 아니면 임베딩을 더 부르지 않음)"""
+        if self.ch.dense is None:
+            return {"q": None, "rw": None}
+        question = question or query
+        main = unit == "main" or self._generic(query)
+        text = question if main else query
+        q = [np.asarray(r.scores(text), dtype=float) for _, r in self.ch.denses]
+        rw = self.ch.dense.scores(query) if self.dense_rw and unit == "main" and query and norm(query) != norm(question) \
+            else None
+        return {"q": q, "rw": None if rw is None else np.asarray(rw, dtype=float)}
 
     # ── 가능성 계수 (표 구조 확인) ─────────────────────────────────
     def feasibility(self, qv, linked=()):
@@ -141,6 +202,11 @@ class TableSearch:
         out = np.ones(self.ch.n)
         why = [None] * self.ch.n
         sub_cycle = {"M", "Q", "H"}
+        from backend.rag.search.movement import move_factor
+        from backend.rag.search.query import SUB_RE
+        # 시군구 이름만 (읍면동·동읍면부 이름이 아니고, 읍면동 수준을 묻지 않음) → 읍면동까지 나뉜 표는 조금 뒤로
+        finer = bool(qv.subs) and qv.axis != "읍면동" and fz.get("geo_finer", 1.0) < 1.0 \
+            and all(SUB_RE.match(x) for x in qv.subs)
         for i, f in enumerate(self.ch.facets):
             notes = []
             if qv.years:
@@ -152,11 +218,19 @@ class TableSearch:
                 out[i] *= fz["stale"]
                 notes.append("최신 자료 없음")
             if qv.cycle:
-                ok = bool(qv.cycle & f.cycles) or ("Q" in qv.cycle and "M" in f.cycles) \
-                    or ("H" in qv.cycle and (f.cycles & sub_cycle))
+                exact = bool(qv.cycle & f.cycles)
+                ok = exact or ("Q" in qv.cycle and "M" in f.cycles) or ("H" in qv.cycle and (f.cycles & sub_cycle))
                 if not ok:
                     out[i] *= fz["cycle_miss"]
                     notes.append("주기 없음")
+                elif not exact and fz.get("cycle_derived", 1.0) < 1.0:
+                    out[i] *= fz["cycle_derived"]
+                    notes.append("주기 계산")
+            if qv.move:
+                fac, note = move_factor(qv.move, self.move[i], fz, regional=bool(qv.sido or qv.subs))
+                if note:
+                    out[i] *= fac
+                    notes.append(note)
             if qv.subs:
                 named = [s for s in qv.subs if s in f.regions]
                 if len(named) == len(qv.subs):
@@ -166,6 +240,9 @@ class TableSearch:
                 else:
                     out[i] *= fz["sub_miss"]
                     notes.append("지역 없음")
+                if finer and "읍면동" in f.geo:
+                    out[i] *= fz["geo_finer"]
+                    notes.append("읍면동까지 나뉨")
             elif qv.sido and not all(s in f.sido for s in qv.sido):
                 out[i] *= fz["sido_miss"]
                 notes.append("시도 없음")
@@ -225,7 +302,7 @@ class TableSearch:
             lists.update({f"q_{c}": v for c, v in base.items()})
             if query and norm(query) != norm(question):
                 rv = parse_question(query, None, today, self.ch.region_dict)
-                rw, found["rw"] = self.ch.score(rv.lex, rv.link, False)
+                rw, found["rw"] = self.ch.score(rv.lex, rv.link, False, query if self.dense_rw else None)
                 lists.update({f"rw_{c}": v for c, v in rw.items()})
         else:
             uv = parse_question(query, None, today, self.ch.region_dict)
@@ -233,11 +310,62 @@ class TableSearch:
             lists.update({f"q_{c}": v for c, v in us.items()})
             lists.update({f"ctx_{c}": v for c, v in base.items()})
         depth = self.s["depth"]
-        rk = {n: ranks(sc, depth, floor=-1e9 if n.endswith("dense") else 0.0) for n, sc in lists.items()}
+        rk = {n: ranks(sc, depth, floor=-1e9 if "dense" in n else 0.0) for n, sc in lists.items()}
         feas, why = self.feasibility(qv, [k for ks in found.values() for k in ks])
+        # 조건 누락은 질문(단위 문장)에 실제로 쓴 말로만 — 일상어 사전이 더한 말('남자가' → '자가' → 자기집)은 빼고
+        core = (qv.link if main else uv.link).split("|", 1)[0]
+        feas, why = self._conditions(feas, why, self.ch.value.link(core), filters)
         if den:
             feas, why = self._denominator(feas, why, den, question, filters, today)
         return {"scores": lists, "ranks": rk, "feas": feas, "why": why, "qv": qv, "found": found, "role": "분모" if den else role}
+
+    def specific_terms(self, keys, filters=None):
+        """질문의 드문 표현 → {표현: 그 말을 가진 표 번호 집합}. 값 사전 표현(keys) 과 filters 의 원문표현·조건 값 중,
+        그 말을 항목·분류 값·표 이름에 가진 표가 cond_df 개 이하인 3자 이상의 말
+        (지역·합계·연령·성별 값은 뺌 — 다른 계수가 맡음)"""
+        fz = self.s["feas"]
+        table, dfmax = self.ch.value.table, int(fz.get("cond_df", 8))
+        if not hasattr(self, "_titles"):
+            self._titles = [norm(f.tbl_nm) for f in self.ch.facets]
+        cand = list(keys)
+        for k in ("원문표현", "조건"):
+            for v in (filters or {}).get(k) or []:
+                n = norm(v)
+                cand += [n] + list(self.ch.value.link(n))
+        from backend.rag.search.facets import AGE_NAME, SEX_NAME
+        regions = self.ch.region_dict or set()
+        out = {}
+        for key in dict.fromkeys(cand):
+            if len(key) < 3 or key in TOTALS or key in regions or key.isdigit() or AGE_NAME.search(key) \
+                    or SEX_NAME.search(key) or _is_sido_key(key):
+                continue
+            hold = set(table.get(key) or ()) | {i for i, t in enumerate(self._titles) if key in t}
+            if hold and len(hold) <= dfmax:
+                out[key] = hold
+        return out
+
+    def _conditions(self, feas, why, keys, filters):
+        """조건 누락 감점 — 드문 표현을 가진 표와 같은 조사인데 그 말이 없는 표 (조사가 다른 표는 그대로:
+        재작성·바꿔 말하기로 우연히 들어온 말이 다른 조사의 정답 표를 깎지 않게)"""
+        fz = self.s["feas"]
+        miss = float(fz.get("cond_miss", 1.0))
+        if miss >= 1.0:
+            return feas, why
+        terms = self.specific_terms(keys, filters)
+        if not terms:
+            return feas, why
+        feas = feas.copy()
+        floor = float(fz.get("cond_floor", 0.0))
+        lost = {}
+        for key, hold in terms.items():
+            surveys = {norm(self.ch.facets[i].survey_nm) for i in hold} - {""}
+            for i, f in enumerate(self.ch.facets):
+                if i not in hold and norm(f.survey_nm) in surveys:
+                    lost.setdefault(i, []).append(key)
+        for i, ks in lost.items():
+            feas[i] *= max(floor, miss ** len(ks))
+            why[i] = list(why[i] or []) + [f"조건 없음({', '.join(ks)})"]
+        return feas, why
 
     def _main_survey(self, question, filters, today):
         """본 질의 1위 표의 조사명 (분모 단위가 같은 조사의 인구 표를 고르게). 질문마다 한 번"""
@@ -290,7 +418,11 @@ class TableSearch:
         sex_text = question if unit == "main" or self._generic(query) else query  # 하위 질의는 그 문장의 성별로
         role = prep.get("role")
         use_llm = bool(self.llm) and role not in set(lr.get("skip_roles") or [])
+        ce = self.s.get("ce_rerank") or {}
+        use_ce = bool(ce.get("enabled")) and role not in set(ce.get("skip_roles") or [])
         n_head = max(top_k, int(lr.get("top_n", 12)) + int(lr.get("add_siblings", 0))) if use_llm else top_k
+        if use_ce:
+            n_head = max(n_head, int(ce.get("top_n", 20)))
         ids = [self.docs[i].id for i in order[:max(n_head, int(sb.get("window", 12))) + 20] if final[i] > 0]
         sib_notes = {}
         if sb.get("enabled", True):  # 형제 표 해소
@@ -318,11 +450,23 @@ class TableSearch:
 
         hits = [hit(r, t) for r, t in enumerate(ids[:n_head], 1)]
         llm_note = None
+        main_like = unit == "main" or (self._generic(query) and role != "분모")
+        if use_ce and hits:  # (선택) 교차 인코더 재정렬 → 형제 무리 안의 선택은 좌표 규칙이 마지막으로
+            from backend.rag.search.ce_rerank import rerank as ce_rerank
+            hits, ce_note = ce_rerank(question if main_like else query, hits, self.facets, ce, self._ce_cards(ce),
+                                      getattr(self, "ce_score_fn", None))
+            llm_note = ce_note
+            if sb.get("enabled", True):
+                by = {h["tbl_id"]: h for h in hits}
+                again, more = self.sib.resolve([h["tbl_id"] for h in hits], qv, sex_text, filters, len(hits), set())
+                hits = [dict(by[t], rank=r) for r, t in enumerate(again, 1)]
+                for h in hits:
+                    if h["tbl_id"] in more:
+                        h["stages"] = {**h.get("stages", {}), "sibling_after_ce": more[h["tbl_id"]]}
         if self.llm and not use_llm:
             llm_note = f"건너뜀 (역할 {role})"
         if use_llm and hits:  # (선택) LLM 재정렬 — 상위 top_n 을 표 구조 요약으로 다시 줄 세움
             from backend.rag.search.llm_rerank import rerank
-            main_like = unit == "main" or (self._generic(query) and role != "분모")
             target, context = (question, None) if main_like else (query, question)
             hits, llm_note = rerank(target, qv, hits, self.facets, len(hits) if n_add else lr.get("top_n", 12),
                                     self.chat_fn, sib=self.sib, concept_of=self.concept_of, context=context, role=role)
@@ -396,7 +540,8 @@ _cache, _cache_lock = {}, threading.Lock()
 
 
 def get_search(dense=None, settings=None, log=None, llm_rerank=None) -> TableSearch:
-    """dense: hcx(HCX bge-m3) | hash(오프라인 확인용) | none. 비우면 configs/search.yaml 의 dense (기본 hcx)
+    """dense: hcx(HCX bge-m3) | arctic-ko | bge-m3-ko | ens-ko (로컬, search/embedders.py) | hash(오프라인 확인용) | none.
+    비우면 configs/search.yaml 의 dense (기본 hcx)
     llm_rerank: True 면 상위 후보를 LLM 으로 다시 줄 세움 (질의 단위마다 HCX 1회). 비우면 설정값"""
     from backend.rag.search.index import embedder, table_corpus
     st = load_settings(settings)
@@ -405,7 +550,10 @@ def get_search(dense=None, settings=None, log=None, llm_rerank=None) -> TableSea
     key = (dense, corpus.signature(), repr(settings), llm_rerank)
     with _cache_lock:
         if key not in _cache:
-            name = f"search[{dense}]" + ("+llm" if llm_rerank else "")
+            docs = st.get("dense_docs") or "rule"
+            ce_on = bool((st.get("ce_rerank") or {}).get("enabled"))
+            name = f"search[{dense}" + (f"|{docs}" if docs != "rule" and dense != "none" else "") + "]" \
+                + ("+ce" if ce_on else "") + ("+llm" if llm_rerank else "")
             _cache[key] = TableSearch(corpus, name, embedder(dense), settings, log=log, llm_rerank=llm_rerank)
         return _cache[key]
 

@@ -4,7 +4,8 @@
 그래서 원문에서 규칙으로 뽑을 수 있는 것은 원문에서 뽑는다.
 
   years     조회 시점 (출생연도 '1983년생'·'생년 1983' 은 cohort 로 따로 — 시점 조건으로 쓰면 정답 표가 탈락)
-  cycle     '분기'·'월' 을 물었는가
+  cycle     '분기'·'월' 을 물었는가 ('네 번째 분기'·'4/4분기'·'Q4' 도 분기. 이런 표현은 시점처럼 검색어에서 뺌)
+  move      인구 이동의 범위·방향 ('다른 시도로 이사 간' → 시도간·전출) — movement.py
   sido      시도 (짧은 이름)                 subs  시도 아래 지역 ('부산진구'·'안동군'·'동부')
   lex       어휘 검색용 문장: 시점·지역·임계값('99,000명 이상')을 빼고, 일상어 사전의 통계어를 더함
   link      값 연결용 정규화 문자열 (공백·구두점 없음)
@@ -42,6 +43,9 @@ FILLER_RE = re.compile(r"알\s*수\s*있는|알고\s*싶어요?|보고\s*싶어�
                        r"어디서\s*봐|어떻게\s*되나요|어떻게\s*돼|얼마나\s*(?:돼|되나요|될까요?)?|몇\s*(?:명|가구|건|호|살)?(?:이야|이에요|인가요|야|이나)?|"
                        r"인지|일까요?|인가요|이에요|이야|같이|함께|주로|제일|가장|많은\s*게|뭐야|무엇|자료|통계표|통계|결과|"
                        r"우리나라(?:에)?|(?<![가-힣])한국에?(?=\s)|요즘|사람들이|사람들|사람")
+# 몇째 분기 (시점 표현 — 검색어가 아님). '분기별' 은 남김 (주기를 묻는 말로 표 이름과 맞음)
+QUARTER_RE = re.compile(r"(?:첫|두|세|네|마지막)\s*(?:번\s*)?째\s*분기|(?:제\s*)?[1-4]\s*/\s*4\s*분기|[1-4]\s*사\s*분기|"
+                        r"(?<!\d)\d{1,2}\s*분기(?!별)|(?<![A-Za-z0-9])[1-4]\s*[Qq](?![A-Za-z])|(?<![A-Za-z])[Qq][1-4](?!\d)")
 REL_YEAR = {"작년": -1, "지난해": -1, "전년": -1, "올해": 0, "금년": 0, "재작년": -2, "내년": 1}
 
 
@@ -59,6 +63,7 @@ class QueryView:
     want_age: bool = False  # 연령을 물었는가 (→ 연령 분류가 있는 표)
     want_sex: bool = False
     axis: str | None = None  # '시군구별'·'읍면동 단위' → 그 수준의 지역 분류가 있는 표
+    move: dict | None = None  # 인구 이동의 범위·방향 (movement.question_move)
 
 
 def _term_index():
@@ -129,7 +134,7 @@ def parse_question(question, filters=None, today=None, region_dict=None) -> Quer
             years.add(today.year + d)
     years |= {int(y) for y in f.get("시점") or [] if str(y).isdigit()}
     v.years = sorted(y for y in years if y not in v.cohort)
-    if re.search(r"분기", q):
+    if re.search(r"분기", q) or QUARTER_RE.search(q):
         v.cycle.add("Q")
     if re.search(r"상반기|하반기|반기", q):  # 반기 값은 월·분기 자료로 계산
         v.cycle.add("H")
@@ -140,6 +145,8 @@ def parse_question(question, filters=None, today=None, region_dict=None) -> Quer
     v.axis = next((g for g in ("읍면동", "시군구", "시도") if g in ax), None)
     if v.axis is None and (ANY_REGION_RE.search(q) or any(w in ax for w in ("지역", "행정구역"))):
         v.axis = "지역"  # 수준은 말하지 않았지만 지역끼리 비교 → 지역 분류가 있는 표
+    from backend.rag.search.movement import question_move
+    v.move = question_move(q)
     if re.search(r"월별|월간|매월|(?<!\d)\d{1,2}\s*월(?!\s*세)|지난달|이번\s*달", q):
         v.cycle.add("M")
 
@@ -174,7 +181,8 @@ def parse_question(question, filters=None, today=None, region_dict=None) -> Quer
 
     lex = " ".join(keep)
     lex = THRESH_RE.sub(" ", BIGNUM_RE.sub(" ", lex))
-    lex = re.sub(rf"{YEAR}\s*년?(?:도)?{JOSA}|전국적?{JOSA}|(?<!\d)\d{{1,2}}\s*분기|작년|올해|지난해|금년|전년", " ", lex)
+    lex = QUARTER_RE.sub(" ", lex)
+    lex = re.sub(rf"{YEAR}\s*년?(?:도)?{JOSA}|전국적?{JOSA}|작년|올해|지난해|금년|전년", " ", lex)
     v.added = synonyms(lex)  # 일상어 → 통계어 (군말을 지우기 전에: '사는 사람' → 인구)
     core = FILLER_RE.sub(" ", lex)
     core = core if len(norm(core)) >= 2 else lex  # 다 지워지면 원래 문장

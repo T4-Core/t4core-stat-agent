@@ -314,12 +314,35 @@ python backend/rag/query_analyzer/dictionary/build_dicts.py    # 원본 사전 �
 
 `backend/rag/search/tuning/` — 골든셋으로 검색 설정을 비교하고 가중치를 맞춥니다.
 
+dense 채널 (`--dense`, `configs/search.yaml` 의 `dense`)
+
+| 이름 | 모델 | 질문 앞 말 | 어디서 |
+|---|---|---|---|
+| `hcx` (기본) | HCX bge-m3 | 없음 | HCX API |
+| `arctic-ko` | dragonkue/snowflake-arctic-embed-l-v2.0-ko | `query: ` | 내 PC (`search/embedders.py`) |
+| `bge-m3-ko` | dragonkue/BGE-m3-ko | 없음 | 내 PC |
+| `ens-ko` | arctic-ko + bge-m3-ko | 각 모델대로 | 내 PC — 정규화 벡터를 이어 붙여 √2 로 나눔 = 두 코사인의 평균 |
+| `hash` · `none` | 오프라인 확인용 · 어휘 채널만 | | |
+
+로컬 모델은 각 모델 카드의 사용법대로 씁니다 (arctic-ko 는 질문에만 `query: `, 문서는 그대로 · 정규화 코사인). 질문은 원 질문 문장(하위 단위는 그 단위 문장), 표는 표 설명문(1500자 이하)이라 `EMBED_MAX_LEN`(기본 2048 토큰)에서 잘리지 않습니다. 장치·정밀도는 `EMBED_DEVICE`·`EMBED_DTYPE`(GPU 면 `bfloat16`). 문서 임베딩은 임베딩 캐시 폴더의 `st_docs/` 에 저장되어 앙상블이 단일 모델 결과를 다시 씁니다.
+
 ```bash
 # 비교: dense 종류 · LLM 재정렬을 같은 질의 분석으로 나란히 (analysis_cache.jsonl 로 HCX 는 한 번만)
 python -m backend.rag.search.tuning.compare --golden tests/retrieval_golden.jsonl --dense hcx none --llm
 python -m backend.rag.search.tuning.compare --golden <합성 셋.jsonl> --alt <alt_positives.jsonl> --split heldout
 #   → storage/runs/search_compare/<시각>_compare/ (report.md · summary.json · per_query.csv)
 #   지표: Hit@1·3·5·10 · Groups@5·10(모든 근거 그룹) · MRR · pool@50 · 형제 표 혼동 · 실패 원인
+#   dense 를 여러 개 주면 첫 dense 기준으로 질문별 득실 · 부호 검정 p ('dense 비교')
+
+# 임베딩 모델 비교: HCX bge-m3 · 로컬 모델 2개 · 두 로컬 모델 앙상블 (첫 dense 가 기준 → report.md 'dense 비교')
+pip install -r requirements-embed.txt                                   # sentence-transformers · torch (GPU 면 CUDA 판 torch 먼저)
+python -m backend.rag.search.embedders info                             # 모델 · 장치 · 표 설명문 길이
+python -m backend.rag.search.embedders warm arctic-ko bge-m3-ko         # 표 설명문 임베딩을 미리 (처음 한 번만 오래 걸림)
+python -m backend.rag.search.tuning.compare --golden <셋> --dense hcx arctic-ko bge-m3-ko ens-ko --out runs/<폴더>
+#   모델마다 가장 좋은 상태로 비교: dense 채널 가중치·rrf_k 를 모델별로 맞춘 뒤 (dev 문항) held-out 으로 비교
+python -m backend.rag.search.tuning.tune --golden <셋> --dense arctic-ko --cache runs/<폴더>/analysis_cache.jsonl   # → configs/search.tuned.arctic-ko.yaml
+python -m backend.rag.search.tuning.compare --golden <셋> --dense hcx arctic-ko bge-m3-ko ens-ko --tuned --split heldout --cache runs/<폴더>/analysis_cache.jsonl --out runs/<새 폴더>
+#   (--tuned: dense 마다 search.tuned.<dense>.yaml 을 읽음. 이름 뒤 * = 그 모델에 맞춘 가중치)
 
 # 가중치 맞추기 (dev 로 맞추고 held-out 점수를 같이 봄 → configs/search.tuned.yaml, 확인 후 search.yaml 로)
 python -m backend.rag.search.tuning.tune --golden tests/retrieval_golden.jsonl --split dev --cache <compare 폴더>/analysis_cache.jsonl
