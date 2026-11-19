@@ -14,6 +14,24 @@ YEAR = r"(?:19|20)\d{2}"
 
 
 # ---- 1) 상대 시점 → 연도 ----
+# '최근 5년' · '지난 10년간' · '최근 3개년' · '과거 20년 동안' → 기준일의 작년까지 N개 연도.
+# 뒤에 '전'·'후'가 오면 'N년 전' 이므로 제외 ('최근 5년 전국' 의 '전국' 은 제외하지 않음)
+RECENT_SPAN_RE = re.compile(r"(?:최근|지난|과거)\s*(\d{1,2})\s*(?:개\s*)?년(?:\s*(?:간|동안))?(?!\s*(?:전(?![국체반부])|후|뒤))")
+
+
+def recent_spans(question, today=None):
+    """질문의 '최근·지난 N년' → [(시작 연도, 끝 연도)]. 끝 = 기준일의 작년 (올해 자료는 아직 없을 수 있음)
+    이 기간은 질문이 '기간 전체' 를 뜻하므로 두 시점 비교('얼마나 변했어')여도 양 끝으로 줄이지 않는다.
+    검증(validate.fix_slots)이 HCX 가 줄인 시점을 이 기간으로 되돌릴 때도 씀"""
+    Y = (today or date.today()).year
+    out = []
+    for m in RECENT_SPAN_RE.finditer(str(question or "")):
+        n = int(m.group(1))
+        if n >= 1:
+            out.append((Y - n, Y - 1))
+    return list(dict.fromkeys(out))
+
+
 def resolve_relative_time(question, today=None):
     """'작년', '최근 5년', '2010년대', '지난달' 등을 기준일 기준 연도로 바꿈.
     '요즘', '코로나 전후'처럼 기준이 애매한 표현은 질문을 바꾸지 않음 (rule_extract 가 시점 값만 넣음). '최근 N년'은 올해 자료가 아직 없을 수 있어 작년까지.
@@ -31,7 +49,11 @@ def resolve_relative_time(question, today=None):
         q = re.sub(pattern, _r, q)
 
     # 'N년 전/후'는 1~2자리 숫자만 ('2025년 전국'을 '2025년 전(前)'으로 읽지 않게). '전국·전체·후반' 등도 제외
-    sub(r"최근\s*(\d{1,2})\s*년(간)?", lambda m: f"{Y - int(m.group(1))}년~{Y - 1}년")
+    def recent(m):
+        # 연도를 직접 나열 → 뒤의 expand_year_ranges 가 '얼마나 변했어' 를 두 시점 비교로 보고 양 끝만 남기지 않음
+        a, b = Y - int(m.group(1)), Y - 1
+        return " ".join(f"{y}년" for y in range(a, b + 1)) if b - a + 1 <= MAX_RANGE_YEARS else f"{a}년~{b}년"
+    sub(RECENT_SPAN_RE.pattern, recent)
     sub(r"(?<!\d)(\d{1,2})\s*년\s*전(?![국체년반부])", lambda m: f"{Y - int(m.group(1))}년")
     sub(r"(?<!\d)(\d{1,2})\s*년\s*(뒤|후)(?!반)", lambda m: f"{Y + int(m.group(1))}년")
     q = resolve_decades(q, Y, notes)

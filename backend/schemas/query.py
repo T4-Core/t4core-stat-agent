@@ -121,6 +121,8 @@ class AnalysisState(BaseModel):
     sub_intents: list[str | None] = []
     hcx_ok: bool = True
     hcx_error: str = ""
+    thresholds: list[dict] = Field(default_factory=list, description="숫자 기준 조건 [{말, 값, 단위, 비교, op, 표기, 지역_고르기}] "
+                                                                     "('가구원수가 99,000명 이상' — query_analyzer/roles.find_thresholds)")
 
 
 class StepTraceModel(BaseModel):

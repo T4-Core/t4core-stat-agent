@@ -7,6 +7,7 @@
   단계                                  함수
   재작성 (HCX)                          rewrite.run_pipeline → rewrite_state
   지역 칸 바로잡기 · 대상 보충           fix_region_slots · lexicon.Lexicon.scan
+  대상 원문 유지 (상위어 → 원문 표현)     restore_targets · lexicon.Lexicon.question_terms
   시점 규칙                             clarify.apply_time_rules
   동의어 조회 + 슬롯 접지                lexicon.Lexicon.resolve · grounding.ground_slots
   필수 슬롯 확인 · 되묻기 (또는 가정)    clarify.check · soft_fill
@@ -56,7 +57,8 @@ def rewrite_state(question, today=None):
     return {"bundle": asdict(res["bundle"]), "raw_slots": _strip_intent(v["slots"]),
             "sub_slots": [_strip_intent(x) for x in subs],
             "intents": list(v["slots"].get("의도") or []), "sub_intents": [] if code_split else sub_intents_of(v),
-            "hcx_ok": bool(res["slot"].get("parsed")), "hcx_error": res["slot"].get("error") or ""}
+            "hcx_ok": bool(res["slot"].get("parsed")), "hcx_error": res["slot"].get("error") or "",
+            "thresholds": v.get("thresholds") or []}
 
 
 def tidy_text(text):
@@ -73,9 +75,10 @@ def rule_state(question, today=None, error=""):
     intent = next((v for k, v in (("추이", "추이"), ("변화", "추이"), ("순위", "순위"), ("가장", "순위"), ("비교", "비교"),
                                   ("별로", "비교"), ("비율", "구성비"), ("비중", "구성비")) if k in question), "값 조회")
     slots = {k: list(v) for k, v in found.items() if v}
+    from backend.rag.query_analyzer.roles import find_thresholds
     return {"bundle": {"original": question, "rewritten": question, "intent": intent, "sub_questions": []},
             "raw_slots": slots, "sub_slots": [], "intents": [intent], "sub_intents": [],
-            "hcx_ok": False, "hcx_error": error or "코드 추출만 사용"}
+            "hcx_ok": False, "hcx_error": error or "코드 추출만 사용", "thresholds": find_thresholds(question)}
 
 
 def domain_terms(question, lex):
@@ -166,6 +169,55 @@ def fix_region_slots(raw, lex):
     return {k: v for k, v in out.items() if v}, moved
 
 
+def unsupported_targets(raw, question, term_hits=()):
+    """대상 값 중 질문에 근거가 없는 것 — HCX 가 질문의 대상을 상위어로 바꾼 경우 ('국제결혼 이주자' → '외국인')
+    근거 = 질문에 그 말(또는 2글자 이상 겹치는 말)이 있음 · 용어 사전·일상어 사전이 바꾼 말 · 일반 말('인구'·'가구')"""
+    from backend.rag.query_analyzer.measures import common_len, is_generic
+    try:
+        from backend.rag.search.query import synonyms
+        syn = synonyms(question)
+    except Exception:  # noqa: BLE001
+        syn = []
+    hint = [t for _, ts in term_hits or () for t in ts] + list(syn)
+    out = []
+    for v in raw.get("대상") or []:
+        if not norm(v) or is_generic(v) or common_len(v, question) >= 2 or any(common_len(v, h) >= 2 for h in hint):
+            continue
+        out.append(v)
+    return out
+
+
+def restore_targets(raw, sub_slots, question, qterms, term_hits=()):
+    """근거 없는 대상(unsupported_targets) → 질문 원문의 CSV 표현(qterms = Lexicon.question_terms)으로 바꿈
+    (재작성 대상이 '외국인' 이면 모듈 3 이 표 항목 '국제결혼 이주자' 와 맞지 않는다고 계산을 보류하던 문제)
+    qterms 가 없으면 그대로. 반환: (슬롯, 하위 슬롯, [(바꾼 값, 새 값들)])"""
+    bad = unsupported_targets(raw, question, term_hits)
+    new = [t for t in qterms or [] if norm(t) not in {norm(v) for k in ("대상", "지표", "조건") for v in raw.get(k) or []}][:2]
+    if not bad or not new:
+        return raw, sub_slots, []
+    def swap(vals):
+        out = []
+        for v in vals or []:
+            out += new if v in bad else [v]
+        return list(dict.fromkeys(out))
+    raw = {**raw, "대상": swap(raw.get("대상"))}
+    subs = [{**ss, "대상": swap(ss.get("대상"))} if any(v in bad for v in ss.get("대상") or []) else ss for ss in sub_slots or []]
+    return raw, subs, [(v, new) for v in bad]
+
+
+def refresh_rewritten(state, raw):
+    """분석 단계가 슬롯을 고쳤으면 재작성 문장도 같은 슬롯으로 다시 (검색 문장·모듈 2·3 이 이 문장을 읽음)"""
+    from backend.rag.query_analyzer.sentence import slots_to_sentence, threshold_text
+    b = dict(state["bundle"])
+    b["rewritten"] = slots_to_sentence({**raw, "의도": state.get("intents") or []},
+                                       extra=threshold_text(state.get("thresholds"))) or b.get("rewritten")
+    subs, si = state.get("sub_slots") or [], state.get("sub_intents") or []
+    if subs and len(si) == len(subs) and len(b.get("sub_questions") or []) == len(subs):
+        b["sub_questions"] = [slots_to_sentence({**ss, "의도": it or "값 조회"}) or old
+                              for ss, it, old in zip(subs, si, b["sub_questions"])]
+    return {**state, "bundle": b}
+
+
 def canonical_slots(raw, grounded):
     """접지 결과로 슬롯 문자열 표준화 (View 입력용). 대상·지표는 CSV 이름과 정확·표기 변형으로 맞을 때만 바꿈"""
     out = {k: list(v) for k, v in raw.items()}
@@ -235,6 +287,21 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
         st.output = moved
         if moved:
             notes.append(f"지역 칸의 지표 이름을 지표로 옮김: {moved}")
+    if raw.get("대상"):
+        with tr.step("대상 원문 유지 (근거 없는 상위어 → 질문의 CSV 표현)") as st:
+            from backend.rag.query_analyzer.terms import lookup_terms
+            hits = lookup_terms(question)
+            st.output = []
+            if unsupported_targets(raw, question, hits):
+                covered = [str(v) for k in ("지표", "조건", "국적", "성별", "지역", "연령", "시점") for v in raw.get(k) or []]
+                qt = lex.question_terms(question, covered, s.question_terms_max_share, s.question_terms_max)
+                raw, sub_slots, swapped = restore_targets(raw, state["sub_slots"], question, qt, hits)
+                st.output = swapped
+                if swapped:
+                    state = refresh_rewritten({**state, "raw_slots": raw, "sub_slots": sub_slots}, raw)
+                    notes.append(f"재작성 대상이 질문에 없어 원문 표현으로 바꿈: {swapped}")
+    if state.get("thresholds"):
+        notes.append("조건 기준: " + ", ".join(f"{t['말']} {t['표기']}" for t in state["thresholds"]))
     if not (raw.get("대상") or raw.get("지표")):
         with tr.step("대상 보충 (질문 문장 × CSV 값 사전)", min_alias_len=s.min_alias_len) as st:
             times = " ".join(str(t) for t in raw.get("시점") or [])
