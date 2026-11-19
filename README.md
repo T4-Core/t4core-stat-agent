@@ -125,6 +125,8 @@ flowchart LR
   title  표 이름이 질문에 있는가   lex    Kiwi BM25 (표 설명문)      ngram  글자 2·3-gram BM25
 구조 계수 (곱)  시점(실제 수록 연도) · 주기(월·분기·반기) · 시군구 이름 · 지역 수준 · 시도 · 연령·성별 분류 · 조사 이름
 형제 표 해소    같은 통계의 (계)/(남)/(여) · 전국/시도/시군구판 · 연도판 무리 안에서 질문 좌표에 맞는 표를 앞으로
+기간 이어붙이기 같은 통계의 연도판 묶음(+ configs/period_links.csv 의 이름이 바뀐 표)으로 요청 연도를 채울 계획을
+                결과에 붙임 (years_have · years_missing · stitch — 순위는 그대로, search/period_groups.py)
 분모 단위       '인구'·'가구' 뿐인 하위 질의는 본 질의 1위 표와 같은 조사의 단순한 표를 찾음
 (선택) LLM 재정렬  상위 12개를 표 구조 요약으로 HCX 가 다시 줄 세움 (configs/search.yaml 의 llm_rerank.enabled)
 ```
@@ -141,6 +143,10 @@ flowchart LR
 - 지표를 나누는 분류(`기본항목별: 출생아수(명)·사망자수(명)…`, 합계 없음)에 요청 지표가 없으면 첫 코드로 바꿔치기하지 않습니다.
   그 View 는 `metadata.indicator_missing` 이 붙고 답변으로 넘기지 않으며, 단위의 View 가 모두 그렇다면
   "요청한 지표를 담은 통계표를 찾지 못함" 으로 답합니다 (다른 지표 값으로 답하지 않음).
+- `view_stitch: true` 면 검색 결과의 `stitch` 로 같은 통계의 다른 연도 표를 "그 표가 맡은 연도" 로 잘라 View 를 더 만들고,
+  부모 Record 바로 뒤에 넘깁니다 (비교·선택 대상이 아님. 끝내 없는 연도는 notes). 같은 묶음의 2순위 표는 경쟁 표로 보지 않습니다.
+- `view_first_only_when_same: true` 면 View 2개의 겹치는 교차점 값이 모두 같고 2순위에만 있는 교차점이 없을 때 1순위만 넘깁니다.
+- 지표가 표 이름에만 있다고(partial) 판정되면 핵심어('혼인건수' → '혼인')로 항목·분류 값을 다시 찾습니다 (`conflict_indicator_core`).
 - 요청 기간이 표 수록 기간과 하나도 겹치지 않으면 notes 와 검색 `unmet` 에 "요청 기간(1980~1999) 이 표 수록 기간(2000~2025) 밖" 을 남기고
   `metadata.period_outside` 를 붙입니다. 값은 가장 가까운 끝 해 하나만 참고로 넣습니다.
 
@@ -318,12 +324,36 @@ python backend/rag/query_analyzer/dictionary/build_dicts.py    # 원본 사전 �
 
 `backend/rag/search/tuning/` — 골든셋으로 검색 설정을 비교하고 가중치를 맞춥니다.
 
+dense 채널 (`--dense`, `configs/search.yaml` 의 `dense`)
+
+| 이름 | 모델 | 질문 앞 말 | 어디서 |
+|---|---|---|---|
+| `hcx` (기본) | HCX bge-m3 | 없음 | HCX API |
+| `arctic-ko` | dragonkue/snowflake-arctic-embed-l-v2.0-ko | `query: ` | 내 PC (`search/embedders.py`) |
+| `bge-m3-ko` | dragonkue/BGE-m3-ko | 없음 | 내 PC |
+| `kure` | nlpai-lab/KURE-v1 | 없음 | 내 PC (warm 기본 목록에는 없음 — 이름을 주면) |
+| `ens-ko` | arctic-ko + bge-m3-ko | 각 모델대로 | 내 PC — 정규화 벡터를 이어 붙여 √2 로 나눔 = 두 코사인의 평균 |
+| `hash` · `none` | 오프라인 확인용 · 어휘 채널만 | | |
+
+로컬 모델은 각 모델 카드의 사용법대로 씁니다 (arctic-ko 는 질문에만 `query: `, 문서는 그대로 · 정규화 코사인). 질문은 원 질문 문장(하위 단위는 그 단위 문장), 표는 표 설명문(1500자 이하)이라 `EMBED_MAX_LEN`(기본 2048 토큰)에서 잘리지 않습니다. 장치·정밀도는 `EMBED_DEVICE`·`EMBED_DTYPE`(GPU 면 `bfloat16`). 문서 임베딩은 임베딩 캐시 폴더의 `st_docs/` 에 저장되어 앙상블이 단일 모델 결과를 다시 씁니다.
+
 ```bash
 # 비교: dense 종류 · LLM 재정렬을 같은 질의 분석으로 나란히 (analysis_cache.jsonl 로 HCX 는 한 번만)
 python -m backend.rag.search.tuning.compare --golden tests/retrieval_golden.jsonl --dense hcx none --llm
 python -m backend.rag.search.tuning.compare --golden <합성 셋.jsonl> --alt <alt_positives.jsonl> --split heldout
 #   → storage/runs/search_compare/<시각>_compare/ (report.md · summary.json · per_query.csv)
 #   지표: Hit@1·3·5·10 · Groups@5·10(모든 근거 그룹) · MRR · pool@50 · 형제 표 혼동 · 실패 원인
+#   dense 를 여러 개 주면 첫 dense 기준으로 질문별 득실 · 부호 검정 p ('dense 비교')
+
+# 임베딩 모델 비교: HCX bge-m3 · 로컬 모델 2개 · 두 로컬 모델 앙상블 (첫 dense 가 기준 → report.md 'dense 비교')
+pip install -r requirements-embed.txt                                   # sentence-transformers · torch (GPU 면 CUDA 판 torch 먼저)
+python -m backend.rag.search.embedders info                             # 모델 · 장치 · 표 설명문 길이
+python -m backend.rag.search.embedders warm arctic-ko bge-m3-ko         # 표 설명문 임베딩을 미리 (처음 한 번만 오래 걸림)
+python -m backend.rag.search.tuning.compare --golden <셋> --dense hcx arctic-ko bge-m3-ko ens-ko --out runs/<폴더>
+#   모델마다 가장 좋은 상태로 비교: dense 채널 가중치·rrf_k 를 모델별로 맞춘 뒤 (dev 문항) held-out 으로 비교
+python -m backend.rag.search.tuning.tune --golden <셋> --dense arctic-ko --cache runs/<폴더>/analysis_cache.jsonl   # → configs/search.tuned.arctic-ko.yaml
+python -m backend.rag.search.tuning.compare --golden <셋> --dense hcx arctic-ko bge-m3-ko ens-ko --tuned --split heldout --cache runs/<폴더>/analysis_cache.jsonl --out runs/<새 폴더>
+#   (--tuned: dense 마다 search.tuned.<dense>.yaml 을 읽음. 이름 뒤 * = 그 모델에 맞춘 가중치)
 
 # 가중치 맞추기 (dev 로 맞추고 held-out 점수를 같이 봄 → configs/search.tuned.yaml, 확인 후 search.yaml 로)
 python -m backend.rag.search.tuning.tune --golden tests/retrieval_golden.jsonl --split dev --cache <compare 폴더>/analysis_cache.jsonl

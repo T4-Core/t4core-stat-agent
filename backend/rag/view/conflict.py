@@ -25,14 +25,38 @@ def _status(x):
     return getattr(s, "value", s)
 
 
-def view_usage(record, filters, allow_partial=("시점",)):
+def core_hit(terms, contents):
+    """지표가 '표 이름에만 있음(partial)' 일 때 검색과 같은 핵심어로 항목·분류 값을 다시 찾음
+    judge 는 끝의 '수' 만 떼서 '혼인건수' → '혼인건' 으로 찾아 항목 '혼인' 과 안 맞음
+    → resolve.indicator_stems ('혼인건수' → '혼인', '출생아수' → '출생아'·'출생'). 찾으면 (지표, 찾은 이름, 핵심어)
+    (feature/kos14/RAG-hybrid 의 conflict._core_hit 을 옮김)"""
+    from backend.rag.search.resolve import indicator_core, indicator_stems
+    from backend.rag.view.build import match_name
+    names = list(contents.items) + [lb for d in contents.dims for lb in d.labels]
+    for t in terms or []:
+        core = indicator_core(t)
+        stems = indicator_stems(core) if core else set()
+        for n in names:
+            for s in sorted(stems, key=len, reverse=True):  # 긴 핵심어부터
+                if match_name(n, {s}):
+                    return t, n, s
+    return None
+
+
+def view_usage(record, filters, allow_partial=("시점",), core_check=True):
     """View 하나가 필수 메타를 썼는가 → {usable, used{slot: bool}, checks{slot: {status, evidence}}, notes}"""
     f = filters or {}
-    checks = check_slots(f, extract_contents(record))
+    contents = extract_contents(record)
+    checks = check_slots(f, contents)
     used, info, notes = {}, {}, []
     for slot, ck in checks.items():
         st = _status(ck)
         ev = getattr(ck, "evidence", "") if not isinstance(ck, dict) else ck.get("evidence", "")
+        if core_check and slot == "지표" and st == "partial":
+            hit = core_hit(f.get("지표"), contents)
+            if hit:
+                st, ev = "match", f"지표 {hit[0]} → {hit[1]} 로 확인 (핵심어 {hit[2]})"
+                notes.append(ev)
         info[slot] = {"status": st, "evidence": ev}
         if st == "not_requested" or slot in ("의도", "비교축"):
             continue
@@ -85,7 +109,8 @@ def detect(views, filters, settings, unit_id="main"):
     rel, abs_ = settings.conflict_rel_tol, settings.conflict_abs_tol
     per = []
     for v in views:
-        u = view_usage(v["record"], filters, tuple(settings.conflict_allow_partial))
+        u = view_usage(v["record"], filters, tuple(settings.conflict_allow_partial),
+                       getattr(settings, "conflict_indicator_core", True))
         pts, pnotes = record_points(v["record"], filters) if u["usable"] else ([], [])
         per.append({"record_id": v["record"]["id"], "tbl_id": v["tbl_id"], "rank": v.get("rank"), **u,
                     "n_points": sum(p.value is not None for p in pts), "point_notes": pnotes, "_pts": pts})

@@ -74,6 +74,13 @@ def clean_slots(slots, main=True):
     slots = slots if isinstance(slots, dict) else {}
     s = {k: _as_list(slots.get(k)) for k in SLOT_KEYS}
     log = [f"모르는 키 무시: {k}" for k in slots if k not in SLOT_KEYS + ["의도"]]
+    from .subcheck import clean_value, meaningless
+    for k in ("대상", "지표"):  # LLM 이 단 한자 주석('수(水)') 은 떼고, 한 글자뿐인 값('수')은 뺌
+        vals = [clean_value(v) for v in s[k]]
+        bad = [v for v, c in zip(s[k], vals) if not c or meaningless(c)]
+        if bad or vals != s[k]:
+            log.append(f"{k} 다듬기: {s[k]} → {[c for c in vals if c and not meaningless(c)]}")
+        s[k] = list(dict.fromkeys(c for c in vals if c and not meaningless(c)))
     raw = _as_intents(slots.get("의도"))
     intents = list(dict.fromkeys(x for x in raw if x in INTENTS))
     if bad := [x for x in raw if x not in INTENTS]:
@@ -365,6 +372,10 @@ def validate_slots(r):
             log.append(f"(하위 {i}) 삭제: 대상·지표가 없음")
             continue
         subs.append(ss)
+    if subs:  # 표를 가르지 못하는 하위 질문 ('수(水)' · 분모처럼 붙은 일반 말 '인구') — subcheck.py
+        from .subcheck import prune_sub_slots
+        subs, lp = prune_sub_slots(q, s, subs)
+        log += lp
     if _is_cross_split(subs):  # 프롬프트 규칙 2: 모든 연도 × 모든 지역은 나누지 않음
         log.append(f"하위 질문 {len(subs)}개 삭제: 시점·지역·성별만 다른 모든 조합 (한 통계표에서 가져옴)")
         subs = []

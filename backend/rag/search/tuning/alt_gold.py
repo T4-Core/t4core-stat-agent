@@ -13,6 +13,9 @@
        rounded : 후보 표가 더 큰 단위로 반올림한 값 (예: 1,450천명 ↔ 1,449,896명) — 보고서에 따로 셈
      남은 분류가 총계가 아닌 행이 여러 개면(어느 행인지 정할 수 없음) 인정하지 않음
   3) 근거 그룹마다: 그 그룹의 사실(최대 max_facts 개 확인)을 모두 맞춘 표 = 그 그룹의 대체 정답
+  (선택) --loose-items : 항목 이름이 달라도 ('이동자수' ↔ '총전입') 같은 조사의 표에서 같은 시점·지역·조건의
+       총계 행 값이 정답 값과 정확히 같으면 대체 정답 (match = loose). 우연히 같을 수 있는 작은 값은 빼고
+       (정수 loose_min 이상만), 사실을 모두 맞춰야 함. 기본 끔 — compare 는 loose 도 완화 정답으로 셈 (--alt-exact-only 면 뺌)
 
 출력  alt_positives.jsonl (정답 데이터셋 옆, 레코드마다 한 줄 · 이어서 실행 가능)
         {dataset_id, gold_tables, status, groups: {R1: {n_facts, checked, alternatives: [{tbl_id, tbl_nm, match, checked}]}}}
@@ -58,11 +61,12 @@ def _sample(xs, n):
 
 
 class Judge:
-    def __init__(self, idx, max_candidates=40, max_facts=8, log=print):
+    def __init__(self, idx, max_candidates=40, max_facts=8, log=print, loose_items=False, loose_min=1000):
         from backend.rag.csv_index.store import norm, variants
         from backend.rag.ingestion.normalize import std_geo_name
         self.idx, self.norm, self.variants, self.geo = idx, norm, variants, std_geo_name
         self.max_candidates, self.max_facts, self.log = max_candidates, max_facts, log
+        self.loose_items, self.loose_min = loose_items, Decimal(loose_min)
         self.region_tables = defaultdict(set)  # norm(지역 이름·표준명) → 표
         self.dim_tables = defaultdict(set)  # norm(분류 값·항목 이름) → 표
         v = idx.v
@@ -104,12 +108,16 @@ class Judge:
             out |= self.dim_tables.get(k, set())
         return out
 
-    def candidates(self, specs, exclude):
+    def candidates(self, specs, exclude, loose=False, surveys=None):
+        """loose: 항목 이름 조건 없이, surveys(정답 표의 조사) 안에서만"""
         cand = None
         for s in specs:
             ts = {t for t, r in self.idx.tables.items()
                   if any(s["prd_de"] in (ps or []) for ps in (r.get("periods") or {}).values())}
-            ts &= self._tables_with(s["item"]) if s["item"] else ts
+            if loose:
+                ts = {t for t in ts if (self.idx.table(t) or {}).get("survey_nm") in (surveys or set())}
+            elif s["item"]:
+                ts &= self._tables_with(s["item"])
             if s["region"] and re.sub(r"\s+", "", s["region"]) not in TOTALS:
                 ks = {self.norm(s["region"]), self.norm(self.geo(s["region"]) or "")} - {""}
                 ts &= set().union(*[self.region_tables.get(k, set()) for k in ks])
@@ -168,13 +176,16 @@ class Judge:
             return "rounded"
         return None
 
-    def fact_in_table(self, tbl_id, s):
+    def fact_in_table(self, tbl_id, s, loose=False):
+        """loose: 항목 이름을 보지 않고, 남은 분류가 모두 총계인 행 중 값이 정확히 같은 행이 있으면 'loose'"""
         rows = [r for r in self._rows(tbl_id, [s["prd_de"]]) if str(r.get("PRD_DE")) == s["prd_de"]]
         if not rows:
             return None
+        if loose and (s["value"] is None or abs(s["value"]) < self.loose_min or s["value"] != s["value"].to_integral_value()):
+            return None
         dim_cols = [k for k in rows[0] if re.fullmatch(r"C\d_NM", k)]
         reg_cols = self._region_cols(tbl_id)
-        item_keys = self._keys(s["item"]) if s["item"] else set()
+        item_keys = self._keys(s["item"]) if s["item"] and not loose else set()
         want_region = s["region"] and re.sub(r"\s+", "", s["region"]) not in TOTALS
         rkeys = {self.norm(s["region"] or ""), self.norm(self.geo(s["region"] or "") or "")} - {""}
         best = []
@@ -210,6 +221,8 @@ class Judge:
             best.append((extra, r))
         if not best:
             return None
+        if loose:
+            return "loose" if any(e == 0 and self._value_match(r, s) == "exact" for e, r in best) else None
         low = min(e for e, _ in best)
         top = [r for e, r in best if e == low]
         if low > 0 and len(top) > 1:
@@ -243,6 +256,14 @@ class Judge:
                     if all(ms):
                         alts.append({"tbl_id": t, "tbl_nm": (self.idx.table(t) or {}).get("tbl_nm", ""),
                                      "match": "rounded" if "rounded" in ms else "exact", "checked": len(ms)})
+                if self.loose_items:
+                    seen = set(gold) | {x["tbl_id"] for x in alts}
+                    surveys = {(self.idx.table(t) or {}).get("survey_nm") for t in gold} - {None, ""}
+                    for t in self.candidates(specs, seen, loose=True, surveys=surveys):
+                        ms = [self.fact_in_table(t, s, loose=True) for s in specs]
+                        if all(ms):
+                            alts.append({"tbl_id": t, "tbl_nm": (self.idx.table(t) or {}).get("tbl_nm", ""),
+                                         "match": "loose", "checked": len(ms)})
             out["groups"][g] = {"n_facts": len(ids), "checked": len(specs), "alternatives": alts}
         return out
 
@@ -255,7 +276,7 @@ def load_alt(path, include_rounded=True):
             continue
         r = json.loads(line)
         out[r["dataset_id"]] = {g: [a["tbl_id"] for a in v.get("alternatives") or []
-                                    if include_rounded or a.get("match") == "exact"]
+                                    if include_rounded or a.get("match") == "exact"]  # exact-only 면 rounded·loose 뺌
                                 for g, v in (r.get("groups") or {}).items()}
     return out
 
@@ -270,6 +291,9 @@ def main(argv=None):
     ap.add_argument("--max-facts", type=int, default=8, help="근거 그룹마다 확인할 사실 수 (지역별 벡터는 고르게 뽑음)")
     ap.add_argument("--limit", type=int)
     ap.add_argument("--restart", action="store_true", help="이미 판정한 레코드도 다시")
+    ap.add_argument("--loose-items", action="store_true",
+                    help="항목 이름이 달라도 같은 조사 표의 같은 좌표 총계 값이 정확히 같으면 대체 정답 (match=loose)")
+    ap.add_argument("--loose-min", type=int, default=1000, help="loose 로 볼 정답 값의 최소 크기 (작은 값은 우연히 같기 쉬움)")
     a = ap.parse_args(argv)
     from backend.rag.csv_index.store import load_index
     golden = Path(a.golden)
@@ -281,7 +305,7 @@ def main(argv=None):
     recs = [json.loads(x) for x in golden.read_text(encoding="utf-8").splitlines() if x.strip()]
     recs = [r for r in recs if r.get("dataset_id") not in done][: a.limit]
     print(f"[정답 판정] 레코드 {len(recs)}개 (이미 판정 {len(done)}) · CSV 값 사전 표 {len(idx.tables)}개 → {out}")
-    judge = Judge(idx, a.max_candidates, a.max_facts)
+    judge = Judge(idx, a.max_candidates, a.max_facts, loose_items=a.loose_items, loose_min=a.loose_min)
     stat, t0 = Counter(), time.time()
     with out.open("w" if a.restart else "a", encoding="utf-8") as f:
         for i, r in enumerate(recs, 1):

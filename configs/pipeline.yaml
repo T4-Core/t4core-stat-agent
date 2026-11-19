@@ -38,6 +38,11 @@ view_top_k: 10                           # 검색 단위마다 후보 표 수
 view_n_views: 3                          # 그중 View 를 만들어 비교할 표 수
 view_keep_unusable: true                 # 필수 메타를 못 쓴 View 도 records 로 넘김 (notes 와 함께)
 view_main_with_subs: false               # 서브쿼리가 있을 때 본 질의(합친 문장) 단위도 검색할지
+view_first_only_when_same: false         # true = View 2개(view_n_views: 2 권장)의 겹치는 교차점 값이 모두 같고 2순위에만 있는
+                                         #   교차점이 없으면 1순위만 넘김. 값이 다르면 둘 다 + 사용자 선택, 비교 불가면 둘 다
+view_stitch: false                       # true = 같은 통계의 다른 연도 표(configs/search.yaml stitch, period_groups.py)를
+                                         #   그 표가 맡은 연도로 View 를 더 만들어 부모 Record 바로 뒤에 넘김 (비교·선택 대상 아님)
+conflict_indicator_core: true            # 지표가 표 이름에만 있을 때(partial) 핵심어로 항목·분류 값을 다시 찾아 match 로
 conflict_rel_tol: 0.0                    # 같은 교차점 값이 '다르다' 의 기준: |a-b| > max(abs_tol, rel_tol*max(|a|,|b|))
 conflict_abs_tol: 1.0e-9                 #   (단위가 명·천명처럼 배수만 다르면 맞춰서 비교)
 conflict_allow_partial: [시점]           # 이 슬롯은 대체 적용(2026 → 최신 2025 등)이어도 비교에 넣음
