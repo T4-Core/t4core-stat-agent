@@ -15,7 +15,10 @@ import re
 from backend.rag.csv_index.store import norm
 
 UNIT = r"(?:명/㎢|명|가구|건|호|세대|개|%|퍼센트|㎡|원)"
-COND_RE = re.compile(rf"(?:가|이)\s*(?:기준값\s*|특정\s*수치\s*)?\d[\d,\.]*\s*{UNIT}?\s*(?:이상|이하|초과|미만|보다\s*(?:많|적|크|작))")
+COND_RE = re.compile(rf"(?:가|이)\s*(?:기준값\s*|특정\s*수치\s*)?(\d[\d,\.]*)\s*({UNIT})?\s*(이상|이하|초과|미만|보다\s*(?:많|적|크|작))")
+# 조건이 '지역을 고르는' 기준인가 ('99,000명 이상인 지역에서') — 아니면 분류 값 기준일 수 있음 ('가구원수가 5명 이상인 가구')
+REGION_PICK_RE = re.compile(r"^\s*(?:인|한|된|이\s*되는|을\s*넘는|를\s*넘는)?\s*(?:지역|곳|시도|시군구|읍면동|행정구역|도시|시|군|구)")
+CMP_OP = {"이상": ">=", "이하": "<=", "초과": ">", "미만": "<"}
 PER_RE = re.compile(r"(?:(인구|주민|가구)\s*)?(?:천|1,?000|만|10,?000|백|100)\s*(명|가구|호)\s*(?:당|을\s*기준|기준)")
 DIV_RE = re.compile(r"([가-힣][가-힣\s]{0,20}?)(?:으로|로)\s*나[눈누]")
 SHARE_RE = re.compile(r"(?:비율|퍼센트|%|비중|차지|구성비|몇\s*할)")
@@ -54,14 +57,61 @@ def _is_region(tok, lex):
         return False
 
 
-def find_roles(question, lex=None):
-    """→ [(역할, 말)] 분모·조건 (순서대로, 중복 없이)"""
+def find_thresholds(question, lex=None):
+    """'X(의 수)가 N명 이상' → [{"말": X, "값": 99000, "표기": "99,000명 이상", "단위", "비교", "op", "지역_고르기"}]
+    재작성 검증이 숫자 조각('99,000')을 조건 칸에서 빼고, 이 구조로 남김 (재작성 문장 · 분석 결과 state.thresholds)"""
     q = str(question or "")
     out = []
     for m in COND_RE.finditer(q):
         p = _phrase(q[:m.start()], lex=lex)
-        if len(norm(p)) >= 2:
-            out.append(("조건", p))
+        if len(norm(p)) < 2:
+            continue
+        word = re.sub(r"\s+", "", m.group(3))
+        cmp_ = {"보다많": "초과", "보다크": "초과", "보다적": "미만", "보다작": "미만"}.get(word, word)
+        num = m.group(1).replace(",", "")
+        try:
+            val = float(num) if "." in num else int(num)
+        except ValueError:
+            continue
+        out.append({"말": p, "값": val, "단위": m.group(2) or "", "비교": cmp_, "op": CMP_OP.get(cmp_, cmp_),
+                    "표기": f"{m.group(1)}{m.group(2) or ''} {cmp_}",
+                    "지역_고르기": bool(REGION_PICK_RE.match(q[m.end():]))})
+    return out
+
+
+def share_denominator(question, lex=None):
+    """'X 중 … 비율·비중·차지' 의 X (구성비의 전체). 없으면 None"""
+    q = str(question or "")
+    if not SHARE_RE.search(q):
+        return None
+    cands = []
+    for m in AMONG_RE.finditer(q):
+        p = _phrase(m.group(1), lex=lex)
+        head = p.split()[-1] if p else ""
+        nxt = (q[m.end():].split() or [""])[0]
+        # 'X 중 계의'(합계 행) · 'X 중 영암군의'(지역 고르기) · 'X 비율 중'(비율은 분모가 아님) · 성별은 분모가 아님
+        if re.match(r"(?:계|합계|총계|소계|전체)(?:의|는|가|$)", nxt) or _is_region(re.sub(r"(?:의|에서|은|는)$", "", nxt), lex):
+            continue
+        if re.search(r"(?:비율|현황|율|률|구성비|비중|별)$", head) or norm(p) in SEX_WORDS:
+            continue
+        if len(norm(p)) >= 2 and head not in NOT_DEN:
+            cands.append((("전체" in m.group(1)) or ("총" in m.group(1)), p))
+    return sorted(cands, key=lambda x: not x[0])[0][1] if cands else None
+
+
+# 'X 중 Y가 차지하는 비율' 의 Y (구성비의 부분)
+SHARE_PART_RE = re.compile(r"(?:중에서|중에|가운데|중)\s+([가-힣][가-힣\s]{0,20}?)\s*(?:이|가)\s*차지하는\s*(?:비율|비중|구성비|몫)")
+
+
+def share_part(question):
+    m = SHARE_PART_RE.search(str(question or ""))
+    return m.group(1).strip() if m else None
+
+
+def find_roles(question, lex=None):
+    """→ [(역할, 말)] 분모·조건 (순서대로, 중복 없이)"""
+    q = str(question or "")
+    out = [("조건", t["말"]) for t in find_thresholds(q, lex)]
     m = PER_RE.search(q)
     if m:
         out.append(("분모", "가구" if m.group(1) == "가구" else "인구"))
@@ -69,21 +119,9 @@ def find_roles(question, lex=None):
         p = _phrase(m.group(1), lex=lex)
         if len(norm(p)) >= 2:
             out.append(("분모", p))
-    if SHARE_RE.search(q):
-        cands = []
-        for m in AMONG_RE.finditer(q):
-            p = _phrase(m.group(1), lex=lex)
-            head = p.split()[-1] if p else ""
-            nxt = (q[m.end():].split() or [""])[0]
-            # 'X 중 계의'(합계 행) · 'X 중 영암군의'(지역 고르기) · 'X 비율 중'(비율은 분모가 아님) · 성별은 분모가 아님
-            if re.match(r"(?:계|합계|총계|소계|전체)(?:의|는|가|$)", nxt) or _is_region(re.sub(r"(?:의|에서|은|는)$", "", nxt), lex):
-                continue
-            if re.search(r"(?:비율|현황|율|률|구성비|비중|별)$", head) or norm(p) in SEX_WORDS:
-                continue
-            if len(norm(p)) >= 2 and head not in NOT_DEN:
-                cands.append((("전체" in m.group(1)) or ("총" in m.group(1)), p))
-        if cands:
-            out.append(("분모", sorted(cands, key=lambda x: not x[0])[0][1]))
+    den = share_denominator(q, lex)
+    if den:
+        out.append(("분모", den))
     from backend.rag.search.engine import DEN_BASE
     seen, uniq = set(), []
     for r, p in out:
@@ -108,15 +146,22 @@ def covered_by(phrase, texts):
     return any(all(k in norm(t) for k in keys) for t in texts)
 
 
+def _plain(phrase, f):
+    """단위 filters 가 '그 말뿐' 인가 — 조건(분류 값)이 더 붙어 있으면 분모·조건 단위로 볼 수 없음
+    ('보증부월세 일반가구' 단위는 '일반가구' 를 문장에 담았지만 부분(보증부월세)을 센 단위)"""
+    return not (f or {}).get("조건")
+
+
 def add_role_units(question, vb, lex=None, max_units=4):
-    """view_bundle 에 분모·조건 검색 단위를 더함 (제자리 수정) → 더한 [(역할, 말)]"""
+    """view_bundle 에 분모·조건 검색 단위를 더함 (제자리 수정) → 더한 [(역할, 말)]
+    이미 있는 단위가 그 말을 담았어도, 그 단위에 조건(분류 값)이 더 붙어 있으면 덮였다고 보지 않고 역할 단위를 더함"""
     roles = find_roles(question, lex)
     if not roles or vb.get("filters") is None:
         return []
     subs = list(vb.get("sub_questions") or [])
     sfs = list(vb.get("sub_filters") or [None] * len(subs))
     base_f = {k: v for k, v in (vb.get("filters") or {}).items() if k not in ("대상", "지표", "원문표현", "조건", "역할")}
-    own = list(subs)  # 재작성·분리 단계가 만든 단위 (+ 여기서 더한 말)
+    own = [t for t, f in zip(subs, sfs) if _plain(t, f)]  # 재작성·분리 단계가 만든 단위 (+ 여기서 더한 말)
     added = []
     for role, p in roles:
         if covered_by(p, own):

@@ -7,6 +7,9 @@ import re
 
 INTENT_WORD = {"값 조회": "", "구성비": "", "추이": "추이", "비교": "비교", "순위": "순위", "증감": "증감",
                "증감률": "증감률", "합계": "합계", "범위 밖": ""}
+# 의도어를 붙이는 순서 — 계산 의도를 맨 끝에. 모듈 2 는 문장 끝 의도어로 measure 를 정하므로
+# ['증감', '추이'] 가 '… 증감 추이' 가 되면 추이(raw)로 읽혀 증감 계산이 빠짐 → '… 추이 증감'
+INTENT_ORDER = ["값 조회", "범위 밖", "추이", "비교", "합계", "순위", "구성비", "증감", "증감률"]
 
 
 def _ranges(nums):
@@ -42,9 +45,10 @@ def _ns(s):
     return re.sub(r"\s+", "", str(s))
 
 
-def slots_to_sentence(slots, intent=None):
+def slots_to_sentence(slots, intent=None, extra=()):
     """검증된 슬롯 → 검색용 명사구. 슬롯이 모두 비면 빈 문자열
-    의도: 원 질문은 목록(의도어를 차례로 붙임), 하위 질문은 하나"""
+    의도: 원 질문은 목록(의도어를 INTENT_ORDER 순서로 붙임 — 계산 의도가 끝), 하위 질문은 하나
+    extra: 조건 자리에 넣을 말 (숫자 기준 '가구원수 99,000명 이상' — validate.thresholds)"""
     s = slots or {}
     intent = intent if intent is not None else s.get("의도", "값 조회")
     intents = [intent] if isinstance(intent, str) else list(intent or [])
@@ -59,6 +63,7 @@ def slots_to_sentence(slots, intent=None):
 
     parts += s.get("국적", []) + s.get("성별", []) + s.get("연령", [])
     parts += [c.split("=", 1)[1].strip() if "=" in c else c for c in s.get("조건", [])]  # '혼인상태=미혼' → '미혼'
+    parts += [x for x in extra or [] if x]
 
     # 대상과 지표가 겹치면 한 번만 ('출생아' + '출생아수' → '출생아수', '인구' + '인구' → '인구')
     indicators = s.get("지표", [])
@@ -67,11 +72,18 @@ def slots_to_sentence(slots, intent=None):
     parts += [a if a.endswith("별") else f"{a}별" for a in s.get("비교축", [])]  # '시도' → '시도별', '성별'은 그대로
 
     words = [p for p in parts if p]
-    words += [w for w in (INTENT_WORD.get(i, "") for i in intents) if w]  # 값 조회·구성비·범위 밖은 붙이지 않음
+    order = sorted(intents, key=lambda i: INTENT_ORDER.index(i) if i in INTENT_ORDER else len(INTENT_ORDER))
+    words += [w for w in (INTENT_WORD.get(i, "") for i in order) if w]  # 값 조회·구성비·범위 밖은 붙이지 않음
     return " ".join(dict.fromkeys(words))  # 같은 말이 두 번 나오지 않게
+
+
+def threshold_text(thresholds):
+    """validate.thresholds → 문장 조각 ['가구원수 99,000명 이상']"""
+    return [f"{t['말']} {t['표기']}" for t in thresholds or []]
 
 
 def build_sentences(v):
     """validate_slots() 결과 → {"rewritten", "sub_questions"}"""
     subs = [slots_to_sentence(x) for x in v.get("sub_slots", [])]
-    return {"rewritten": slots_to_sentence(v["slots"]), "sub_questions": [x for x in subs if x]}
+    return {"rewritten": slots_to_sentence(v["slots"], extra=threshold_text(v.get("thresholds"))),
+            "sub_questions": [x for x in subs if x]}

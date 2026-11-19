@@ -309,6 +309,182 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
     return s, log
 
 
+# ---- 3-a) 원문 충실도: 재작성이 바꾸거나 뺀 시점·의도·지표·조건을 원문 규칙으로 되돌림 ----
+# (11-19 오답 분석: 8문항 중 5문항의 오답이 재작성에서 시작 — 대상·조건·비율이 바뀌거나 빠짐)
+from .extract import TREND_WORD_RE as PERIOD_TREND_RE  # noqa: E402  추이|매년|연도별|해마다|흐름|추세|연평균 …
+
+CHANGE_RE = re.compile(r"증감|변화(?!\s*추이)|변했|변동|달라졌|달라진|늘었|줄었|늘거나|줄거나|늘어났|줄어들|줄어든|늘어난|증가|감소|"
+                       r"얼마나\s*(?:변|늘|줄|증가|감소|달라)|몇\s*(?:명|건|가구|호|개|집)\s*(?:이나\s*)?(?:늘|줄|증가|감소|변)")
+RATE_RE = re.compile(r"증감률|증가율|감소율|변화율|몇\s*(?:퍼센트|%)|퍼센트|%\s*(?:늘|줄|증가|감소)")
+CHANGE_INTENTS = ("증감", "증감률")
+RATE_SUFFIX = re.compile(r"(?:비율|비중|구성비)$")
+RATE_INDICATOR = re.compile(r"(?:비율|비중|구성비|율|률)$")
+NUM_COND = re.compile(r"^[\d][\d,\.]*\s*(?:명|가구|건|호|세대|개|%|퍼센트|천명|만명)?\s*(?:이상|이하|초과|미만)?$")
+
+
+def restore_spans(s, spans, found_times, tag=""):
+    """'최근 N년' 기간(extract.recent_spans)을 HCX 가 양 끝·일부로 줄였으면 기간 전체로 되돌림.
+    메인 슬롯은 fix_slots 가 코드 시점으로 이미 채움 → 여기서는 하위 슬롯. 시점이 빈 하위 슬롯은
+    질문의 시점이 그 기간뿐일 때만 채움"""
+    log = []
+    if not spans:
+        return s, log
+    have = {int(v[:4]) for v in s.get("시점") or [] if re.match(r"\d{4}년$", v)}
+    only_span = found_times and all(any(a <= int(t[:4]) <= b for a, b in spans) for t in found_times if t[:4].isdigit())
+    for a, b in spans:
+        full = set(range(a, b + 1))
+        if (have and have <= full and have != full) or (not have and not s.get("시점") and only_span):
+            new = [f"{y}년" for y in range(a, b + 1)]
+            log.append(f"{tag}시점 되돌림('최근 N년' {a}~{b}년 전체): {s.get('시점') or []} → {a}~{b}년")
+            s["시점"] = new
+            break
+    return s, log
+
+
+def fix_change_intent(s, q, spans, main=True):
+    """변화를 물은 질문의 의도 (모듈 2 는 재작성 문장 끝 의도어로 measure 를 정함)
+    - 연도 2개 이상 + 변화 표현('얼마나 변했어'·'몇 명 늘었나') + 추이 표현 없음 → 증감(률)이 의도에 있게
+    - 두 해만 비교 → 의도 '추이' · 비교축 '연도' 를 뺌 ('… 증감 추이' 로 끝나 raw 로 읽히던 문제)
+    - '최근 N년' 기간 전체의 변화 → [증감, 추이] (기간 값 + 처음 대비 끝 증감)"""
+    log, tag = [], "" if main else "(하위) "
+    years = [v for v in s.get("시점") or [] if re.match(r"\d{4}년", v)]
+    if len(years) < 2 or not CHANGE_RE.search(q) or PERIOD_TREND_RE.search(q):
+        return s, log
+    chg = "증감률" if RATE_RE.search(q) else "증감"
+    span = any(len(years) >= 3 and {int(y[:4]) for y in years} == set(range(a, b + 1)) for a, b in spans)
+    if main:
+        intents = list(s["의도"])
+        if not any(i in CHANGE_INTENTS for i in intents):
+            new = [chg] + [i for i in intents if i not in ("값 조회", "추이")] + (["추이"] if "추이" in intents else [])
+            log.append(f"의도: 변화 표현 → {intents} → {new}")
+            intents = new
+        if span and "추이" not in intents:
+            intents.append("추이")
+            log.append("의도 채움: '최근 N년' 기간 전체의 변화 → '추이' (기간 값과 증감을 함께)")
+        if not span and len(years) == 2:
+            if "추이" in intents:
+                intents = [i for i in intents if i != "추이"]
+                log.append("의도 삭제: 두 해 비교의 '추이' (증감으로 계산)")
+            if "연도" in s.get("비교축", []):
+                s["비교축"] = [a for a in s["비교축"] if a != "연도"]
+                log.append("비교축 삭제: 두 해 비교의 '연도'")
+        # 계산 의도를 앞에 (분석 단계가 첫 의도를 대표로 넘김)
+        s["의도"] = sorted(intents, key=lambda i: i not in CHANGE_INTENTS)
+    elif s["의도"] in ("값 조회", "추이"):
+        log.append(f"{tag}의도: 변화 표현 → {s['의도']!r} → {chg!r}")
+        s["의도"] = chg
+    return s, log
+
+
+def drop_unasked_qualifier(s, q, tag=""):
+    """질문에 없는 '평균' 을 지표에 붙였으면 뗌 ('가구원수' → HCX '평균 가구원수' — 뜻이 다른 지표)"""
+    log, qq = [], _ns(q)
+    if "평균" in qq:
+        return s, log
+    for k in ("지표", "대상"):
+        out = []
+        for v in s.get(k) or []:
+            rest = re.sub(r"^\s*평균\s*", "", str(v))
+            if rest != v and _ns(rest) and _ns(rest) in qq:
+                log.append(f"{tag}{k} 되돌림(질문에 '평균' 없음): {v} → {rest}")
+                v = rest
+            out.append(v)
+        s[k] = list(dict.fromkeys(out))
+    return s, log
+
+
+def drop_number_conditions(s, tag=""):
+    """조건 칸의 숫자 조각('99,000', '99,000명 이상') — 분류 값이 아니라 기준값 → 뺌 (thresholds 가 맡음)"""
+    bad = [v for v in s.get("조건") or [] if NUM_COND.fullmatch(str(v).strip())]
+    if not bad:
+        return s, []
+    s["조건"] = [v for v in s["조건"] if v not in bad]
+    return s, [f"{tag}조건 삭제(숫자 기준값 → 조건 기준으로 따로): {bad}"]
+
+
+def drop_threshold_indicator(s, thresholds, tag=""):
+    """'X가 N명 이상인 지역' 의 X 는 지역을 고르는 기준 → 구할 지표가 아님. 메인 지표·대상에서 빼고 (역할 '조건' 단위가 찾음)
+    구할 지표가 하나도 안 남으면 빼지 않음"""
+    log = []
+    picks = {_ns(t["말"]) for t in thresholds if t.get("지역_고르기")}
+    if not picks:
+        return s, log
+    keep = {k: [v for v in s.get(k) or [] if _ns(v) not in picks] for k in ("지표", "대상")}
+    if not (keep["지표"] or keep["대상"]):
+        return s, log  # 구할 것이 그 기준뿐 → 그대로
+    for k, vals in keep.items():
+        gone = [v for v in s.get(k) or [] if v not in vals]
+        if gone:
+            log.append(f"{tag}{k} 삭제(지역을 고르는 기준이라 조건 단위로): {gone}")
+            s[k] = vals
+    return s, log
+
+
+def fix_share(s, q, den, part, main=True):
+    """'X 중 Y가 차지하는 비율' → 의도 구성비 · 대상 X · 조건 Y · 지표 X 를 세는 말
+    ('보증부월세비율' 처럼 표에 없는 'Y비율' 지표를 만들던 문제)
+    건드리지 않음: 비율 지표 자체를 물은 질문('인구 중 고령인구비율'), 대상·지표가 비어 있는 슬롯(분석 단계가 CSV 표현으로 채움)
+    대상·지표를 새로 채우는 것은 'Y비율' 지표를 조건으로 옮겼을 때만"""
+    log, tag = [], "" if main else "(하위) "
+    if not (s.get("대상") or s.get("지표")):
+        return s, log
+    moved = False
+    if part:  # 'Y비율' 지표 → 조건 Y
+        out = []
+        for v in s.get("지표") or []:
+            stem = RATE_SUFFIX.sub("", _ns(v))
+            if stem != _ns(v) and stem and (stem == _ns(part) or _ns(part).endswith(stem)):
+                if not any(stem in _ns(c) for c in s.get("조건") or []):
+                    s["조건"] = (s.get("조건") or []) + [part]
+                log.append(f"{tag}지표 → 조건(구성비의 부분): {v} → {part}")
+                moved = True
+                continue
+            out.append(v)
+        s["지표"] = out
+    if any(RATE_INDICATOR.search(_ns(v)) for v in s.get("지표") or []):
+        return s, log  # 비율 지표 자체를 물음 → 값 조회
+    if moved and den and not any(_ns(den) in _ns(v) or _ns(v) in _ns(den) for v in s.get("대상") or []):
+        s["대상"] = [den] + list(s.get("대상") or [])
+        log.append(f"{tag}대상 채움(구성비의 전체): {den}")
+    if moved and den and not s.get("지표"):
+        cnt = "가구수" if _ns(den).endswith("가구") else "인구수" if re.search(r"(?:인구|주민|사람)$", _ns(den)) else None
+        if cnt:
+            s["지표"] = [cnt]
+            log.append(f"{tag}지표 채움(구성비의 전체를 세는 말): {cnt}")
+    if main and "구성비" not in s["의도"]:
+        new = ["구성비"] + [i for i in s["의도"] if i != "값 조회"]
+        log.append(f"의도: 'X 중 … 비율' → {s['의도']} → {new}")
+        s["의도"] = new
+    elif not main and s["의도"] == "값 조회":
+        s["의도"] = "구성비"
+        log.append(f"{tag}의도: 'X 중 … 비율' → '구성비'")
+    return s, log
+
+
+def _role_only(ss, words):
+    """하위 슬롯이 분모·조건 말뿐인가 (대상·지표가 그 말이나 일반 말뿐 + 조건 없음) → 역할 단위(roles.py)가 따로 찾으므로 뺌"""
+    from .subcheck import content, is_generic_value
+    vals = content(ss)
+    keys = [_ns(w) for w in words if w]
+    return bool(vals) and not ss.get("조건") and any(not is_generic_value(v) for v in vals) and \
+        all(is_generic_value(v) or any(_ns(v) == k or _ns(v) in k for k in keys) for v in vals)
+
+
+def dedupe_subs(subs):
+    """일반 말을 빼면 대상·지표·조건·자리가 같은 하위 질문 → 하나만 ('보증부월세 일반가구 가구수' · '보증부월세 일반가구')"""
+    from .subcheck import content, frame, is_generic_value
+    seen, out, log = set(), [], []
+    for ss in subs:
+        key = (frozenset(_ns(v) for v in content(ss) if not is_generic_value(v)),
+               frozenset(_ns(v) for v in ss.get("조건") or []), frame(ss))
+        if key[0] and key in seen:
+            log.append(f"하위 질문 삭제(앞 하위 질문과 같음): {content(ss)}")
+            continue
+        seen.add(key)
+        out.append(ss)
+    return out, log
+
+
 SPLIT_KEYS = ("시점", "지역", "성별")  # 같은 통계표에서 바꿔 가져올 수 있는 축 (프롬프트 하위 질문 규칙 2)
 
 
@@ -355,6 +531,14 @@ def validate_slots(r):
     s, lm = clean_measures(s, main=True)
     s, l3 = fix_slots(s, q, found, hits, main=True)
     log += l1 + l2 + lm + l3
+    from .roles import find_thresholds, share_denominator, share_part
+    spans, thresholds = r.get("time_spans") or [], find_thresholds(q)
+    den, part = share_denominator(q), share_part(q)
+    for fn in (lambda x: fix_change_intent(x, q, spans, True), lambda x: drop_unasked_qualifier(x, q),
+               drop_number_conditions, lambda x: drop_threshold_indicator(x, thresholds),
+               lambda x: fix_share(x, q, den, part, True) if den else (x, [])):
+        s, lx = fn(s)
+        log += lx
 
     subs = []
     one_time = found.get("시점", []) if len(found.get("시점", [])) == 1 else []  # 질문 전체 시점이 하나뿐일 때만
@@ -366,6 +550,17 @@ def validate_slots(r):
         log += [f"(하위 {i}) {x}" for x in a + b] + [x.replace("(하위) ", f"(하위 {i}) ") for x in bm + c]
         if one_time and not ss["시점"]:
             ss["시점"] = list(one_time); log.append(f"(하위 {i}) 시점 채움(질문 전체 시점 하나): {one_time}")
+        t = f"(하위 {i}) "
+        ss, d = restore_spans(ss, spans, found.get("시점", []), t)
+        log += d
+        for fn in (lambda x: fix_change_intent(x, q, spans, False), lambda x: drop_unasked_qualifier(x, q, t),
+                   lambda x: drop_number_conditions(x, t), lambda x: fix_share(x, q, den, part, False) if den else (x, [])):
+            ss, lx = fn(ss)
+            log += [x.replace("(하위) ", t) for x in lx]
+        roles_words = [den] + [th["말"] for th in thresholds if th.get("지역_고르기")]
+        if any(roles_words) and _role_only(ss, roles_words):
+            log.append(f"(하위 {i}) 삭제: 분모·조건 말뿐 → 역할 단위로 따로 찾음 {roles_words}")
+            continue
         if not (ss["지역"] or ss["전출지"] or ss["전입지"]) and s["지역"]:  # 지역을 비운 하위 질문 = 원 질문 지역
             ss["지역"] = list(s["지역"]); log.append(f"(하위 {i}) 지역 채움(원 질문): {s['지역']}")
         if not (ss["대상"] or ss["지표"]):
@@ -375,7 +570,8 @@ def validate_slots(r):
     if subs:  # 표를 가르지 못하는 하위 질문 ('수(水)' · 분모처럼 붙은 일반 말 '인구') — subcheck.py
         from .subcheck import prune_sub_slots
         subs, lp = prune_sub_slots(q, s, subs)
-        log += lp
+        subs, ld = dedupe_subs(subs)
+        log += lp + ld
     if _is_cross_split(subs):  # 프롬프트 규칙 2: 모든 연도 × 모든 지역은 나누지 않음
         log.append(f"하위 질문 {len(subs)}개 삭제: 시점·지역·성별만 다른 모든 조합 (한 통계표에서 가져옴)")
         subs = []
@@ -391,7 +587,9 @@ def validate_slots(r):
         if ss["의도"] not in s["의도"]:
             s["의도"].append(ss["의도"]); log.append(f"의도 채움(하위 질문): {ss['의도']}")
     # sub_source: hcx = HCX 가 나눈 하위 질문 / code = 코드가 지표별로 나눔 (code 면 분석 단계가 자기 분리 정책을 씀) / "" = 없음
-    return {"slots": s, "sub_slots": subs, "log": log, "sub_source": source}
+    # thresholds: 'X 가 N명 이상' 기준 (roles.find_thresholds). 재작성 문장에 '가구원수 99,000명 이상' 으로 남기고
+    # 분석 결과 state.thresholds 로 넘김 (조건 칸에는 분류 값만)
+    return {"slots": s, "sub_slots": subs, "log": log, "sub_source": source, "thresholds": thresholds}
 
 
 def split_by_indicator(s):
