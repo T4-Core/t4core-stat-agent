@@ -1,0 +1,5 @@
+# Streamlit 확인용 화면 (백엔드와 따로 설치: pip install -r frontend/streamlit_app/requirements.txt)
+streamlit>=1.50   # 위젯 width= 매개변수
+plotly>=5.20
+pandas>=2.0
+requests>=2.31
