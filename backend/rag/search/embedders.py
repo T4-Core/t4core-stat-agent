@@ -3,6 +3,7 @@
   이름            모델                                           질문 앞에 붙이는 말
   arctic-ko       dragonkue/snowflake-arctic-embed-l-v2.0-ko     prompt_name="query" ('query: ')
   bge-m3-ko       dragonkue/BGE-m3-ko                            없음
+  kure            nlpai-lab/KURE-v1                              없음
   ens-ko          arctic-ko + bge-m3-ko                          (각 모델 그대로)
 
   앙상블: 두 모델의 정규화 벡터를 이어 붙이고 √2 로 나눈다 → 표와의 내적 = 두 코사인의 평균.
@@ -15,7 +16,7 @@
     EMBED_MAX_LEN  최대 토큰 (기본 2048. 표 설명문은 1500자 이하라 잘리지 않음 — info 로 확인)
     EMBED_BATCH    문서 임베딩 배치 (기본 8)
     EMBED_DTYPE    float32(기본) | bfloat16 | float16 — GPU 에서 메모리·시간 절약 (arctic 은 bf16 권장)
-    EMBED_MODEL_ARCTIC_KO, EMBED_MODEL_BGE_M3_KO   모델 경로를 바꿀 때 (내려받아 둔 폴더 등)
+    EMBED_MODEL_ARCTIC_KO, EMBED_MODEL_BGE_M3_KO, EMBED_MODEL_KURE   모델 경로를 바꿀 때 (내려받아 둔 폴더 등)
   문서 임베딩은 <임베딩 캐시>/st_docs/ 에 모델·최대 길이·문서 내용별로 저장 → 처음 한 번만 오래 걸림
 
   python -m backend.rag.search.embedders warm arctic-ko bge-m3-ko   # 표 설명문 임베딩을 미리 (compare 전에)
@@ -39,7 +40,10 @@ LOCAL_MODELS = {
     "arctic-ko": {"model": "dragonkue/snowflake-arctic-embed-l-v2.0-ko", "query_prompt": "query", "query_prefix": "query: ",
                   "env": "EMBED_MODEL_ARCTIC_KO"},
     "bge-m3-ko": {"model": "dragonkue/BGE-m3-ko", "query_prompt": None, "query_prefix": "", "env": "EMBED_MODEL_BGE_M3_KO"},
+    # feature/kos14/RAG-hybrid 의 임베딩 비교 후보 (bge-m3 한국어 미세조정, 질문·문서 그대로)
+    "kure": {"model": "nlpai-lab/KURE-v1", "query_prompt": None, "query_prefix": "", "env": "EMBED_MODEL_KURE"},
 }
+DEFAULT_WARM = ["arctic-ko", "bge-m3-ko"]  # warm 의 기본 (kure 는 이름을 주면)
 ENSEMBLES = {"ens-ko": ["arctic-ko", "bge-m3-ko"]}
 
 
@@ -154,7 +158,7 @@ def main(argv=None):
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(prog="python -m backend.rag.search.embedders")
     ap.add_argument("cmd", choices=["warm", "info"])
-    ap.add_argument("names", nargs="*", default=list(LOCAL_MODELS))
+    ap.add_argument("names", nargs="*", default=list(DEFAULT_WARM))
     ap.add_argument("--docs", nargs="*", default=["rule"], help="rule | def | slot | tmpl | tslot | kos14 | vals (dense 문서 묶음)")
     ap.add_argument("--cards", default=None)
     ap.add_argument("--kos14", default=None)

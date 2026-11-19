@@ -45,6 +45,9 @@ class Settings(BaseModel):
     view_n_views: int = 3
     view_keep_unusable: bool = True
     view_main_with_subs: bool = False
+    view_first_only_when_same: bool = False      # View 2개의 겹치는 교차점 값이 모두 같고 2순위에만 있는 교차점이 없으면 1순위만
+    view_stitch: bool = False                    # 검색 결과의 stitch(같은 통계의 다른 연도 표)로 View 를 더 만들어 함께 넘김
+    conflict_indicator_core: bool = True         # 지표가 '표 이름에만 있음' 이면 핵심어('혼인건수' → '혼인')로 항목을 다시 확인
     conflict_rel_tol: float = 0.0
     conflict_abs_tol: float = 1e-9
     conflict_allow_partial: list[str] = Field(default_factory=lambda: ["시점"])

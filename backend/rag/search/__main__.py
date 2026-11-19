@@ -32,6 +32,10 @@ def main(argv=None):
             st = " ".join(f"{k}#{v['rank']}" for k, v in h["stages"].items())
             print(f"  {h['rank']:2d}. {h['tbl_id']:20s} {h['score']:.4f} ×{h['feas']:<5} {h['survey_nm']} | {h['tbl_nm'][:44]}"
                   f"\n        {st}" + (f"  ⚠ {', '.join(h['feas_notes'])}" if h.get("feas_notes") else ""))
+            if h.get("stitch"):  # 기간 이어붙이기 계획 (period_groups.py)
+                p = h["stitch"]
+                print(f"        ↳ 이어붙이기 {p['group']}: " + " + ".join(f"{t['tbl_id']}{t['years']}" for t in p["tables"])
+                      + (f" · 없는 연도 {p['years_missing']}" if p["years_missing"] else ""))
 
 
 if __name__ == "__main__":

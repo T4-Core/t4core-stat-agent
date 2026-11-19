@@ -1,0 +1,18 @@
+# python -m backend.rag.search.tuning.tune --golden synthetic_gold_pipeline\outputs\datasets\synthetic_gold_dataset.jsonl  (2026-11-19)
+# dev {'n': 110, 'mrr': 0.6413, 'hit@1': 0.4909, 'hit@5': 0.8545, 'groups@5': 0.6455, 'score': 1.8186} → {'n': 110, 'mrr': 0.6507, 'hit@1': 0.4727, 'hit@5': 0.9, 'groups@5': 0.7091, 'score': 1.9052}
+# held-out {'n': 34, 'mrr': 0.6946, 'hit@1': 0.5294, 'hit@5': 0.9412, 'groups@5': 0.6765, 'score': 1.9741} → {'n': 34, 'mrr': 0.6821, 'hit@1': 0.5, 'hit@5': 0.9412, 'groups@5': 0.6471, 'score': 1.9468}
+rrf_k: 20
+weights:
+  ctx_lex: 0.562
+  ctx_title: 3.2
+  ctx_value: 3.2
+  q_dense: 1.6
+  q_dense_def: 0.75
+  q_lex: 1.0
+  q_ngram: 0.8
+  q_title: 1.75
+  q_value: 3.2
+  rw_dense: 1.0
+  rw_lex: 0.656
+  rw_ngram: 0.3
+  rw_value: 0.0

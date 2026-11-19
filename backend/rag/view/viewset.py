@@ -24,6 +24,90 @@ def _settings(overrides=None):
     return with_overrides(overrides)
 
 
+# ── 1순위만 넘기기 · 기간 이어붙이기 (feature/kos14/RAG-hybrid 에서 옮김) ─────────────
+def first_only(views, filters, conf):
+    """1순위만 넘길까: View 가 2개이고, 겹치는 교차점 값이 모두 같고(status ok + 비교한 교차점 있음),
+    2순위에만 있는 교차점이 없을 때. 비교 불가(겹치는 교차점 없음)·값 다름은 둘 다"""
+    if len(views) != 2 or conf["status"] != "ok" or not conf["n_compared_keys"]:
+        return False
+    from backend.rag.view.points import record_points
+
+    def keys(v):
+        return {p.key_str() for p in record_points(v["record"], filters)[0] if p.value is not None}
+    return not (keys(views[1]) - keys(views[0]))
+
+
+def _stitch_of(candidates, tbl_id):
+    """검색 결과에서 이 표의 이어붙이기 계획 (engine 의 stitch — 묶음이 있고 요청 연도가 모자랄 때만, 아니면 None)"""
+    return next((c.get("stitch") for c in candidates if c["tbl_id"] == tbl_id), None)
+
+
+def merge_same_group(u):
+    """2순위 이하가 1순위와 같은 묶음(같은 통계의 다른 연도 표)이면 경쟁 표가 아니라 이어붙일 조각 → 비교 전에 뺌"""
+    if len(u["views"]) < 2:
+        return
+    st = _stitch_of(u["candidates"], u["views"][0]["tbl_id"])
+    parts = {t["tbl_id"] for t in (st or {}).get("tables") or []}
+    gone = [v for v in u["views"][1:] if v["tbl_id"] in parts]
+    if gone:
+        u["views"] = [v for v in u["views"] if v not in gone]
+        u["notes"].append(f"{', '.join(v['tbl_id'] for v in gone)} 는 1순위 {u['views'][0]['tbl_id']} 와 같은 통계의 "
+                          f"다른 연도 표 → 비교하지 않고 이어붙임")
+
+
+def _yr(ys):
+    """[2006, 2007, 2008, 2011] → '2006~2008, 2011'"""
+    out, s = [], None
+    for i, y in enumerate(ys):
+        s = y if s is None else s
+        if i + 1 == len(ys) or ys[i + 1] != y + 1:
+            out.append(str(y) if s == y else f"{s}~{y}")
+            s = None
+    return ", ".join(out)
+
+
+def add_stitched(u, label, build=None):
+    """남은 View 마다 stitch 를 읽어 묶음의 다른 표로 '그 표가 맡은 연도' 의 View 를 만듦 → u["stitched"][부모 tbl_id]
+    부모 Record 에 이어붙인 표·없는 연도 메모를 붙임. 이어붙인 View 는 비교(선택) 대상이 아님
+    build = build_view 와 같은 모양 (테스트에서 바꿔 끼움)"""
+    from backend.rag.view.build import note
+    if build is None:
+        from backend.rag.view.build import build_view as build
+    u.setdefault("stitched", {})
+    have = {v["tbl_id"] for v in u["views"]}
+    for v in u["views"]:
+        st = _stitch_of(u["candidates"], v["tbl_id"])
+        if not st:
+            continue
+        parts = []
+        for j, t in enumerate(st["tables"], 1):
+            if t["tbl_id"] == v["tbl_id"] or t["tbl_id"] in have:
+                continue
+            try:
+                rec, vnotes = build(t["tbl_id"], {**u["filters"], "시점": t["years"]}, f"{label}-{v['rank']}s{j}")
+            except Exception as e:  # noqa: BLE001  (이어붙일 표 하나 실패해도 계속)
+                u["notes"].append(f"이어붙일 표 {t['tbl_id']} View 생성 실패: {e.__class__.__name__}: {str(e)[:150]}")
+                continue
+            rec["stitch"] = {"of": v["tbl_id"], "group": st["group"], "years": t["years"]}
+            parts.append({"record": rec, "tbl_id": t["tbl_id"], "years": t["years"], "notes": [n["text"] for n in vnotes]})
+            have.add(t["tbl_id"])
+        if not parts:
+            continue
+        u["stitched"][v["tbl_id"]] = parts
+        own = next((t["years"] for t in st["tables"] if t["tbl_id"] == v["tbl_id"]), [])
+        text = (f"같은 통계를 연도별로 나눈 표를 이어붙임: {v['tbl_id']}({_yr(own)}) + "
+                + " + ".join(f"{p['tbl_id']}({_yr(p['years'])})" for p in parts))
+        if st["years_missing"]:
+            text += f". 이어붙여도 없는 연도: {_yr(st['years_missing'])}"
+        if st.get("mixed_cycle"):
+            text += ". 표마다 주기(년·월 등)가 다름"
+        note(v["record"].setdefault("notes", []), "시점", "stitched", text,
+             requested=st["years_have"] + st["years_missing"], applied=st["years_have"])
+        v["notes"].append(text)
+        v["stitch"] = {"group": st["group"], "tables": [v["tbl_id"]] + [p["tbl_id"] for p in parts],
+                       "years_have": st["years_have"], "years_missing": st["years_missing"]}
+
+
 # ── 선택지 설명 ─────────────────────────────────────────────────
 def _csv_table(tbl_id):
     try:
@@ -146,7 +230,15 @@ def build_viewset(source, *, today=None, top_k=None, n_views=None, overrides=Non
         uid = u["unit_id"]
         with maybe_step(tracer, f"Point 비교:{uid}", rel_tol=s.conflict_rel_tol, abs_tol=s.conflict_abs_tol,
                         allow_partial=s.conflict_allow_partial) as st:
+            if s.view_stitch:
+                merge_same_group(u)
             conf = detect(u["views"], u["filters"], s, uid)
+            if s.view_first_only_when_same and first_only(u["views"], u["filters"], conf):
+                u["views"] = u["views"][:1]
+                conf["first_only"] = True
+                conf["notes"].append(f"2순위 표 {conf['views'][1]['tbl_id']} 와 겹치는 교차점 값이 모두 같아 1순위만 넘김")
+            if s.view_stitch:  # 비교가 끝난 뒤 → 이어붙인 View 는 선택 대상이 아님
+                add_stitched(u, vb["query_id"] if uid == "main" else uid)
             views_by_id = {v["record"]["id"]: v for v in u["views"]}
             if conf["status"] == "ambiguous":
                 conf["options"] = build_options(conf, views_by_id, s)
@@ -160,7 +252,7 @@ def build_viewset(source, *, today=None, top_k=None, n_views=None, overrides=Non
                          "n_differ": len(conf["differing_points"]), "clusters": conf["clusters"]}
         unit = {"unit_id": uid, "query": u["query"], "search_query": u["search_query"], "filters": u["filters"],
                 "candidates": u["candidates"], "views": u["views"], "notes": u["notes"], "conflict": conf,
-                "selected": None, "keep_unusable": s.view_keep_unusable}
+                "selected": None, "keep_unusable": s.view_keep_unusable, "stitched": u.get("stitched") or {}}
         if conf["status"] == "ambiguous":
             choice = on_ambiguous(conf) if on_ambiguous else None
             if choice:
@@ -192,7 +284,15 @@ def unit_records(unit):
     if unit.get("selected"):
         have = {r["id"] for r in recs}
         recs += [r for r in unit["selected"]["records"] if r["id"] not in have and not indicator_missing(r)]
-    return recs
+    # 넘기는 표에 이어붙인 View 가 있으면 바로 뒤에 같이 (부모 표가 빠지면 같이 빠짐)
+    stitched = unit.get("stitched") or {}
+    if not stitched:
+        return recs
+    out = []
+    for r in recs:
+        out.append(r)
+        out += [p["record"] for p in stitched.get((r.get("source") or {}).get("tbl_id"), [])]
+    return out
 
 
 def missing_indicator_note(unit):

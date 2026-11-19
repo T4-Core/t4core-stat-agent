@@ -121,6 +121,8 @@ flowchart LR
   title  표 이름이 질문에 있는가   lex    Kiwi BM25 (표 설명문)      ngram  글자 2·3-gram BM25
 구조 계수 (곱)  시점(실제 수록 연도) · 주기(월·분기·반기) · 시군구 이름 · 지역 수준 · 시도 · 연령·성별 분류 · 조사 이름
 형제 표 해소    같은 통계의 (계)/(남)/(여) · 전국/시도/시군구판 · 연도판 무리 안에서 질문 좌표에 맞는 표를 앞으로
+기간 이어붙이기 같은 통계의 연도판 묶음(+ configs/period_links.csv 의 이름이 바뀐 표)으로 요청 연도를 채울 계획을
+                결과에 붙임 (years_have · years_missing · stitch — 순위는 그대로, search/period_groups.py)
 분모 단위       '인구'·'가구' 뿐인 하위 질의는 본 질의 1위 표와 같은 조사의 단순한 표를 찾음
 (선택) LLM 재정렬  상위 12개를 표 구조 요약으로 HCX 가 다시 줄 세움 (configs/search.yaml 의 llm_rerank.enabled)
 ```
@@ -137,6 +139,10 @@ flowchart LR
 - 지표를 나누는 분류(`기본항목별: 출생아수(명)·사망자수(명)…`, 합계 없음)에 요청 지표가 없으면 첫 코드로 바꿔치기하지 않습니다.
   그 View 는 `metadata.indicator_missing` 이 붙고 답변으로 넘기지 않으며, 단위의 View 가 모두 그렇다면
   "요청한 지표를 담은 통계표를 찾지 못함" 으로 답합니다 (다른 지표 값으로 답하지 않음).
+- `view_stitch: true` 면 검색 결과의 `stitch` 로 같은 통계의 다른 연도 표를 "그 표가 맡은 연도" 로 잘라 View 를 더 만들고,
+  부모 Record 바로 뒤에 넘깁니다 (비교·선택 대상이 아님. 끝내 없는 연도는 notes). 같은 묶음의 2순위 표는 경쟁 표로 보지 않습니다.
+- `view_first_only_when_same: true` 면 View 2개의 겹치는 교차점 값이 모두 같고 2순위에만 있는 교차점이 없을 때 1순위만 넘깁니다.
+- 지표가 표 이름에만 있다고(partial) 판정되면 핵심어('혼인건수' → '혼인')로 항목·분류 값을 다시 찾습니다 (`conflict_indicator_core`).
 - 요청 기간이 표 수록 기간과 하나도 겹치지 않으면 notes 와 검색 `unmet` 에 "요청 기간(1980~1999) 이 표 수록 기간(2000~2025) 밖" 을 남기고
   `metadata.period_outside` 를 붙입니다. 값은 가장 가까운 끝 해 하나만 참고로 넣습니다.
 
@@ -321,6 +327,7 @@ dense 채널 (`--dense`, `configs/search.yaml` 의 `dense`)
 | `hcx` (기본) | HCX bge-m3 | 없음 | HCX API |
 | `arctic-ko` | dragonkue/snowflake-arctic-embed-l-v2.0-ko | `query: ` | 내 PC (`search/embedders.py`) |
 | `bge-m3-ko` | dragonkue/BGE-m3-ko | 없음 | 내 PC |
+| `kure` | nlpai-lab/KURE-v1 | 없음 | 내 PC (warm 기본 목록에는 없음 — 이름을 주면) |
 | `ens-ko` | arctic-ko + bge-m3-ko | 각 모델대로 | 내 PC — 정규화 벡터를 이어 붙여 √2 로 나눔 = 두 코사인의 평균 |
 | `hash` · `none` | 오프라인 확인용 · 어휘 채널만 | | |
 

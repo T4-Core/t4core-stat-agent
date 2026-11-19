@@ -64,6 +64,10 @@ DEFAULTS = {
     # 개념 카탈로그 (concepts.py → <CSV 값 사전>/concepts.json): 같은 값을 주는 표 묶음.
     # 무리 안의 '바꿔치기' 에는 쓰지 않음 (같은 값은 합계 칸에서만 확인된 경우가 많음) — LLM 후보에 끌어오고 카드에 표시
     "concepts": {"enabled": True, "path": None, "add": 3},
+    # 기간 이어붙이기 (period_groups.py): 같은 통계의 연도판 묶음. 순위는 그대로 두고 결과마다 있는/없는 연도와
+    # 이어붙일 표 계획(stitch)을 붙임 — View 단계가 view_stitch 일 때 그 계획으로 View 를 더 만듦.
+    # links = 사람이 확인한 '이름이 바뀐 같은 통계' 연결 CSV (비우면 configs/period_links.csv)
+    "stitch": {"enabled": True, "links": None},
     # 형제 표 해소 (siblings.py): 상위 window 안의 무리마다 좌표(성별·지역 수준·연도)로 하나를 앞에
     "siblings": {"enabled": True, "window": 12, "margin": 0.75, "max_outside": 3},
     "generic_units": ["인구", "인구수", "가구", "가구수", "비율", "구성비", "총계", "합계", "계", "평균", "건수", "명수", "호수",
@@ -148,6 +152,16 @@ class TableSearch:
             log(f"[search] 형제 표 무리 {self.sib.info()} · 개념 {len(self.concepts)}개")
         from backend.rag.search.movement import table_move
         self.move = [table_move(f) for f in self.ch.facets]  # 표마다 이동 범위·방향 (이동 표가 아니면 move=False)
+        self.periods = {}
+        if (self.s.get("stitch") or {}).get("enabled", True):
+            from backend.rag.search.period_groups import build_groups, load_links, summary
+            try:
+                self.periods = build_groups(self.facets, load_links(self.s["stitch"].get("links")))
+            except Exception as e:  # noqa: BLE001  (연결 파일이 깨져 있어도 검색은 계속)
+                if log:
+                    log(f"[search] 기간 묶음을 만들지 못함: {e.__class__.__name__}: {e}")
+            if log and self.periods:
+                log(f"[search] 기간 묶음 {summary(self.periods)}")
         self.cfg = {"name": name, "top_k": 10}
         self._qcache, self._lock = {}, threading.Lock()
 
@@ -480,6 +494,7 @@ class TableSearch:
         hits = hits[:top_k]
         if filters is not None:
             self._attach_conditions(hits, filters)
+        self._attach_periods(hits, qv.years)
         return {"config": self.name, "query": query, "search_query": qv.lex, "question": question, "filters": filters,
                 "top_k": top_k, "hits": hits, "pool_ids": pool_ids, "seconds": round(time.time() - t0, 3),
                 "parsed": {"years": qv.years, "cohort": qv.cohort, "cycle": sorted(qv.cycle), "sido": qv.sido,
@@ -514,6 +529,17 @@ class TableSearch:
                 added += take(t)
         return head + extras + [t for t in ids[top_n:] if t not in extras]
 
+    def _attach_periods(self, hits, want):
+        """요청 연도가 있으면 결과마다 있는/없는 연도 + 이어붙이기 계획 (표시·View 용 — 순위에는 쓰지 않음)"""
+        if not want:
+            return
+        from backend.rag.search.period_groups import facet_years, stitch_plan, year_split
+        for h in hits:
+            f = self.facets.get(h["tbl_id"])
+            h["years_have"], h["years_missing"] = year_split(facet_years(f) if f else None, want)
+            if self.periods:
+                h["stitch"] = stitch_plan(h["tbl_id"], want, self.periods)
+
     def _attach_conditions(self, hits, filters):
         """View 단계·화면이 읽는 unmet·cover·cost 를 붙임 (표시용 — 순위에는 쓰지 않음)"""
         try:
@@ -531,7 +557,8 @@ class TableSearch:
                 h["cost"] = round(cost(h["unmet"], h["cover"]), 3)
 
     def search_compat(self, query, top_k=10, filters=None, question=None, unit="main"):
-        keep = ("rank", "tbl_id", "tbl_nm", "survey_nm", "score", "dense", "bm25_rank", "bm25", "unmet", "cover", "cost")
+        keep = ("rank", "tbl_id", "tbl_nm", "survey_nm", "score", "dense", "bm25_rank", "bm25", "unmet", "cover", "cost",
+                "years_have", "years_missing", "stitch")
         return [{k: h[k] for k in keep if k in h}
                 for h in self.search(query, filters, top_k, question=question, unit=unit)["hits"]]
 
