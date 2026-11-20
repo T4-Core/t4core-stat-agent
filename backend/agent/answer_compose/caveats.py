@@ -60,12 +60,21 @@ def build_caveats(f: Facts) -> list[Caveat]:
     seen: set[str] = set()
 
     def add(source: str, ref: str, text: str) -> None:
-        if text and text not in seen:         # 같은 문장이 View 마다 반복되면 한 번만
-            seen.add(text)
+        # 같은 문장이 View 마다 반복되면 한 번만. 보류 사유는 범위(ref)가 다르면 같은 문장이어도 모두 남긴다 —
+        # q-1 과 q-2 가 같은 이유로 보류됐을 때 q-1 만 남으면 q-2 의 보류가 사라진다
+        key = (source, ref, text) if source == "plan_warning" else text
+        if text and key not in seen:
+            seen.add(key)
             out.append(Caveat(source=source, ref=ref, text=text))
 
+    # [CHANGED 11-20] 이전: 보류 사유를 모두 ref="plan" 으로 붙였다 → 어느 하위 질문의 보류인지 알 수 없어 질문 전체에 붙은 것처럼 보였다 (M6-2).
+    #   withheld 가 있으면 그 범위(하위 질문 ID · 차트 ID)를 ref 로 쓰고, 범위를 모르는 사유(예전 입력)만 "plan" 으로 둔다
+    for w in f.req.withheld:
+        add("plan_warning", w.sub_question_id or w.chart_id or "plan", w.text)
+    scoped = {w.text for w in f.req.withheld}
     for text in f.req.plan_warnings:          # 모듈 3 이 계산을 보류한 사유가 가장 먼저 (왜 답이 없는지)
-        add("plan_warning", "plan", text)
+        if text not in scoped:                # 범위를 아는 사유는 위에서 이미 넣었다
+            add("plan_warning", "plan", text)
     for rid in used_record_ids(f) or list(by_id):
         rec = by_id.get(rid)
         if rec is None:

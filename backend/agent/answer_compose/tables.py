@@ -170,6 +170,9 @@ def build_tables(f: Facts) -> list[AnswerTable]:
         tables.append(summary)
     tables += [t for r in f.req.calc_results if is_list(r) and (t := build_list(f, r, max_rows))]
 
+    if not f.req.calc_results and f.req.withheld:
+        return tables       # [NEW 11-20] 계산을 보류해서 결과가 하나도 없으면 근거 표도 없다 — 관계없는 표(자동차 등록대수 질문의 세대수 표)가 근거처럼 보인다 (M6-3).
+        #                     보류 사유 없이 결과만 없는 입력은 기존대로 받은 View 를 보여 준다
     by_id = {rec.id: rec for rec in f.req.records}
     ids = [rid for rid in used_record_ids(f) if rid in by_id] or list(by_id)      # 쓴 View 를 모르면 받은 View 전부
     tables += [build_view(f, by_id[rid], no, max_rows) for no, rid in enumerate(ids, 1)]

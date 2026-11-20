@@ -85,6 +85,29 @@ class Facts:
     def ok_results(self) -> list[CalcResult]:
         return [r for r in self.req.calc_results if has_value(r)]
 
+    # ── 결과의 역할 (KOS-26 · KOS-38: 보류된 요청을 대신 보여 주는 값만 '참고로' 로 낮춘다) ──
+    @property
+    def withheld_subs(self) -> set[str]:
+        """답변 계산을 보류한 하위 질문. 차트 계획의 보류(chart_id 가 있는 것)는 제외한다 — 같은 하위 질문의 답변 계산은 올바르게 나왔을 수 있다
+        (차트가 잘못된 View 를 골라 보류됐는데 답변 값이 '참고로' 로 낮아지던 문제)"""
+        return {w.sub_question_id for w in self.req.withheld if w.sub_question_id and not w.chart_id}
+
+    def role_of(self, r: CalcResult) -> str:
+        """요청 · 독립 · 보조 · 대체. 대체 = 보류된 하위 질문을 대신 보여 주는 값 (같은 하위 질문의 다른 성공 결과,
+        또는 보류된 질문만 지원하는 역할 단위(분모 · 조건)의 결과). 보류와 관계없는 다른 하위 질문의 결과는 독립 — 정식 답이다.
+        보류가 없거나 소속(sub_question_id)을 모르는 예전 입력이면 모두 요청이다"""
+        held, sid = self.withheld_subs, r.sub_question_id
+        if not held or sid is None:
+            return "요청"
+        if sid in held:
+            return "대체"
+        linked = {rid for l in self.req.role_links for rid in l.record_ids}
+        used = {*r.record_ids, *(i.record_id for i in r.inputs)}
+        if used and used <= linked:
+            supports = {s for l in self.req.role_links if used & set(l.record_ids) for s in l.supports}
+            return "대체" if supports and supports <= held else "보조"
+        return "독립"
+
     def direction(self, r: CalcResult) -> float | None:
         """증가(+) · 감소(-) 방향. 증감 계산은 값의 부호가 아니라 **끝 − 처음** 으로 판단한다 (-100 → -50 은 증가).
         스칼라 결과만. 입력이 둘 미만이면 값의 부호"""
