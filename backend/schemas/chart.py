@@ -31,6 +31,62 @@ Role = Literal["x", "y", "y2", "series", "value", "label", "size", "region", "pa
 
 
 # ── 입력 ─────────────────────────────────────────────────────────
+# ── [NEW 11-20] 사용자의 차트 지정 요청 (KOS-41) ─────────────────────────────
+# 요청 해석은 모듈 2 가 하고 ChartRequest.request 로 전달한다. 모듈 3 출력(Module3Output)에는 싣지 않는다 —
+# 최종 확정 함수(agent/chart_notice.py)가 응답의 charts(요청 포함) · 3번의 validation · render_status 를 조합한다.
+StageReason = Literal["ambiguous_scope", "unsupported_type", "data_mismatch", "view_blocked", "no_candidate"]
+RequestOutcomeKind = Literal["honored", "substituted", "table_only", "render_failed", "not_rendered"]
+RequestReason = Literal[
+    "ambiguous_scope", "unsupported_type", "data_mismatch", "view_blocked", "no_candidate",   # 모듈 2 단계
+    "validation_fallback", "validation_failed",                                                # 모듈 3 단계
+    "render_error", "draw_disabled", "qa_stopped"]                                             # 렌더링 단계
+RenderKind = Literal["drawn", "failed", "skipped"]
+RenderReason = Literal["draw_disabled", "no_chart_content", "qa_stopped", "exception", "render_error"]
+
+# (outcome, 허용 reason). honored 는 reason 이 없다 (기능 문서 5.3)
+OUTCOME_REASONS: dict[str, tuple[str | None, ...]] = {
+    "honored": (None,),
+    "substituted": ("unsupported_type", "data_mismatch", "validation_fallback", "ambiguous_scope"),
+    "table_only": ("unsupported_type", "data_mismatch", "view_blocked", "validation_failed", "no_candidate", "ambiguous_scope"),
+    "render_failed": ("render_error",),
+    "not_rendered": ("draw_disabled", "qa_stopped"),
+}
+
+
+class RequestedName(BaseModel):
+    text: str = Field(..., description="요청 원문 표현 (예: 히스토그램, 원그래프)")
+    code: ChartType | None = Field(None, description="지원하는 차트 코드. 미지원 이름이면 None")
+    supported: bool = False
+
+
+class RequestStage(BaseModel):
+    """모듈 2 단계의 구조화된 중간 사유. 설명 문장(ChartRequest.reason)은 reason_node 가 덮어쓰므로 쓰지 않는다"""
+    reason: StageReason | None = None
+    selected: ChartType | None = Field(None, description="모듈 2 가 고른 차트 유형 (진단용. 최종 유형은 validation 이 정한다)")
+    applied: bool = Field(True, description="요청이 선택에 반영되었는가 (ambiguous_scope 이면 False)")
+
+
+class ChartRequestInfo(BaseModel):
+    preferred: list[RequestedName] = Field(default_factory=list, description="요청한 차트 (앞 이름이 우선)")
+    excluded: list[RequestedName] = Field(default_factory=list, description="사용자가 거부한 차트 ('막대 말고' 의 막대)")
+    scope: list[str] | Literal["all"] = Field("all", description="적용되는 chart_id 목록")
+    stage: RequestStage = Field(default_factory=RequestStage)
+
+
+class ChartRequestOutcome(BaseModel):
+    """차트마다 하나. 최종 확정 단계(agent/chart_notice.py)에서만 만든다"""
+    chart_id: str
+    outcome: RequestOutcomeKind
+    reason: RequestReason | None = None
+    final_chart: ChartType | None = None
+
+
+class RenderState(BaseModel):
+    state: RenderKind
+    reason: RenderReason | None = None
+    error: str | None = None
+
+
 class ChartRequest(BaseModel):
     """모듈 2 의 차트 계획 하나 (charts[] 의 원소)
 
@@ -48,6 +104,10 @@ class ChartRequest(BaseModel):
     view_ids: list[str] = Field(default_factory=list, description=(
         "이 차트가 쓸 View 의 Record.id (모듈 2 의 view_ids). 일반 차트는 1개, combo 는 여러 개일 수 있다 (개수 제한 없음). "
         "chart_type 이 null 이어도 그 하위 질문의 질문용 계산이 쓸 View 를 담는다. 비어 있으면 records 전체가 후보"))
+    # [NEW 11-20 KOS-41] 사용자가 이름으로 지정한 차트 요청. 요청이 없으면 None (빈 객체를 쓰지 않는다)
+    request: ChartRequestInfo | None = Field(None, description="질문에서 지정한 차트 요청 (모듈 2 가 해석). 최종 안내가 쓴다")
+    m2_warnings: list[str] = Field(default_factory=list, description=(
+        "모듈 2 의 사용자용 경고 (진단용). ChartPlan.warnings · plan_warnings 에 합치지 않는다 — 확정 전 문장이 답변에 남는다"))
 
 
 class Module3Request(BaseModel):

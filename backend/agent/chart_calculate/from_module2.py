@@ -54,7 +54,9 @@ def to_chart_request(c: dict[str, Any], main_id: str | None = None) -> ChartRequ
 
     return ChartRequest(chart_id=c["chart_id"], sub_question_ids=sub_ids,
                         chart_type=chart_type, measure=measure, requirements=list(c.get("requirements") or []),
-                        fallback_chart=fallback, reason=reason, view_ids=list(c.get("view_ids") or []))
+                        fallback_chart=fallback, reason=reason, view_ids=list(c.get("view_ids") or []),
+                        # [NEW 11-20 KOS-41] 차트 지정 요청과 모듈 2 경고. 경고는 진단용으로만 두고 plan_warnings 에 합치지 않는다
+                        request=c.get("request"), m2_warnings=list(c.get("warnings") or []))
 
 
 def records_of(view_input: dict[str, Any]) -> list[Record]:

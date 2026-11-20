@@ -414,6 +414,19 @@ def coverage_problems(template: str, f: Facts) -> tuple[list[str], set[str]]:
     return out, allowed
 
 
+def chart_claim_problems(template: str) -> list[str]:
+    """[NEW 11-20 KOS-41] 차트 상태 서술을 거절한다. 모듈 6 은 모듈 5 와 병렬이라 답변 시점에는 렌더링 결과를 모른다 (성공 서술이 M5 실패와 충돌).
+    차트 안내는 agent/chart_notice.py 가 최종 상태 기준으로 따로 만든다. 이름이 문장에 들어 있다는 이유만으로는 거절하지 않는다
+    ('운동지도자 수는 …' 의 지도). 판정은 요청 추출과 같은 함수(chart_type_preference.chart_claims)를 쓴다"""
+    from backend.agent.chart_decision.chart_decision_module.chart_type_preference import chart_claims
+    plain = _BRACE.sub(" ", template or "")
+    found = chart_claims(plain)
+    if not found:
+        return []
+    words = ", ".join(dict.fromkeys(w for _, _, w in found))
+    return [f"차트·그래프의 유형이나 생성 여부를 서술함 ({words}) — 차트에 대한 말을 쓰지 않고 숫자와 의미만 쓴다"]
+
+
 _SENTENCE_END = re.compile(r"(?<=[.!?。])\s+|\n+")
 _REASON = re.compile(r"하지\s*못|수\s*없|없어|없습니다|않았|불가")
 
@@ -463,6 +476,7 @@ def check(template: str, filled: Filled, f: Facts, caveats: list[Caveat]) -> lis
     problems += name_problems(template, f)
     problems += vs_key_problems(template, f)
     problems += coverage[0]
+    problems += chart_claim_problems(template)
     if _LABEL_THEN_PERCENT.search(template):
         problems.append("시점·이름 자리표시자 뒤에 %를 붙임 — 수치는 결과 값 자리표시자({a1} 등)로 쓴다")
     # [NEW 11-20] 참고 결과(보류된 요청을 대신 보여 주는 값)를 인용했는데 답변에 '참고' 가 없으면 그 값이 질문의 답처럼 읽힌다 (M6-2)

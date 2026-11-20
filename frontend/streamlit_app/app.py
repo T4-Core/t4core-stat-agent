@@ -397,6 +397,8 @@ def big_view(r: vm.Result):
         draw_chart(r.charts[i], 460, key="big1")
     else:
         st.info("차트로 그릴 값이 없어 표만 보여 드려요.")
+    for msg in r.chart_notices:
+        st.info(msg)
     for i, t in enumerate(r.tables):
         st.markdown(f'<div class="nx-lbl">{ui.escape(t["title"] or "표")}</div>', unsafe_allow_html=True)
         df = _df(t["columns"], t["rows"])
@@ -421,7 +423,9 @@ def viz_card(r: vm.Result):
             big_view(r)
         if n > 1:
             S.wide = st.toggle("넓게 펼쳐 나란히 보기", S.wide, key="wide_t")
-        if not r.charts:
+        for msg in r.chart_notices:          # [NEW 11-20 KOS-41] 요청한 차트와 다르게 나간 이유. 차트가 없어도 보인다
+            st.info(msg)
+        if not r.charts and not r.chart_notices:
             st.info("차트로 그릴 값이 없어요. 아래 표로 확인해 주세요.")
         if S.viz_mode == "표" or not r.charts:
             for t in r.tables or [{"title": c.title, "columns": c.columns, "rows": c.rows} for c in r.charts]:

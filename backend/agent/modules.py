@@ -105,12 +105,15 @@ def _figure_json(fig):
         return None
 
 
-def _draw(plan, m3: Module3Output, notes: list[str]):
+def _draw(plan, m3: Module3Output, notes: list[str], errors: list[str] | None = None):
+    """errors: [NEW 11-20 KOS-41] 모듈 5 예외 요약을 담는다. drawn=[] 만으로는 '그림을 안 그림'과 '그리다 실패'를 구분할 수 없다"""
     try:
         from backend.agent.draw_chart import run_module5
         out = run_module5(chart_plan=plan or {"query_id": m3.query_id, "charts": []}, module3_output=m3, save=False)
     except Exception as e:  # noqa: BLE001  (그림이 실패해도 답변은 낸다)
         notes.append(f"모듈 5 실패: {e.__class__.__name__}: {str(e)[:200]}")
+        if errors is not None:
+            errors.append(f"{e.__class__.__name__}: {str(e)[:200]}")
         return []
     return [{"chart_id": r.chart_id, "chart_type": r.chart_type, "status": r.status, "title": r.title,
              "reason": r.reason, "warnings": list(r.warnings), "merged_from": list(r.merged_from),
@@ -142,14 +145,19 @@ def run_modules(vs: dict[str, Any], use_llm_chart: bool = True, draw: bool = Tru
                 c.view_ids = list(dict.fromkeys([*c.view_ids, *extra_ids]))
         notes.append(f"역할 단위(분모·조건)의 View 를 세트에 붙임: {extra_ids}")
     m3 = run_module3(Module3Request(records=records, query_bundle=bundle, charts=charts, role_links=role_links), decision=decision, chat=chat)
-    drawn = _draw(d["chart_plan"], m3, notes) if draw and m3.chart_contents else []
+    draw_errors: list[str] = []
+    drawn = _draw(d["chart_plan"], m3, notes, draw_errors) if draw and m3.chart_contents else []
+    # [NEW 11-20 KOS-41] 차트 지정 요청의 최종 결과와 안내 (QA 경로와 같은 함수). 모듈 6 은 차트 상태를 말하지 않는다
+    from backend.agent.chart_notice import finalize_chart_request
+    chart_status = finalize_chart_request(charts, m3, drawn, draw=draw, error=draw_errors[0] if draw_errors else None)
     m6 = run_module6(Module6Request(query_bundle=bundle, records=records, calc_results=m3.calc_results,
                                     displays=m3.displays, answer_steps=m3.chart_plan.answer_steps,
                                     plan_warnings=m3.chart_plan.warnings, withheld=m3.chart_plan.withheld, role_links=role_links,
                                     max_rows=max_rows), chat=chat)
     return {"charts": [c.model_dump(mode="json") for c in charts], "chart_errors": d["errors"],
             "chart_plan": d["chart_plan"], "records": [r.model_dump(mode="json") for r in records],
-            "module3": m3.model_dump(mode="json"), "drawn": drawn, "answer": m6.model_dump(mode="json"), "notes": notes}
+            "module3": m3.model_dump(mode="json"), "drawn": drawn, "answer": m6.model_dump(mode="json"), "notes": notes,
+            **chart_status}
 
 
 def as_answer_result(mods: dict[str, Any]) -> dict[str, Any]:
