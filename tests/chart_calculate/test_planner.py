@@ -46,7 +46,7 @@ def test_spec_scenario_plan_and_displays():
     assert dumped["plans"][1]["steps"] == [{"step_id": "s1", "op": "raw", "display_ref": "d2"}]
     # 질문용 증감률은 명세 예시대로 from·to(2021→2025) 두 시점 (2026-11-16 결정 D-1. 11-11 에는 시점마다 직전 대비였다)
     assert dumped["answer_steps"][0] == {
-        "step_id": "a1", "op": "growth_rate", "from": "2021", "to": "2025", "display_ref": "d3",
+        "step_id": "a1", "sub_question_id": "q-1", "op": "growth_rate", "from": "2021", "to": "2025", "display_ref": "d3",
         "operands": [{"role": "value", "record_id": VID, "item": "혼인건수(건)", "select": NATION, "unit": "건",
                       "unit_source": "item"}]}
     assert dumped["answer_steps"][1]["display_ref"] == "d3"                # 같은 단위(%) → 같은 표시 설정

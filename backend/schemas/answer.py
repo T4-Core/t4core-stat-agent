@@ -13,8 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from backend.schemas.chart import CalcResult, Display, Step
-from backend.schemas.query import QueryBundle
+from backend.schemas.chart import CalcResult, Display, Step, Withheld
+from backend.schemas.query import QueryBundle, RoleLink
 from backend.schemas.record import Record
 
 TableKind = Literal["calc_summary", "calc_list", "view"]
@@ -31,6 +31,9 @@ class Module6Request(BaseModel):
         "모듈 3 Module3Output.chart_plan.answer_steps. 없어도 된다 — 있으면 극값 방향(kind)·집계 방식(agg)을 문장에 쓴다"))
     plan_warnings: list[str] = Field(default_factory=list, description=(
         "모듈 3 Module3Output.chart_plan.warnings. 계산을 보류한 사유(질문의 지역 자료 없음, 분모 자료가 세트 밖 등)를 주의사항으로 전달한다"))
+    # [NEW 11-20] 보류 범위와 역할 단위 연결. 둘 다 비어 있으면(예전 입력) 기존 동작 — 보류 경고가 질문 전체에 붙는다
+    withheld: list[Withheld] = Field(default_factory=list, description="모듈 3 Module3Output.chart_plan.withheld. 보류한 하위 질문·차트 범위")
+    role_links: list[RoleLink] = Field(default_factory=list, description="split_roles 가 질문에서 뺀 역할 단위(분모·조건)와 그 View. 보조 결과를 가려낸다")
     max_rows: int = Field(50, ge=1, le=500, description="원본 View 표 하나의 최대 행 수. 계산에 쓴 행은 이 수와 관계없이 넣는다")
 
 

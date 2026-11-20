@@ -953,7 +953,7 @@ def run_steps(steps: list[Step], records: list[Record], default: Plan | None = N
 
 
 def to_calc_result(step: Step, calc: Calc) -> CalcResult:
-    return CalcResult(step_id=step.step_id, op=step.op, value=calc.value, unit=calc.unit, display_ref=step.display_ref,
+    return CalcResult(step_id=step.step_id, sub_question_id=step.sub_question_id, op=step.op, value=calc.value, unit=calc.unit, display_ref=step.display_ref,
                       inputs=calc.inputs, record_ids=calc.record_ids, scope_label=calc.scope_label,
                       agg=(step.agg or "sum") if step.op == "aggregate" else None,      # [NEW 11-17] 집계 방식 (agg 를 비우면 합계)
                       note="; ".join(calc.notes) or None)

@@ -160,7 +160,7 @@ def add_role_units(question, vb, lex=None, max_units=4):
         return []
     subs = list(vb.get("sub_questions") or [])
     sfs = list(vb.get("sub_filters") or [None] * len(subs))
-    base_f = {k: v for k, v in (vb.get("filters") or {}).items() if k not in ("대상", "지표", "원문표현", "조건", "역할")}
+    base_f = {k: v for k, v in (vb.get("filters") or {}).items() if k not in ("대상", "지표", "원문표현", "조건", "조건식", "역할")}
     own = [t for t, f in zip(subs, sfs) if _plain(t, f)]  # 재작성·분리 단계가 만든 단위 (+ 여기서 더한 말)
     added = []
     for role, p in roles:
