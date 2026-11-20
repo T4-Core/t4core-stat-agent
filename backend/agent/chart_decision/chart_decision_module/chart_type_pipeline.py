@@ -8,7 +8,8 @@ from .chart_type_matcher import match_units
 from .chart_type_measure import decide_measure
 from .chart_type_profiler import profile_data
 from .chart_type_reason import make_reason
-from .chart_type_nodes import CHART_KEYS, _request_warning, _requested, chart_warnings
+from .chart_type_nodes import CHART_KEYS, _request_info, _request_warning, chart_warnings
+from .chart_type_preference import record_selection, requested_codes
 from .chart_type_overlay import find_overlays
 from .chart_type_schema import validate_plan
 from .chart_type_view_check import block_reason, check_view, fit_warnings
@@ -52,15 +53,19 @@ def decide_charts(query_bundle, view_input, use_llm=True):
     # [고도화 5단계] combo 로 묶지 않는다 — 차트는 하위질문마다 1개, 겹쳐 그리기는 아래 overlays 로 표시 (5번만 읽음)
     for m in targets:
         block, exclude, why = blocks[m["chart_id"]]
+        info = _request_info(m, query_bundle)                              # [NEW 11-20 KOS-41] 차단 판정과 관계없이 요청을 먼저 해석
         base = {"chart_id": m["chart_id"], "sub_question_ids": [m["sub_question_id"]],
-                "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"], "_ms": [m]}
+                "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"], "_ms": [m], "request": info}
         if block:                                                         # View 가 질문에 맞지 않음 → 차트 없음 (표만)
+            record_selection(info, None, block=block)
             plans.append({**base, "chart_type": None, "fallback_charts": []})
             errors.append({"node": "chart_select", "chart_id": m["chart_id"], "level": "warning",
                            "reason": f"차트 없음(표만): {block}"})
             continue
+        codes, excl = requested_codes(info)
         r = pick_chart(m["measure"], m["profile"], use_llm=use_llm, exclude=exclude, exclude_why=why,
-                       requested=_requested(m, query_bundle))
+                       requested=codes, excluded=excl)
+        record_selection(info, r)
         errors += _request_warning(m["chart_id"], r)
         plans.append({**base, "chart_type": r["chart_type"], "fallback_charts": r["fallback_charts"]})
 
