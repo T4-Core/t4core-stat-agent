@@ -414,6 +414,30 @@ def coverage_problems(template: str, f: Facts) -> tuple[list[str], set[str]]:
     return out, allowed
 
 
+_SENTENCE_END = re.compile(r"(?<=[.!?。])\s+|\n+")
+_REASON = re.compile(r"하지\s*못|수\s*없|없어|없습니다|않았|불가")
+
+
+def reference_problems(template: str, f: Facts) -> list[str]:
+    """[NEW 11-20] 참고 결과(보류된 요청을 대신 보여 주는 값)는 **그 값을 쓰는 문장마다** '참고로' 로 시작해야 하고, 그 앞에 계산하지 못한 사유 문장이 있어야 한다.
+    답변 어딘가에 '참고' 라는 말이 있다는 것만 보면 '참고 자료는 아래 표에 있습니다. 비율은 1,404가구입니다' 가 통과한다 (M6-2)"""
+    subs = [r.step_id for r in f.ok_results if f.role_of(r) == "대체"]
+    if not subs:
+        return []
+    sentences = [x.strip() for x in _SENTENCE_END.split(template) if x.strip()]
+    out = []
+    for sid in subs:
+        mark = re.compile(r"\{" + re.escape(sid) + r"[.}]")
+        at = [i for i, x in enumerate(sentences) if mark.search(x)]
+        if not at:
+            continue
+        if any(not re.match(r"참고로", sentences[i]) for i in at):
+            out.append(f"참고 결과({sid})를 쓰는 문장이 '참고로'로 시작하지 않음 — 질문의 답처럼 읽힌다. 그 값은 '참고로 …' 문장에만 쓴다")
+        elif not any(_REASON.search(x) for x in sentences[:at[0]]):
+            out.append(f"참고 결과({sid}) 앞에 요청한 계산을 하지 못한 사유가 없음 — 먼저 계산하지 못한 사유를 밝히고, 그 값은 '참고로 …' 문장에 쓴다")
+    return out
+
+
 def check(template: str, filled: Filled, f: Facts, caveats: list[Caveat]) -> list[str]:
     """fill 의 problems 에 더해 자리표시자 밖 숫자 · 인용 누락을 찾는다"""
     problems = list(filled.problems)
@@ -441,6 +465,8 @@ def check(template: str, filled: Filled, f: Facts, caveats: list[Caveat]) -> lis
     problems += coverage[0]
     if _LABEL_THEN_PERCENT.search(template):
         problems.append("시점·이름 자리표시자 뒤에 %를 붙임 — 수치는 결과 값 자리표시자({a1} 등)로 쓴다")
+    # [NEW 11-20] 참고 결과(보류된 요청을 대신 보여 주는 값)를 인용했는데 답변에 '참고' 가 없으면 그 값이 질문의 답처럼 읽힌다 (M6-2)
+    problems += reference_problems(template, f)
     missing = [r.step_id for r in f.ok_results if r.step_id not in filled.value_used]
     if missing:
         problems.append(f"인용하지 않은 계산 결과: {', '.join(missing)} — 입력값·시점이 아니라 **결과 값**({{{missing[0]}}} 등)을 한 번은 인용한다")

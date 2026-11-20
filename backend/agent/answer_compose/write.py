@@ -30,7 +30,8 @@ def _dir_hint(token: str, way, r: CalcResult) -> str:
 
 def _result_lines(f: Facts, r: CalcResult) -> list[str]:
     kind = {"min": " (최솟값)", "max": " (최댓값)"}.get(f.extreme_kind(r) or "", "") if r.op == "extreme" else ""   # [CHANGED 11-16] 이전: 방향을 모르면 None 글자가 프롬프트에 들어갔다 (검수 M6-04)
-    head = f"{r.step_id} | {f.label(r)}{kind}"
+    role = " | 참고 결과 (요청한 계산을 하지 못해 대신 보이는 값)" if f.role_of(r) == "대체" and has_value(r) else ""     # [NEW 11-20]
+    head = f"{r.step_id} | {f.label(r)}{kind}{role}"
     pts = points(r)
     if not has_value(r):
         return [f"{head} | 계산 불가" + (f" (사유: {humanize(r.note, r.inputs)})" if r.note else "")]
