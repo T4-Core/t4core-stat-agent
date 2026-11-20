@@ -17,7 +17,7 @@
 from typing import Any, Callable
 
 from backend.schemas.chart import ChartRequest, Module3Output, Module3Request
-from backend.schemas.query import QueryBundle
+from backend.schemas.query import QueryBundle, RoleLink
 from backend.schemas.record import Record
 
 ROLE_KEY = "역할"
@@ -46,24 +46,38 @@ def view_input_of(vs: dict[str, Any]) -> dict[str, Any]:
     return {"query_id": vs.get("query_id"), "original": vs.get("original"), "filters": vs.get("filters"), "units": units}
 
 
-def split_roles(bundle: dict[str, Any], view_input: dict[str, Any]):
-    """역할 단위를 질문에서 뺀다 → (모듈용 bundle, 모듈용 view_input, 역할 단위의 View 들)"""
+def split_roles_linked(bundle: dict[str, Any], view_input: dict[str, Any]):
+    """역할 단위를 질문에서 뺀다 → (모듈용 bundle, 모듈용 view_input, 역할 단위의 View 들, RoleLink 목록)
+    [NEW 11-20] RoleLink: 뺀 단위가 어느 본 질문을 지원하는지. 뺀 뒤에는 모듈 6 이 보조 결과를 가려낼 방법이 없어 여기서 남긴다"""
     subs, sfs = list(bundle.get("sub_questions") or []), list(bundle.get("sub_filters") or [])
     roles = [i for i in range(len(subs)) if i < len(sfs) and _role(sfs[i])]
     if not roles:
-        return bundle, view_input, []
+        return bundle, view_input, [], []
     qid = bundle.get("query_id")
     role_units = {f"{qid}-{i + 1}" for i in roles}
     keep = [i for i in range(len(subs)) if i not in roles]
     if keep != list(range(len(keep))):      # 역할 단위는 add_role_units 가 맨 뒤에 붙인다 — 아니면 ID 가 어긋나므로 그대로 둔다
-        return bundle, view_input, []
+        return bundle, view_input, [], []
     b = {**bundle, "sub_questions": [subs[i] for i in keep], "sub_filters": [sfs[i] for i in keep] if sfs else sfs}
     units = [u for u in view_input["units"] if u.get("unit_id") not in role_units]
+    by_unit = {u.get("unit_id"): u for u in view_input["units"]}
     extra = [min(u["views"], key=lambda v: v["rank"]) for u in view_input["units"]
              if u.get("unit_id") in role_units and u.get("views")]
     if not b["sub_questions"]:              # 역할 단위뿐이면 (그럴 일은 없지만) 손대지 않는다
-        return bundle, view_input, []
-    return b, {**view_input, "units": units}, extra
+        return bundle, view_input, [], []
+    main_ids = [f"{qid}-{i + 1}" for i in keep]
+    links = []
+    for i in roles:
+        u = by_unit.get(f"{qid}-{i + 1}") or {}
+        best = min(u["views"], key=lambda v: v["rank"]) if u.get("views") else None
+        links.append(RoleLink(unit_id=f"{qid}-{i + 1}", role=_role(sfs[i]), term=str(subs[i]), supports=list(main_ids),
+                              record_ids=[best["record"]["id"]] if best else []))
+    return b, {**view_input, "units": units}, extra, links
+
+
+def split_roles(bundle: dict[str, Any], view_input: dict[str, Any]):
+    """역할 단위를 질문에서 뺀다 → (모듈용 bundle, 모듈용 view_input, 역할 단위의 View 들). RoleLink 가 필요하면 split_roles_linked"""
+    return split_roles_linked(bundle, view_input)[:3]
 
 
 def decide_charts(bundle: QueryBundle, view_input: dict[str, Any], use_llm: bool = True) -> dict[str, Any]:
@@ -117,7 +131,7 @@ def run_modules(vs: dict[str, Any], use_llm_chart: bool = True, draw: bool = Tru
     vb = dict(vs.get("view_bundle") or {})
     vb.setdefault("query_id", vs.get("query_id"))
     vb.setdefault("original", vs.get("original") or "")
-    vb, view_input, role_views = split_roles(vb, view_input_of(vs))
+    vb, view_input, role_views, role_links = split_roles_linked(vb, view_input_of(vs))
     bundle = QueryBundle.model_validate(vb)
     d = decide_charts(bundle, view_input, use_llm=use_llm_chart)
     charts: list[ChartRequest] = d["charts"]
@@ -130,7 +144,7 @@ def run_modules(vs: dict[str, Any], use_llm_chart: bool = True, draw: bool = Tru
             if c.view_ids:
                 c.view_ids = list(dict.fromkeys([*c.view_ids, *extra_ids]))
         notes.append(f"역할 단위(분모·조건)의 View 를 세트에 붙임: {extra_ids}")
-    m3 = run_module3(Module3Request(records=records, query_bundle=bundle, charts=charts), decision=decision, chat=chat)
+    m3 = run_module3(Module3Request(records=records, query_bundle=bundle, charts=charts, role_links=role_links), decision=decision, chat=chat)
     draw_errors: list[str] = []
     drawn = _draw(d["chart_plan"], m3, notes, draw_errors) if draw and m3.chart_contents else []
     # [NEW 11-20 KOS-41] 차트 지정 요청의 최종 결과와 안내 (QA 경로와 같은 함수). 모듈 6 은 차트 상태를 말하지 않는다
@@ -138,7 +152,8 @@ def run_modules(vs: dict[str, Any], use_llm_chart: bool = True, draw: bool = Tru
     chart_status = finalize_chart_request(charts, m3, drawn, draw=draw, error=draw_errors[0] if draw_errors else None)
     m6 = run_module6(Module6Request(query_bundle=bundle, records=records, calc_results=m3.calc_results,
                                     displays=m3.displays, answer_steps=m3.chart_plan.answer_steps,
-                                    plan_warnings=m3.chart_plan.warnings, max_rows=max_rows), chat=chat)
+                                    plan_warnings=m3.chart_plan.warnings, withheld=m3.chart_plan.withheld, role_links=role_links,
+                                    max_rows=max_rows), chat=chat)
     return {"charts": [c.model_dump(mode="json") for c in charts], "chart_errors": d["errors"],
             "chart_plan": d["chart_plan"], "records": [r.model_dump(mode="json") for r in records],
             "module3": m3.model_dump(mode="json"), "drawn": drawn, "answer": m6.model_dump(mode="json"), "notes": notes,

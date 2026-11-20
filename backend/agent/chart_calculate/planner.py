@@ -33,14 +33,17 @@ from typing import Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.agent.chart_calculate import region_scope
-from backend.agent.chart_calculate.indicator import corresponds, is_category_label, matches_any
+from backend.agent.chart_calculate.condition import find_axis, item_column_value, selected_values
+from backend.agent.chart_calculate.indicator import correspondence, is_category_label, matches_any
 from backend.agent.chart_calculate.calculate import SELECTED_LABEL, TIME_COL, _only_unit_added, step_key
 from backend.agent.chart_calculate.validate import TOTAL_LABELS, totals_in
 from backend.agent.chart_calculate.display import (STANDARD_UNITS, data_digits, make_display, ratio_unit, register, result_unit,
                                                    unit_of)
-from backend.agent.chart_calculate.select import age_span, AGE_HINTS, CATEGORY_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL, select_rows
+from backend.agent.chart_calculate.select import (age_span, AGE_HINTS, CATEGORY_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL, find_item_column,
+                                                   select_rows)
+from backend.core.korean import strip_unit
 from backend.schemas.chart import (ChartPlan, ChartRequest, Denominator, Display, Measure, Operand, Plan, PlanOutput,
-                                   Role, Select, Step)
+                                   Role, Select, Step, Withheld)
 from backend.schemas.query import Filters, QueryBundle
 from backend.schemas.record import Record
 
@@ -60,6 +63,9 @@ TARGET = "대상"                          # 고정 조건에 싣는 참고 값 
 INDICATOR = "지표"                       # 고정 조건에 싣는 참고 값 (질문의 지표. 계산에 쓴 항목이 이것과 대응하는지 확인한다)
 YEARLY = "매년"                         # 고정 조건에 싣는 참고 값 (해마다의 변화를 묻는 질문인지)
 _YEARLY = re.compile(r"매년|해마다|매해|전년\s*대비|연도별\s*(?:증감|증가|감소|변화)")
+COND_EXPR = "조건식"                     # [NEW 11-20] 고정 조건에 싣는 조건 목록 ([{field, op, value, unit, text, source}]). 값이 문자열 목록이 아니라 dict 목록이다
+SURFACE = "원문표현"                     # [NEW 11-20] 항목 후보를 찾는 별칭 (질문 원문에 있던 CSV 표현)
+WHOLE_TOTAL_LABELS = {"계", "합계", "총계", "전체"}   # [NEW 11-20] 분모로 쓸 수 있는 전체 행. '소계' 는 부분 범주의 합일 수 있어 뺀다 (validate.TOTAL_LABELS 는 그대로)
 AXIS = "비교축"                         # 고정 조건에 싣는 참고 값 (범주 비교 질문인지)
 _TIME_AXES = {"연도", "연도별", "시점", "년도", "해", "기간", "연간"}   # 비교축이 시간인 질문 (가장 많은 해)
 TOTAL_FREE_OPS = {"rank", "extreme"}      # 범주 비교 질문이면 조건에서 총계(전국 · 계)를 빼는 연산
@@ -157,6 +163,10 @@ def _fixed_of(f: Filters | None) -> dict[str, list[str]]:
         out[REGION] = list(f.지역)
     if f and f.연령 and (f.연령.from_ is not None or f.연령.to is not None):
         out[AGE] = [str(f.연령.from_ or 0), "" if f.연령.to is None else str(f.연령.to)]
+    if f and f.원문표현:
+        out[SURFACE] = [str(x) for x in f.원문표현]
+    if f and f.조건식:
+        out[COND_EXPR] = [c.model_dump() for c in f.조건식]
     if f and f.지표:
         out[INDICATOR] = [str(x) for x in f.지표]
     if f and f.대상:
@@ -175,6 +185,15 @@ def fixed_conditions(bundle: QueryBundle | None) -> dict[str, dict[str, list[str
     main, subs = _fixed_of(bundle.filters), bundle.sub_filters or []
     pairs = sub_question_ids(bundle)
     out = {sid: dict(_fixed_of(subs[i]) if i < len(subs) and subs[i] is not None else main) for i, (sid, _) in enumerate(pairs)}
+    # [NEW 11-20] 조건식 은 하위 필터가 있어도 상위 조건과 합친다. 하위 필터가 우선이면 상위에만 있는 조건(숫자 기준)이 본 질문에서 사라진다.
+    #   역할 단위(분모·조건)는 질문이 아니라 제외한다
+    if main.get(COND_EXPR):
+        for i, (sid, _) in enumerate(pairs):
+            sf = subs[i] if i < len(subs) else None
+            if sf is not None and sf.역할:
+                continue
+            have = out[sid].get(COND_EXPR) or []
+            out[sid][COND_EXPR] = [*have, *[c for c in main[COND_EXPR] if c not in have]]
     # [NEW 11-17] '매년 · 해마다 · 전년 대비' 를 묻는 질문 (보고서 11.3 H3). 하위 질문 문장에서 찾고, 하위 질문이 하나면 원 질문에서도 찾는다
     #   (재작성기가 '매년' 을 '연도별 증감률' 로 바꿔 적는다)
     whole = " ".join([bundle.original, bundle.rewritten or ""]) if len(pairs) == 1 else ""
@@ -245,6 +264,9 @@ class _Planner:
         self.notes: list[str] = []
         self.warnings: list[str] = []          # [NEW 11-13] 사용자에게 알릴 사유 (ChartPlan.warnings)
         self.withheld: set[str] = set()        # [NEW 11-13] 조건이 맞지 않아 계산을 보류한 계획 (tag)
+        self.withheld_list: list[Withheld] = []   # [NEW 11-20] 보류 범위 (ChartPlan.withheld)
+        self.scope: dict[str, tuple[str | None, str | None, str | None]] = {}   # tag → (하위 질문 ID, chart_id, 연산)
+        self.alias_ok: set[tuple[str, str]] = set()   # (record_id, 항목) — 지표 대응 검사를 별칭(원문표현·조건 값)으로 통과한 항목
         self.answer_sub: dict[str, str] = {}      # 질문용 step_id → 하위 질문 ID (같은 세트의 차트 단계를 찾을 때 쓴다)
 
     def note(self, tag: str, text: str):
@@ -255,6 +277,78 @@ class _Planner:
         self.withheld.add(tag)
         self.note(tag, f"{note} → 계산하지 않음")
         self.warnings.append(warning)
+        sub, chart, op = self.scope.get(tag, (None, None, None))
+        self.withheld_list.append(Withheld(sub_question_id=sub, chart_id=chart, op=op, text=warning))
+
+    def same_view_total(self, tag: str, picks: list[Pick], d: "_Args", expected: list[str], fixed: dict | None = None) -> "_Args | None":
+        """[NEW 11-20] 비중의 분모 View 가 세트 밖이면, 분자와 **같은 View 의 전체 행**(계 · 합계 · 총계 · 전체)을 분모로 쓸 수 있는지 (KOS-26 A-4).
+        분자 실제 행마다, 공유 축(부분 값이 든 열)과 값 열을 뺀 **나머지 모든 열**의 값이 같은 전체 행이 정확히 하나 있고 원 단위가 같을 때만.
+        select 에 적힌 열만 비교하면 View 에 섞인 성별 · 지역 · 분류가 다른 행(남자 부분 ÷ 여자 계)을 분모로 잡는다. '소계' 는 쓰지 않는다.
+        **분모로 넓힐 수 있는 축은 부분 값이 든 열뿐이다** — 부분의 항목이 있는 열, 그리고 부분을 정한 조건식(점유형태=보증부월세)의 열.
+        성별 · 지역 같은 다른 열의 '계' 로 넓히면 질문의 모집단 조건이 바뀐다 (남자 가구주 중 비율인데 성별 계의 부분 값이 분모가 된다).
+        올바른 분모가 없으면 None (기존대로 denominator_outside 가 보류한다)"""
+        den = d.denominator
+        if not expected or den is None or den.scope != "question" or den.operand is None or den.operand.record_id in expected or not picks:
+            return None
+        part = picks[0]
+        rec = self.records.get(part.record_id)
+        if rec is None or part.record_id not in expected:
+            return None
+        sel = select_rows(rec, part.select, part.item)
+        if not sel.rows:
+            return None
+        cols = [c for c in rec.table.columns if c != VALUE_COL]
+        ordered = self._part_axes(rec, part, fixed or {})
+        for axis in ordered:
+            ai = rec.table.columns.index(axis)
+            part_vals = {str(r[sel.col(axis)]) for r in sel.rows}
+            labels = {str(r[ai]) for r in rec.table.rows} & WHOLE_TOTAL_LABELS
+            if len(part_vals) != 1 or len(labels) != 1 or part_vals & labels:
+                continue
+            total = next(iter(labels))
+            others = [c for c in cols if c != axis]
+            totals = {}
+            for r in rec.table.rows:
+                if str(r[ai]) == total:
+                    totals.setdefault(tuple(str(r[rec.table.columns.index(c)]) for c in others), []).append(r)
+            matched, ok = [], True
+            for r in sel.rows:
+                key = tuple(str(r[sel.col(c)]) for c in others)
+                hit = totals.get(key) or []
+                if len(hit) != 1:
+                    ok = False
+                    break
+                matched.append(hit[0])
+            if not ok:
+                continue
+            coords = {c: list(dict.fromkeys(str(r[rec.table.columns.index(c)]) for r in matched)) for c in others}
+            item_total = total if axis == ITEM_COL else None
+            den_select = {c: v for c, v in coords.items() if c != ITEM_COL}
+            if axis != ITEM_COL:
+                den_select[axis] = [total]
+            item = item_total if axis == ITEM_COL else (coords.get(ITEM_COL) or [None])[0]
+            if item is None and ITEM_COL in coords and len(coords[ITEM_COL]) != 1:
+                continue
+            u_part, u_total = self.unit(part.record_id, part.item, part.select), self.unit(part.record_id, item, den_select)
+            if u_part != u_total:
+                continue
+            self.note(tag, f"분모 View {den.operand.record_id} 가 세트 밖 → 같은 View 의 '{total}' 행을 분모로 씀 (열 '{axis}', 나머지 좌표 일치)")
+            operand = Operand(record_id=part.record_id, item=item, select=den_select, unit=u_total,
+                              note=f"같은 표의 '{total}' 행을 분모로 씀")
+            return d.model_copy(update={"denominator": den.model_copy(update={"operand": operand})})
+        return None
+
+    def _part_axes(self, rec: Record, part: Pick, fixed: dict) -> list[str]:
+        """부분(분자)의 값이 들어 있는 열: 항목이 있는 열 + 조건식의 '=' 조건이 적용되는 열. 순서대로, 중복 없이"""
+        axes: list[str] = []
+        item = part.item or (str(v[0]) if len(v := part.select.get(ITEM_COL) or []) == 1 else None)
+        if item and (hit := find_item_column(list(rec.table.columns), rec.table.rows, item)):
+            axes.append(hit[0])
+        alias = {i for rid, i in self.alias_ok if rid == rec.id}
+        for c in fixed.get(COND_EXPR) or []:
+            if c.get("op") == "=" and (col := find_axis(rec, c, alias).column) and col not in axes:
+                axes.append(col)
+        return [a for a in axes if a not in (TIME_COL, VALUE_COL)]
 
     def denominator_outside(self, tag: str, d: "_Args", expected: list[str]) -> bool:
         """비중의 분모를 세트(view_ids) 밖 View 에서 가져오면 다른 범위의 총계로 나누게 된다 (40% 가 20% 로 바뀐다) → 보류"""
@@ -611,26 +705,56 @@ class _Planner:
                 self.note(tag, f"범주 비교 질문이라 {col} 조건의 총계 {sorted(total)} 를 뺌")
         return out
 
+    def _aliases(self, fixed: dict) -> list[str]:
+        """항목 후보를 찾는 별칭: 원문표현 + '=' 조건의 값. 승인은 correspondence 의 측정 호환 검사가 한다 (이름 일치만으로 승인하지 않는다)"""
+        conds = [str(c["value"]) for c in fixed.get(COND_EXPR) or [] if c.get("op") == "="]
+        return list(dict.fromkeys([*(fixed.get(SURFACE) or []), *conds]))
+
+    def _has_indicator_item(self, rec: Record, wanted: list[str], strict: bool) -> bool:
+        """View 의 항목 열에 요청한 지표 자체(이름 경로)에 대응하는 항목이 있는가. 있으면 별칭 항목은 분류 값이라 지표로 승인하지 않는다"""
+        if ITEM_COL not in rec.table.columns:
+            return False
+        col = rec.table.columns.index(ITEM_COL)
+        return any(correspondence(i, unit_of(i, rec.metadata.get("unit")), wanted, [], (), strict) == "name"
+                   for i in dict.fromkeys(str(r[col]) for r in rec.table.rows))
+
+    def _item_via(self, rec: Record, item: str, fixed: dict, strict: bool) -> str | None:
+        """항목이 요청 지표에 대응하는 경로(name · target · alias). 대응하지 않으면 None. 별칭으로 승인한 항목은 alias_ok 에 남긴다"""
+        via = correspondence(item, unit_of(item, rec.metadata.get("unit")), fixed.get(INDICATOR) or [], fixed.get(TARGET) or [],
+                             self._aliases(fixed), strict)
+        if via == "alias" and self._has_indicator_item(rec, fixed.get(INDICATOR) or [], strict):
+            return None
+        if via == "alias":
+            self.alias_ok.add((rec.id, item))
+        return via
+
     def check_indicator(self, tag: str, picks: list[Pick], fixed: dict) -> list[Pick]:
         """[NEW 11-18] 계산에 쓸 항목이 질문의 지표와 대응하는지 (F7 · F16). '시도별 인구 순위' 에 출생성비 표가 와도 HCX 가 총출생성비를 골라
         순위를 냈다 (Q08). 대응하지 않으면 → 같은 View 에 대응하는 항목이 하나뿐이면 그 항목으로 바꾸고, 아니면 계산하지 않는다.
-        View 가 '지표와 맞는 항목 없음' 이라고 적었으면 수식어 허용 없이 이름이 같을 때만 대응으로 본다"""
-        wanted, targets = fixed.get(INDICATOR) or [], fixed.get(TARGET) or []
+        View 가 '지표와 맞는 항목 없음' 이라고 적었으면 수식어 허용 없이 이름이 같을 때만 대응으로 본다
+        [CHANGED 11-20] 이전: corresponds(item, wanted, targets, strict) — 대상 이름이 맞으면 측정 대상이 달라도(가구원수 ↔ 가구수) 승인했고,
+        원문표현 · 조건 값은 쓰지 않았다. 이제 항목의 원 단위로 측정 호환을 확인하고(indicator.correspondence), 별칭 경로를 더했다.
+        항목이 정해지지 않은 피연산자(item 없음, select 의 항목이 하나로 안 정해짐)는 선택된 행의 항목 전체를 검사한다 (check_rows_indicator)"""
+        wanted = fixed.get(INDICATOR) or []
         if not wanted:
             return picks
         out = []
         for p in picks:
             rec = self.records.get(p.record_id)
             item = p.item or (str(v[0]) if len(v := p.select.get(ITEM_COL) or []) == 1 else None)
+            if rec is not None and item is None and ITEM_COL in rec.table.columns:
+                sel = self.check_rows_indicator(tag, p.record_id, p.select, fixed)
+                out.append(p if sel is None else p.model_copy(update={"select": sel}))
+                continue
             if rec is None or item is None or is_category_label(item):     # 항목이 나이 · 성별 같은 구분 값이면 지표를 알 수 없다
                 out.append(p)
                 continue
             strict = any(n.slot == "지표" and n.type == "default" for n in rec.notes)
-            if corresponds(item, wanted, targets, strict):     # 개수 지표면 대상 이름도 허용, 비율 지표면 지표 이름만 (검토 11)
+            if self._item_via(rec, item, fixed, strict):     # 개수 지표면 대상 이름 · 별칭도 허용(측정 호환 True 일 때), 비율 지표면 지표 이름만 (검토 11)
                 out.append(p)
                 continue
             col = rec.table.columns.index(ITEM_COL) if ITEM_COL in rec.table.columns else None
-            alts = list(dict.fromkeys(str(r[col]) for r in rec.table.rows if corresponds(str(r[col]), wanted, targets, strict))) if col is not None else []
+            alts = list(dict.fromkeys(str(r[col]) for r in rec.table.rows if self._item_via(rec, str(r[col]), fixed, strict))) if col is not None else []
             if len(alts) == 1:
                 new = alts[0]
                 self.note(tag, f"항목 '{item}' 은 요청 지표 {wanted} 와 다름 → View 의 '{new}' 로 바꿈")
@@ -642,6 +766,117 @@ class _Planner:
                           f"요청한 지표({', '.join(wanted)})가 이 표에 없어 계산하지 못했습니다 (표의 항목: {item}).")
             out.append(p)
         return out
+
+    def check_rows_indicator(self, tag: str, record_id: str, select: Select, fixed: dict) -> Select | None:
+        """[NEW 11-20] 항목이 정해지지 않은 선택(차트의 상위 select 등)이 실제로 고르는 행의 항목을 모두 검사한다 (KOS-26 A-3).
+        이전: item 이 없으면 검사를 건너뛰어, 인구수를 요구하면서 출생성비 View 에 시점만 고른 차트가 보류 없이 통과했다.
+        모두 대응하면 그대로, 대응하는 항목이 하나뿐이면 항목 열 조건을 그 항목으로 좁히고, 아니면 보류한다 (None)"""
+        wanted = fixed.get(INDICATOR) or []
+        rec = self.records.get(record_id)
+        if not wanted or rec is None or ITEM_COL not in rec.table.columns:
+            return select
+        sel = select_rows(rec, select, None)
+        if not sel.rows:
+            return select                      # 행이 없는 사유는 다른 검증이 낸다
+        ii = sel.col(ITEM_COL)
+        items = list(dict.fromkeys(str(r[ii]) for r in sel.rows))
+        if all(is_category_label(i) for i in items):
+            return select
+        strict = any(n.slot == "지표" and n.type == "default" for n in rec.notes)
+        good = [i for i in items if not is_category_label(i) and self._item_via(rec, i, fixed, strict)]
+        bad = [i for i in items if not is_category_label(i) and i not in good]
+        if not bad:
+            return select
+        if len(good) == 1:
+            self.note(tag, f"선택한 행의 항목 {items} 중 요청 지표 {wanted} 에 대응하는 '{good[0]}' 만 남김")
+            return {**select, ITEM_COL: [good[0]]}
+        if not good and (narrowed := self._narrow_by_other_column(tag, rec, sel, select, fixed, strict)) is not None:
+            return narrowed                    # 지표 이름이 항목 열이 아니라 분류 열(종류별 …)에 있는 표 (find_item_column 과 같은 가정)
+        self.withhold(tag, f"선택한 행의 항목 {items} 이 요청 지표 {wanted} 와 대응하지 않음 (대응 항목: {good or '없음'})",
+                      f"요청한 지표({', '.join(wanted)})가 이 표에 없어 계산하지 못했습니다 (표의 항목: {', '.join(items[:3])}).")
+        return None
+
+    def _narrow_by_other_column(self, tag: str, rec: Record, sel, select: Select, fixed: dict, strict: bool) -> Select | None:
+        """지표 이름이 든 다른 열(시점 · 값 · 지역 · 연령 · 성별 제외)을 찾아 그 열의 선택을 요청 지표에 대응하는 값으로 좁힌다.
+        대응하는 값이 하나라도 있다고 선택 전체를 승인하면 안 된다 (종류별 열에 출생아수 100 · 사망자수 999 가 같이 있는데 출생아수를 물은 경우).
+        대응하는 열이 없으면 None. 좁힌 select 로 고르는 행은 모두 요청 지표에 대응한다 (좁힌 열의 값이 전부 good 이므로)"""
+        for col in sel.columns:
+            if col in (ITEM_COL, VALUE_COL, TIME_COL) or any(h in col for h in CATEGORY_HINTS):
+                continue
+            vals = list(dict.fromkeys(str(r[sel.col(col)]) for r in sel.rows))
+            good = [v for v in vals if self._item_via(rec, v, fixed, strict)]
+            if not good:
+                continue
+            if len(good) == len(vals):
+                return select
+            self.note(tag, f"열 '{col}' 의 값 {vals} 중 요청 지표 {fixed.get(INDICATOR)} 에 대응하는 {good} 만 남김")
+            return {**select, col: good}
+        return None
+
+    # ── 조건 적용 (KOS-26 A-2) ──────────────────────────────────
+    def check_conditions(self, tag: str, picks: list[Pick], fixed: dict) -> list[Pick]:
+        """[NEW 11-20] 질문의 조건(조건식)을 피연산자의 행 선택에 적용했는지. 적용하지 못한 조건이 하나라도 있으면 계산하지 않는다.
+        이전: 슬롯의 조건이 표에 적용되지 못해도 알림 없이 조건 없는 값이 정상 답으로 나갔다 (장래가구추계 가구원수>=5).
+        비교 연산(>=, < …)은 아직 지원하는 연산이 없어 항상 보류한다. '=' 조건은 분류 축을 식별해 선택을 맞추고, 못 찾으면 보류한다"""
+        conds = fixed.get(COND_EXPR) or []
+        if not conds:
+            return picks
+        for c in conds:
+            if c["op"] != "=":
+                self.withhold(tag, f"조건 '{c['text']}' 의 비교 연산({c['op']})은 지원하지 않음",
+                              f"'{c['text']}' 같은 조건부 집계는 아직 지원하지 않아 계산하지 못했습니다.")
+                return picks
+        out = []
+        for p in picks:
+            rec = self.records.get(p.record_id)
+            for c in conds if rec is not None else []:
+                p = self.apply_condition(tag, rec, p, c)
+                if tag in self.withheld:
+                    return picks
+            out.append(p)
+        return out
+
+    def apply_condition(self, tag: str, rec: Record, p: Pick, c: dict) -> Pick:
+        """'=' 조건 하나를 피연산자에 적용. 열을 못 찾으면 보류"""
+        ax = find_axis(rec, c, {i for rid, i in self.alias_ok if rid == rec.id})
+
+        def fail(why: str):
+            self.withhold(tag, f"조건 {c['text']} 을 적용하지 못함: {why}", f"'{c['text']}' 조건을 적용할 자료가 없어 계산하지 못했습니다.")
+
+        if ax.column is None:
+            fail(ax.why)
+            return p
+        value = str(c["value"])
+        if ax.column == ITEM_COL:
+            item = p.item or (str(v[0]) if len(v := p.select.get(ITEM_COL) or []) == 1 else None)
+            shown = item_column_value(rec, item)
+            if shown is None or strip_unit(shown) != strip_unit(value):
+                fail(f"고른 항목 '{item}' 이 조건 값 '{value}' 과 다름")
+            return p
+        if [str(v) for v in p.select.get(ax.column) or []] == [value]:
+            return p
+        self.note(tag, f"조건 {c['text']}: 열 '{ax.column}' 의 선택을 {p.select.get(ax.column)} → [{value}] 로 맞춤")
+        return p.model_copy(update={"select": {**p.select, ax.column: [value]}})
+
+    def violated_condition(self, record_id: str, select: Select, item: str | None, fixed: dict) -> str | None:
+        """[NEW 11-20] 최종 선택이 조건을 어기는지 — 병합 · 보정 뒤 범위가 다시 넓어졌는지 (KOS-26 A-2 ③). 어기면 조건 문장, 아니면 None"""
+        rec = self.records.get(record_id)
+        if rec is None:
+            return None
+        for c in fixed.get(COND_EXPR) or []:
+            if c["op"] != "=":
+                return c["text"]
+            ax = find_axis(rec, c, {i for rid, i in self.alias_ok if rid == rec.id})
+            if ax.column is None:
+                return c["text"]
+            value = str(c["value"])
+            have = selected_values(rec, select, item, ax.column) or set()
+            if ax.column == ITEM_COL:
+                have = {strip_unit(v) for v in have}
+                value = strip_unit(value)
+            if have and have != {value}:
+                return c["text"]
+        return None
 
     def check_columns(self, tag: str, p: Pick) -> Select:
         """[NEW 11-18] select 의 열이 View 에 없을 때 (F13). 이전: 계산 전체가 '열 없음' 으로 실패했다 (HCX 가 '대상' 열을 넣은 Q02).
@@ -709,6 +944,13 @@ class _Planner:
             sel, d2 = self.fix_select(tag, op, p.select, d, fixed or {}, p.record_id, answer=chart_type is None)
             out.append(p.model_copy(update={"select": sel}))
         if tag in self.withheld:                      # 지역 불일치 등 → 이 계산의 피연산자를 비운다
+            return [], d2
+        # [NEW 11-20] 조건식 적용 + 최종 선택이 조건을 어기지 않는지 (merge · fix_select 가 범위를 넓힌 경우를 잡는다)
+        out = self.check_conditions(tag, out, fixed or {})
+        for p in out if tag not in self.withheld else []:
+            if bad := self.violated_condition(p.record_id, p.select, p.item, fixed or {}):
+                self.withhold(tag, f"최종 선택이 조건 '{bad}' 을 만족하지 않음", f"'{bad}' 조건을 적용할 자료가 없어 계산하지 못했습니다.")
+        if tag in self.withheld:
             return [], d2
         return out, d2
 
@@ -878,6 +1120,7 @@ class _Planner:
     # ── 차트용 ───────────────────────────────────────────────────
     def plan(self, chart: ChartRequest, d: ChartDecision) -> Plan | None:
         tag, op = chart.chart_id, chart.measure
+        self.scope[tag] = (chart.sub_question_ids[0] if len(chart.sub_question_ids) == 1 else None, tag, op)
         self.withheld.discard(tag)
         fixed = self.fixed_for(tag, chart.sub_question_ids)
         picks, d2 = self.normalize(tag, op, d.operands, d, chart.chart_type, fixed)
@@ -890,6 +1133,16 @@ class _Planner:
             self.note(tag, "record_id 가 없어 차트 계획을 만들지 않음")
             return None
         self.check_set(tag, chart.view_ids, [record_id, *(p.record_id for p in picks)])
+        if not picks:      # [NEW 11-20] 피연산자가 없으면 상위 record_id · select 가 고르는 행 전체의 항목을 검사한다 (KOS-26 A-3)
+            narrowed = self.check_rows_indicator(tag, record_id, select, fixed)
+            if narrowed is not None:
+                checked = self.check_conditions(tag, [Pick(record_id=record_id, select=narrowed)], fixed)
+                select = checked[0].select
+                if tag not in self.withheld and (bad := self.violated_condition(record_id, select, None, fixed)):
+                    self.withhold(tag, f"최종 선택이 조건 '{bad}' 을 만족하지 않음", f"'{bad}' 조건을 적용할 자료가 없어 계산하지 못했습니다.")
+            if tag in self.withheld:
+                return None
+        d = self.same_view_total(tag, picks, d, chart.view_ids, fixed) or d
         if self.denominator_outside(tag, d, chart.view_ids):
             return None
         output, step_op = None, op
@@ -929,6 +1182,7 @@ class _Planner:
         diff·ratio·combine 은 여러 피연산자를 한 단계에서 쓰므로 쪼개지 않는다.
         """
         tag = d.sub_question_id or f"a{n}"
+        self.scope[tag] = (d.sub_question_id, None, d.op)
         self.withheld.discard(tag)       # [NEW 11-16] 보류는 계산 하나마다 따로 — 같은 하위 질문의 다른 답변까지 지우지 않는다 (검수 M3-04)
         # [NEW] 세트: 이 하위 질문이 속한 세트들. 세트 형식 입력(view_ids 가 하나라도 있음)에서 View 가 없는 세트뿐이면 계산하지 않는다
         sets = [c for c in charts if d.sub_question_id in c.sub_question_ids]
@@ -937,10 +1191,12 @@ class _Planner:
             why = "; ".join(dict.fromkeys(c.reason for c in sets if c.reason)) or "모듈 2 가 View 를 정하지 못함"
             self.note(tag, f"{why} → 질문용 계산을 만들지 않음")
             return []
-        if self.denominator_outside(tag, d, expected):
-            return []
+        # [CHANGED 11-20] 이전: 분모 검사를 normalize 앞에서 했다 → 같은 View 의 총계 행으로 분모를 바꾸려면 분자의 최종 선택이 필요해 뒤로 옮겼다
         picks, d = self.normalize(tag, d.op, d.operands, d, fixed=self.fixed_for(tag, [d.sub_question_id]))
         if tag in self.withheld:
+            return []
+        d = self.same_view_total(tag, picks, d, expected, self.fixed_for(tag, [d.sub_question_id])) or d
+        if self.denominator_outside(tag, d, expected):
             return []
         if not picks:                             # answer_steps 는 피연산자를 항상 적는다 (명세 4장)
             self.note(tag, f"질문용 계산 {d.op} 에 피연산자가 없어 건너뜀")
@@ -969,7 +1225,8 @@ class _Planner:
             elif op == "raw" and self.range_total(tag, group, fixed):
                 self.note(tag, f"raw → aggregate(sum): 연령 {fixed[AGE][0]}~{fixed[AGE][1]}세 범위의 값 하나를 묻는 질문")
                 op, args = "aggregate", d.model_copy(update={"agg": "sum"})
-            steps.append(self.step(tag, f"a{n}" if len(groups) == 1 else f"a{n}-{i}", op, group, args))
+            steps.append(self.step(tag, f"a{n}" if len(groups) == 1 else f"a{n}-{i}", op, group, args)
+                         .model_copy(update={"sub_question_id": d.sub_question_id}))
         self.answer_sub.update({st.step_id: d.sub_question_id for st in steps})
         return steps
 
@@ -1006,6 +1263,28 @@ class _Planner:
         steps = [st.model_copy(update={"display_ref": self.ref(st.op, [unit], self.source_digits(st.op, [(plan.record_id, None, select)], unit, st.agg))})
                  if st.display_ref else st for st in plan.steps]
         return plan.model_copy(update={"select": select, "steps": steps})
+
+    def final_conditions(self, plans: list[Plan], answers: list[Step]) -> tuple[list[Plan], list[Step]]:
+        """[NEW 11-20] 계획이 확정된 뒤(narrow_to_answered_item 이후) 최종 선택이 조건식을 어기는 계획 · 단계를 뺀다 (KOS-26 A-2 ③)"""
+        keep_plans, keep_answers = [], []
+        for pl in plans:
+            fixed = self.fixed_for(pl.chart_id, pl.sub_question_ids)
+            refs = [(o.record_id, o.select, o.item) for st in pl.steps for o in (st.operands or [])]
+            if any(not st.operands for st in pl.steps) or not pl.steps:
+                refs.append((pl.record_id, pl.select, None))
+            if bad := next((b for r, sel, it in refs if (b := self.violated_condition(r, sel, it, fixed))), None):
+                self.withhold(pl.chart_id, f"확정한 선택이 조건 '{bad}' 을 만족하지 않음", f"'{bad}' 조건을 적용할 자료가 없어 계산하지 못했습니다.")
+                continue
+            keep_plans.append(pl)
+        for st in answers:
+            sid = st.sub_question_id
+            fixed = self.fixed_for(sid or st.step_id, [sid])
+            if bad := next((b for o in st.operands or [] if (b := self.violated_condition(o.record_id, o.select, o.item, fixed))), None):
+                self.scope.setdefault(sid or st.step_id, (sid, None, st.op))
+                self.withhold(sid or st.step_id, f"확정한 선택이 조건 '{bad}' 을 만족하지 않음", f"'{bad}' 조건을 적용할 자료가 없어 계산하지 못했습니다.")
+                continue
+            keep_answers.append(st)
+        return keep_plans, keep_answers
 
     def reuse(self, plans: list[Plan], answers: list[Step]) -> dict[str, str]:
         """[NEW] 질문용 단계 중 같은 세트(하위 질문이 같은 차트)의 차트 단계와 같은 계산인 것 → {질문용 step_id: '{chart_id}.{step_id}'}.
@@ -1055,6 +1334,8 @@ def make_plan(charts: list[ChartRequest], records: list[Record], decision: Decis
             plans.append(plan)
     answers = [s for n, d in enumerate(p.merge_answers(decision.answers), 1) for s in p.answer(n, d, charts)]
     plans = [p.narrow_to_answered_item(pl, answers) for pl in plans]
+    plans, answers = p.final_conditions(plans, answers)
     reuse = p.reuse(plans, answers)
+    withheld = list({(w.sub_question_id, w.chart_id, w.text): w for w in p.withheld_list}.values())
     return ChartPlan(plans=plans, answer_steps=answers, answer_reuse=reuse, notes=list(dict.fromkeys(p.notes)),
-                     warnings=list(dict.fromkeys(p.warnings))), p.displays
+                     warnings=list(dict.fromkeys(p.warnings)), withheld=withheld), p.displays

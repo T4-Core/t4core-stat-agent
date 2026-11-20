@@ -361,7 +361,7 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
             sub_intents.append(x["intent"])
         rb = {"original": question, "rewritten": b.get("rewritten") or question, "intent": intent, "filters": main_f,
               "sub_questions": sub_texts, "sub_filters": sub_f or None}
-        vb, vnotes = to_view_bundle(rb, query_id, "rewritten", sub_intents or None)
+        vb, vnotes = to_view_bundle(rb, query_id, "rewritten", sub_intents or None, thresholds=state.get("thresholds"))
         names = [c["name"] for c in concepts(grounded)]
         # 재작성 문장이 슬롯을 담지 못했으면(되묻기로 채운 값, 재작성 실패로 원문 그대로) 슬롯 값으로 검색 문장
         from backend.rag.query_analyzer.values import slot_text

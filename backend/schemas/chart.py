@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.schemas.query import QueryBundle
+from backend.schemas.query import QueryBundle, RoleLink
 from backend.schemas.record import Record
 
 # ── 코드값 ───────────────────────────────────────────────────────
@@ -114,6 +114,8 @@ class Module3Request(BaseModel):
     records: list[Record] = Field(..., description="모듈 1 이 고른 View 들. 계산 근거는 Record.table.rows")
     query_bundle: QueryBundle
     charts: list[ChartRequest] = Field(default_factory=list)
+    # [NEW 11-20] split_roles 가 질문에서 뺀 역할 단위(분모·조건). 모듈 6 이 보조 결과를 가려내는 데 쓰므로 모듈 3 은 그대로 전달만 한다
+    role_links: list[RoleLink] = Field(default_factory=list)
 
 
 # ── ChartPlan (계산 계획) ────────────────────────────────────────
@@ -157,6 +159,8 @@ class Step(BaseModel):
     input: str | None = Field(None, description="앞 단계의 step_id (그 결과를 입력으로 쓴다)")
     denominator: Denominator | None = Field(None, description="share 전용")
     display_ref: str | None = Field(None, description="displays 의 키")
+    # [NEW 11-20] 이 단계가 속한 하위 질문. 이전: 플래너 내부 answer_sub 에만 있었다 → 모듈 6 이 결과의 소속을 알 수 없었다 (질문용 단계만 채운다)
+    sub_question_id: str | None = Field(None, description="질문용 단계가 속한 하위 질문 ID. 차트 단계와 예전 입력은 None")
     from_: str | None = Field(None, alias="from", description="기간 시작 시점")
     to: str | None = Field(None, description="기간 끝 시점")
     base: str | None = Field(None, description="기준 시점. 'prev' = 직전 시점")
@@ -187,6 +191,14 @@ class Plan(BaseModel):
     title: str | None = Field(None, description="차트 제목 (HCX 작성, planner 가 검사). 없으면 규칙 제목")
 
 
+class Withheld(BaseModel):
+    """[NEW 11-20] 계산을 보류한 범위. warnings(문자열)는 어느 하위 질문의 것인지 알 수 없어 답변의 주의사항이 질문 전체에 붙었다 (M6-2)"""
+    sub_question_id: str | None = Field(None, description="보류된 질문용 계산의 하위 질문 ID")
+    chart_id: str | None = Field(None, description="보류된 차트 계획 ID")
+    op: str | None = Field(None, description="보류된 연산")
+    text: str = Field(..., description="사용자에게 보여 줄 사유 (warnings 와 같은 문장)")
+
+
 class ChartPlan(BaseModel):
     plans: list[Plan] = Field(default_factory=list)
     answer_steps: list[Step] = Field(default_factory=list, description="질문용 계산. 차트가 없어도 만든다")
@@ -197,6 +209,7 @@ class ChartPlan(BaseModel):
     # [NEW 11-13] notes 는 개발자 · QA 용 기록이라 사용자에게 보여 주기에 부적절한 문구가 많다. 계산을 보류한 사유처럼
     # 사용자가 알아야 하는 것만 여기에 한 번 더 적는다. 모듈 6 이 주의사항(caveats)으로 답변까지 전달한다
     warnings: list[str] = Field(default_factory=list, description="사용자에게 알려야 하는 사유 (계산 보류 등). 모듈 6 의 plan_warnings 로 넘긴다")
+    withheld: list[Withheld] = Field(default_factory=list, description="[NEW 11-20] warnings 의 보류 사유에 범위(하위 질문·차트)를 붙인 것")
 
 
 # ── 표시 설정 ────────────────────────────────────────────────────
@@ -246,6 +259,7 @@ class CalcInput(BaseModel):
 
 class CalcResult(BaseModel):
     step_id: str
+    sub_question_id: str | None = Field(None, description="[NEW 11-20] 결과가 속한 하위 질문 ID (질문용 단계). 차트용 계산과 예전 입력은 None")
     op: Measure
     # [CHANGED 11-11] 이전: float | list | None — 정수 결과가 실수로 바뀌었다 (int 를 float 보다 앞에 두어야 int 가 유지된다)
     value: int | float | list[Any] | None = Field(None, description="원래 정밀도. 여러 값이면 list, 계산할 수 없으면 None")
