@@ -119,6 +119,9 @@ def _annotate(fig, pts, ti, pi, cat, text):
     fig.add_annotation(x=_cat_pos(fig, "xaxis", cat, pi), y=t.y[pi], xref="x", yref=yref, ax=0, ay=-44, **style)
 
 
+POINT_VALUE_OPS = {"raw", "rank", "extreme"}      # 결과 값이 차트 점의 값 그대로인 연산
+
+
 def _notes(job, pts):
     """계산마다 (점들, 주석 점, 문구) 목록과 경고"""
     content, notes, warns = job.content, [], []
@@ -129,11 +132,14 @@ def _notes(job, pts):
     chart_d = display_for(content, job.displays, "y")
 
     def disp(c):
-        """차트 점과 같은 값(극값 · 순위 · 범주별 목록)은 차트의 표시 설정(자릿수 보정 포함)으로 → 막대 라벨과 주석 숫자가 같다
-        기간 증감 · 증감률 하나는 계산의 표시 설정 (단위가 차트와 다를 수 있다: % 등)"""
-        if chart_d is not None and (c.op in ("extreme", "rank") or isinstance(c.value, list)):
+        """차트 점의 값을 그대로 가리키는 계산(조회 · 극값 · 순위)은 차트의 표시 설정(자릿수 보정 포함)으로 → 막대 라벨과 주석 숫자가 같다.
+        그 밖의 계산(증감 · 증감률 · 차이 · 평균 …)은 값을 새로 만들므로 값이 목록이어도 **계산의 표시 설정** (단위 · 배율 · 자릿수를 통째로)을 쓴다.
+        [CHANGED 11-20] 이전: 값이 목록이면 무조건 차트 설정 → 증감률 목록이 건 단위 정수로 나왔다 ('가장 크게 감소 2022 0건'. 실제 -0.42%).
+        원 단위(source_unit)가 같다고 같은 값은 아니다 — 차트가 '만명, 0자리'면 1,000명 증감이 '0만명' 이 된다 (KOS-36 M5-1)"""
+        calc_d = job.displays.get(c.display_ref) if c.display_ref else None
+        if chart_d is not None and c.op in POINT_VALUE_OPS and (calc_d is None or calc_d.source_unit == chart_d.source_unit):
             return chart_d
-        return job.displays.get(c.display_ref) if c.display_ref else chart_d
+        return calc_d if calc_d is not None else chart_d
 
     for c in calcs:
         d = disp(c)
