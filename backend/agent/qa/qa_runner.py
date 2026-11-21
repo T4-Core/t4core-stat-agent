@@ -1,7 +1,7 @@
 """QA 실행 입구 — 그래프(qa_graph.py)를 부른다
 
   run_modules_with_qa(vs, use_llm_chart=True, draw=True, max_rows=50, decision=None, chat=None, mods=None)
-      → run_modules 와 같은 8개 키 + "qa"
+      → run_modules 와 같은 11개 키 (기본 8개 + render_status · request_outcomes · chart_notices) + "qa"
   run_chat(question, today=None, top_k=None, n_views=None, max_rows=40, **kw)
       → 질문 → ① 질의 분석 · ② 검색·View (Retriever, QA 안 함) → run_modules_with_qa.
         플러그인 입구 (private/pipelines/qa.py → POST /api/v1/chat {"pipeline": "qa"}).
@@ -25,10 +25,13 @@ RECURSION_LIMIT = 60     # 그래프 단계 수 상한 (재시도를 모두 해�
 
 
 def run_modules_with_qa(vs: dict[str, Any], use_llm_chart: bool = True, draw: bool = True, max_rows: int = 50,
-                        decision=None, chat: Callable[..., Any] | None = None, mods: dict | None = None) -> dict[str, Any]:
+                        decision=None, chat: Callable[..., Any] | None = None, mods: dict | None = None,
+                        analysis: dict | None = None) -> dict[str, Any]:
+    """analysis: 질의 분석 결과. 메모(notes)로 사전에 없는 지표를 알아내 답할 수 없는 질문을 A0 에서 끝낸다. 없으면 이 검사만 건너뛴다"""
     from .qa_graph import graph
+    notes = analysis.get("notes") if isinstance(analysis, dict) else None
     out = graph.invoke({"viewset": vs, "use_llm_chart": use_llm_chart, "draw": draw, "max_rows": max_rows,
-                        "decision": decision},
+                        "decision": decision, "analysis_notes": list(notes or [])},
                        config={"configurable": {"chat": chat, "mods": mods}, "recursion_limit": RECURSION_LIMIT})
     return out["result"]
 
@@ -66,7 +69,7 @@ def run_chat(question, today=None, top_k=None, n_views=None, max_rows=40, draw=T
         return _finish(out, t0, save)
 
     t = time.time()
-    mods = run_modules_with_qa(vs, use_llm_chart=use_llm_chart, draw=draw, max_rows=max_rows)
+    mods = run_modules_with_qa(vs, use_llm_chart=use_llm_chart, draw=draw, max_rows=max_rows, analysis=analysis)
     out["modules"], out["qa"] = mods, mods["qa"]
     if mods.get("answer"):
         out["result"] = as_answer_result(mods)

@@ -110,7 +110,9 @@ QA 가 새로 정의하는 스키마는 **팀 스키마가 없는 곳만** 쓴�
 | | M6-in · M6-out | calc 의 `display_ref` → displays · `used_step_ids` · `tables[].step_ids` → calc step_id · `tables[].record_ids` → records · `caveats[].ref` → record id 또는 step_id |
 
 - 허용값은 **스키마에 있는 값 목록**만 쓴다. 필드가 그냥 `str` 이어도 같은 뜻의 `Literal` 이 다른 스키마에 있으면 적용 (모듈 2 measure ← 모듈 3 `Measure`). 설명 글에만 적힌 목록(`Note.type` · `Filters.의도`)은 쓰지 않는다. None 은 스키마가 허용할 때만.
-- 예외: 모듈 6 은 계산 보류 사유 caveat(`source="plan_warning"`)의 `ref` 에 `"plan"` 을 넣는다 (`answer_compose/caveats.py`). 스키마 설명(`Record.id 또는 CalcResult.step_id`)에는 빠져 있음 → 허용 (**모듈 6 담당자에게 알릴 내용**).
+- 예외: 계산 보류 사유 caveat(`source="plan_warning"`)의 `ref` (`answer_compose/caveats.py`). 스키마 설명(`Record.id 또는 CalcResult.step_id`)에는 빠져 있음 → 허용 (**모듈 6 담당자에게 알릴 내용**).
+  - `withheld` 가 있으면 그 범위 = 모듈 6 에 넘긴 `withheld[]` 의 하위 질문 ID · 차트 ID (KOS-38, 2026-11-20) → QA 는 `withheld_ids` 에 있는 값만 허용
+  - 범위를 모르는 사유는 `"plan"`
 - 진단 (오류로 켜기 전): 정상 입력 19개(녹화 재생) + 골든 결과 14개에 '기록만' 으로 돌림 → 위 예외 한 가지만 걸림.
 - 시험: `private/qa/qa_regression.py` 의 `R_*` 9개 (허용값 · 빈 값 · id 짝).
 
@@ -255,7 +257,7 @@ POST /api/v1/chat {"pipeline": "qa"}
 
 ### 반환값
 
-`run_modules` 와 같은 8개 키 + `qa`:
+`run_modules` 와 같은 11개 키 (기본 8개 + KOS-41 `render_status` · `request_outcomes` · `chart_notices`, 16장) + `qa`:
 
 ```
 qa = {
@@ -356,3 +358,100 @@ PYTHONPATH=".;private" python -m qa.qa_regression     # 회귀 시험 (HCX 없�
   | `private/pipelines/qa.py` | 삭제. 지우면 `private/pipelines/` 가 비어 PRIVATE_DIR 자동 탐색이 꺼진다 — 다른 플러그인이 없으면 상관없음 |
 
 - 주의: QA 가 팀원 코드의 내부 함수(`modules._figure_json` · `pipeline._first_option` · `_finish` · `_missing_notes` · `OUT_OF_SCOPE_RESULT`)를 import 한다 → 팀에 알리거나 QA 안에 복사.
+
+## 13. 모듈 3·6 스키마 추가 반영 (2026-11-20, KOS-26 · KOS-38)
+
+develop 에 `role_links` (역할 단위 ↔ 본 질문 연결) · `ChartPlan.withheld` (보류 범위) 가 추가됐다. `run_modules` 는 이미 넘기므로 QA 경로도 맞췄다.
+
+| 파일 | 변경 |
+|---|---|
+| `qa_nodes.prepare_m2` | `split_roles` → `split_roles_linked`, `role_links` 를 state 에 |
+| `qa_nodes.adapt` | `Module3Request(…, role_links=…)` |
+| `qa_nodes.build_m6` | `Module6Request(…, withheld=m3.chart_plan.withheld, role_links=…)` |
+| `qa_state` | `QAState.role_links` · 모듈 6 갈래 입력 `AnswerInput.role_links` |
+| `qa_nodes.ref_ctx` · `qa_rules._m6out` | 보류 사유 caveat 의 `ref` 가 `withheld` 의 하위 질문 · 차트 ID 이면 허용 (반영 전 규칙이면 모듈 6 재시도 후 '답변 없이 차트만' 이 됨) |
+
+- 반영 전에는 QA 경로의 모듈 6 이 예전 동작 (보류 경고가 질문 전체에 붙음 · 대체 결과 구분 없음 · 계산 없음 사유 문구 없음)
+
+### 새 필드의 id 짝 규칙 (2026-11-21)
+
+| 필드 | 가리키는 곳 | 검사 지점 | 틀리면 |
+|---|---|---|---|
+| `role_links[].unit_id` | 질문에서 뺀 역할 단위 | M3-in · M6-in | 그 연결만 뺌 |
+| `role_links[].supports` | 남은 하위 질문 | M3-in · M6-in | 그 연결만 뺌 |
+| `role_links[].record_ids` | records | M3-in · M6-in | 그 연결만 뺌 |
+| `chart_plan.withheld[].sub_question_id` · `chart_id` | 하위 질문 · 차트 | M3-out · M6-in | 재시도 → 그 항목만 뺌 |
+| `answer_steps[].sub_question_id` | 하위 질문 | M3-out · M6-in | 재시도 → 그 단계만 뺌 |
+| `calc_results[].sub_question_id` | 하위 질문 | M3-out · M6-in | 재시도 → 그 계산만 뺌 |
+
+- `qa_policy` 의 뺄 수 있는 목록에 `role_links` (M3-in), `chart_plan.answer_steps` · `chart_plan.withheld` (M3-out) 를 추가했다. 없으면 항목 하나가 틀려도 전체가 중단된다.
+- `withheld` 를 빼도 같은 사유가 `chart_plan.warnings` 에 남아, 모듈 6 이 `ref="plan"` 인 주의사항(질문 전체)으로 붙인다.
+- 차트 단계의 `sub_question_id` 는 원래 None 이라 보지 않는다.
+
+## 14. 형식 경고 정리 (2026-11-21)
+
+| 변경 | 내용 | 위치 |
+|---|---|---|
+| 같은 경로 묶기 | `candidates[0].x`, `candidates[1].x` → `candidates[].x` 한 줄 + `count` (보정 · 없는 키 · 빠진 필드). 오류는 '그 항목만 빼기' 에 위치가 필요해서 묶지 않음 | `qa_check._Walk` · `Issue.count` |
+| 30건 자르기 삭제 | 앞의 경고가 칸을 채워 `keep_unusable` · `stitched` 같은 다른 키가 가려졌음 | `qa_check` |
+| 모듈이 읽지 않는 영역 | M2-in 의 `view_input.units[].candidates` 는 없는 키 · 빠진 필드를 기록하지 않음 (모듈 2 가 입력을 받자마자 지움). 스키마 오류는 그대로 잡음 | `qa_policy.QUIET_PATHS` |
+| 알려진 새 필드 | A0 의 `candidates[].years_have` · `years_missing` · `stitch` (검색 PR #76) 는 경고 대신 info. 처음 보는 키는 계속 경고 | `qa_policy.KNOWN_EXTRAS` |
+
+남은 형식 경고: A0 `units[].conflict.views[].point_notes` · `units[].keep_unusable` · `units[].stitched`, M2-out `filtered_views[].filter_info` (담당자가 스키마에 넣기 전까지 경고).
+
+## 15. 형식 경고 · 내용 경고 분리 (2026-11-21)
+
+| 구분 | 뜻 | 종류 (`Issue.kind`) | QA 상태에 반영 |
+|---|---|---|---|
+| **형식 경고** | 스키마와 어긋나지만 결과는 그대로 | `extra` · `fixed_type` | 안 함 (`ok` 유지) |
+| **내용 경고** | 사람이 결과를 확인해야 함 | `withheld` (모듈 3 계산 보류) · `plan_warning` (보류 범위가 없는 모듈 3 경고) · `answer_fallback` (모듈 6 `method` = template · none) · `note` (모듈 3 메모 재시도) | `warned` |
+
+- QA 상태: `stopped` (중단) · `partial` (일부 뺌 · 건너뜀) · `warned` (오류 · 재시도 · 내용 경고) · `ok` (문제 없음 또는 형식 경고만)
+- 건수: `qa.counts` 의 `semantic` · `format`. 구분은 `qa_policy.SEMANTIC_KINDS`
+- 내용 경고는 최종 모듈 3 · 6 출력을 읽기만 한다 (`qa_semantic.meaning_issues`). 재시도 · 빼기 · 중단은 하지 않는다
+- 보류 사유는 모듈 6 이 답변의 주의사항으로 이미 보여 주므로 `qa.message` 에 다시 넣지 않는다
+- `ok` 는 답이 맞다는 뜻이 아니다. 질문과 답의 뜻이 맞는지는 아직 보지 않는다 (조건 미적용 · 비율 계산 없음 · 답변과 주의사항 모순 등은 기준을 정한 뒤 추가)
+
+## 16. 차트 지정 요청 연결 (2026-11-21, KOS-41)
+
+QA 경로도 일반 경로와 같은 `chart_notice.finalize_chart_request()` 를 부른다. 모듈 5 · 6 결과가 합쳐지는 `finalize` 에서 A9 검사 전에 호출하고, 별도 노드는 두지 않는다.
+
+| 상황 | 넘기는 값 | 결과 |
+|---|---|---|
+| 모듈 5 예외 | `error` (`render_error`) | `failed/exception` → 안내 |
+| M5-out 이 출력 전체를 버림 | `rejected=True` (`render_rejected`) | `failed/render_error` → 안내 |
+| 그리기 끔 | `draw=False` | `skipped/draw_disabled` → 안내 없음 |
+| QA 중단 | `stopped=True` | `skipped/qa_stopped` → 차트 안내 없음 (중단 메시지만) |
+
+- 차트 목록은 `charts_dump` 를 넘긴다. state 의 `charts` 에는 M3-in 에서 뺀 차트가 남아 있어 응답의 `charts` 와 달라진다
+- `finalize_chart_request` 가 실패해도 답변은 나간다 (A9 오류로 기록, 상태 `warned` 이상)
+
+**QA 가 뺀 요청 차트의 안내.** M2-out · M3-in 에서 `request` 가 있는 차트를 빼면 그 차트는 목록에서 사라져 위 함수가 안내를 만들 수 없다. 그래서 QA 가 `dropped_requests` 에 남겼다가 `finalize` 에서 더한다.
+
+- 안내: `요청한 차트(원그래프)를 만들지 못했습니다.` (이름을 알 수 없으면 `요청한 차트를 만들지 못했습니다.`)
+- 결과: `table_only / validation_failed`, 렌더링 상태 `skipped/no_chart_content`. 화면이 기본 차트로 대신 그리지 않게 한다
+- 요청이 없는 차트를 뺀 경우와 QA 가 중단한 경우에는 이 안내를 넣지 않는다
+
+**규칙은 추가하지 않는다.** `request.stage.reason` 이 틀리면 M3-in 변환에서 그 차트가 빠지고, 이 값은 규칙 코드가 만들어 재시도해도 같다. `request.outcome` 은 변환 때 버려진다. 최종 outcome 과 reason 의 조합은 `finalize_chart_request` 가 만들 때 강제한다.
+
+## 17. 내용 검사 · 답할 수 없는 질문 (2026-11-21)
+
+새 검사는 HCX 없이 규칙으로 판단한다. 내용 경고는 **기록만** 하고 답변을 막지 않으며 (`warned`), 사용자 화면에는 보이지 않는다. 기준값은 `qa_policy.py`, 판단은 `qa_semantic.py`.
+
+| 종류 (`Issue.kind`) | 지점 | 판단 기준 | 오탐 방지 |
+|---|---|---|---|
+| `condition_unused` | M3-out | 질문에 숫자 기준(99,000명 이상)이 있는데 조건식이 비어 있고 수치 답변이 나감 | 조건식이 있으면 모듈 3 이 처리. `65세 이상` · 표의 분류 이름(`5인이상`)은 제외 |
+| `ratio_missing` | M3-out | 질문에 비율 · 비중 · 구성비 · % 가 있는데 비율 계산 없이 수치 답변이 나감 | 표의 항목 · 단위가 이미 비율(`고령인구비율`)이면 제외 |
+| `measure_mismatch` | M3-out | 모듈 2 는 계산을 요구했는데 그 차트 · 하위 질문의 결과가 원값뿐 | 모듈 2 가 `raw` 이고 모듈 3 이 계산한 것은 제외. 이미 보류된 범위 제외 |
+| `too_many_marks` | M3-out | 막대 차트의 행이 100개 초과 | 막대형만 |
+| `chart_answer_mismatch` | A9 | 그린 차트가 있는데 `answer.insufficient=true` | |
+| `answer_caveat_conflict` | A9 | 보류된 하위 질문의 값을 `참고로` 없이 답함 | 다른 하위 질문의 보류는 제외. `ref=plan` 은 하위 질문이 하나이거나 사유가 답변의 항목을 직접 말할 때만 |
+| `value_list` | M6-out | 규칙 문장(`template`)에 `외 N개` (N ≥ 5) | HCX 문장은 제외 |
+
+**형식 오류가 아닌 중단 (A0).** 둘 다 상태는 `stopped` 이고 `qa.message` 는 형식 오류 문구 대신 아래 문구를 쓴다.
+
+- `no_data`: `records` 가 비어 있음 → `요청한 지표를 찾지 못했습니다.`
+- `indicator_not_found`: 본 질문의 지표가 **① 질의 분석의 사전에 없고 ② 고른 표 어디에도 없음** → `요청한 지표(등록대수)를 찾지 못해 답변을 만들지 못했습니다.` 모듈 2~6 을 돌지 않는다
+
+②만 보면 안 된다. `인구수` 를 물었는데 표의 항목이 `국제결혼 이주자` 인 질문은 표 안에 정답이 있다. ①을 보려고 `pipeline.py` 가 `run_modules_with_qa(vs, analysis=analysis, ...)` 로 질의 분석 결과를 넘긴다. `analysis` 가 없는 입구(`/agent/modules`)에서는 이 검사만 건너뛴다.
+
