@@ -9,8 +9,12 @@
     · 손실 없는 타입 변환 ("2023" → 2023)      → pydantic 이 바꾼 값을 쓴다 (warning, fixed)
     · 빠진 선택 필드                           → 기록만 (info). 값에 넣지 않는다 — 받는 쪽 스키마가 같은 기본값을 채우고,
                                                  넣으면 setdefault · 'in' 처럼 키가 있는지 보는 코드의 동작이 바뀐다
-    · 스키마에 없는 키                         → 지우지 않고 그대로 둔다 (warning)
+    · 스키마에 없는 키                         → 지우지 않고 그대로 둔다 (warning. qa_policy.KNOWN_EXTRAS 는 info)
+
+  보정 · 없는 키 · 빠진 필드는 같은 경로를 한 건으로 묶는다: candidates[0].x, candidates[1].x → candidates[].x (count=2)
+  오류(error)는 '그 항목만 빼기' 에 위치가 필요해서 묶지 않는다.
 """
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -19,7 +23,7 @@ from pydantic import BaseModel, ValidationError
 from .qa_schemas import SCHEMAS
 
 ERROR, WARNING, INFO = "error", "warning", "info"
-MAX_ISSUES_PER_KIND = 30       # 같은 지점에서 같은 종류가 너무 많으면 앞의 것만 (나머지는 개수로)
+_INDEX = re.compile(r"\[\d+\]")
 
 
 @dataclass
@@ -32,6 +36,7 @@ class Issue:
     value: str | None = None
     fixed: bool = False
     action: str | None = None   # qa_runner 가 채운다: fixed · warn · retry · drop · stop · skip
+    count: int = 1              # 같은 경로로 묶인 건수
 
     def as_dict(self):
         return asdict(self)
@@ -126,22 +131,35 @@ class _Walk:
     """검사를 통과한 객체(inst)와 원래 값(raw)을 나란히 따라가며 보정 · 모르는 키를 찾는다"""
 
     def __init__(self, point):
+        from . import qa_policy
         self.point, self.issues, self.changed = point, [], False
-        self.counts: dict[str, int] = {}
+        self.groups: dict[tuple, Issue] = {}
+        self.known = qa_policy.KNOWN_EXTRAS.get(point, set())
+        self.quiet = qa_policy.QUIET_PATHS.get(point, set())
 
     def add(self, issue: Issue):
-        n = self.counts[issue.kind] = self.counts.get(issue.kind, 0) + 1
-        if n <= MAX_ISSUES_PER_KIND:
+        """같은 종류 · 같은 경로(목록 번호 무시)는 한 건으로 묶고 건수만 늘린다. 값은 첫 번째 예시를 남긴다"""
+        issue.path = _INDEX.sub("[]", issue.path)
+        key = (issue.kind, issue.severity, issue.path)
+        if key in self.groups:
+            self.groups[key].count += 1
+        else:
+            self.groups[key] = issue
             self.issues.append(issue)
 
     def walk(self, inst, raw, loc):
+        if self.quiet and _INDEX.sub("[]", path_str(loc)) in self.quiet:
+            return raw
         if isinstance(inst, BaseModel) and isinstance(raw, dict):
             fmap, out = _field_map(inst), {}
             for k, v in raw.items():
                 name = fmap.get(k)
                 if name is None:
-                    self.add(Issue(self.point, path_str(loc + (k,)), "extra", WARNING,
-                                   "스키마에 없는 키 (그대로 둠)", _short(v)))
+                    path = path_str(loc + (k,))
+                    known = _INDEX.sub("[]", path) in self.known
+                    self.add(Issue(self.point, path, "extra", INFO if known else WARNING,
+                                   "알려진 새 필드 (스키마 반영 전, 그대로 둠)" if known else "스키마에 없는 키 (그대로 둠)",
+                                   _short(v)))
                     out[k] = v
                 else:
                     out[k] = self.walk(getattr(inst, name), v, loc + (k,))
@@ -177,9 +195,6 @@ def check(point: str, raw, ctx: dict | None = None) -> Checked:
         return Checked(False, raw, issues, locs)
     w = _Walk(point)
     value = w.walk(inst, raw, ())
-    for kind, n in w.counts.items():
-        if n > MAX_ISSUES_PER_KIND:
-            w.issues.append(Issue(point, "", kind, INFO, f"같은 종류 {n - MAX_ISSUES_PER_KIND}건 더 (생략)"))
     checked_value = value if w.changed else raw
     found = rule_issues(point, checked_value, ctx)
     if not found:

@@ -15,7 +15,7 @@ from backend.agent.chart_decision.chart_decision_module.chart_type_schema import
 from backend.agent.draw_chart.draw_chart_module.draw_chart_schema import (CHART_TYPES, DRAWN, FAILED,
                                                                           NOT_IMPLEMENTED, SKIPPED, DrawResult)
 from backend.schemas.answer import Module6Output, Module6Request
-from backend.schemas.chart import ChartRequest, Module3Output, Module3Request
+from backend.schemas.chart import ChartRequest, ChartRequestOutcome, Module3Output, Module3Request, RenderState
 from backend.schemas.query import QueryBundle
 from backend.schemas.record import Record
 from backend.schemas.view import ViewItem, ViewResult, ViewSet
@@ -100,7 +100,7 @@ class DrawnChart(BaseModel):
 
 
 class ModulesResult(BaseModel):
-    """run_modules 반환 8개 키. QA 가 중단하면 module3 · answer 가 None 일 수 있다"""
+    """run_modules 반환 11개 키 (기본 8개 + KOS-41 차트 요청 결과 3개). QA 가 중단하면 module3 · answer 가 None 일 수 있다"""
     charts: list[ChartRequest] = Field(default_factory=list)
     chart_errors: list[dict[str, Any]] = Field(default_factory=list)
     chart_plan: ChartPlanOut | None = None
@@ -109,6 +109,9 @@ class ModulesResult(BaseModel):
     drawn: list[DrawnChart] = Field(default_factory=list)
     answer: Module6Output | None = None
     notes: list[str] = Field(default_factory=list)
+    render_status: dict[str, RenderState] = Field(default_factory=dict)
+    request_outcomes: list[ChartRequestOutcome] = Field(default_factory=list)
+    chart_notices: list[str] = Field(default_factory=list)
 
 
 # ── 지점 → 기준 스키마 ───────────────────────────────────────────

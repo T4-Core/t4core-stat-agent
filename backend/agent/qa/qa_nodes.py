@@ -15,8 +15,9 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from .qa_check import ERROR, WARNING, Issue, check, drop_items, path_str
-from .qa_policy import MAX_RETRY, RETRY_NOTES, RULES
+from .qa_policy import MAX_RETRY, NO_DATA_MESSAGE, RETRY_NOTES, RULES, chart_dropped_message, no_indicator_message
 from .qa_schemas import draw_result_raw
+from .qa_semantic import meaning_issues, unanswerable
 from .qa_state import QAState, mark, summarize
 
 M2, M3, M6 = "M2-out", "M3-out", "M6-out"
@@ -124,19 +125,28 @@ def ref_ctx(state: QAState, point: str) -> dict:
     if point == "M3-in":
         from backend.agent.chart_calculate.planner import sub_question_ids
         return {"record_ids": {r.id for r in state.get("records") or []},
-                "sub_ids": {sid for sid, _ in sub_question_ids(state["bundle"])}}
+                "sub_ids": {sid for sid, _ in sub_question_ids(state["bundle"])},
+                "role_unit_ids": set(state.get("role_unit_ids") or [])}
     if point == M3:
+        from backend.agent.chart_calculate.planner import sub_question_ids
         req3 = state["req3"]
-        return {"chart_ids": {c.chart_id for c in req3.charts}, "record_ids": {r.id for r in req3.records}}
+        return {"chart_ids": {c.chart_id for c in req3.charts}, "record_ids": {r.id for r in req3.records},
+                "sub_ids": {sid for sid, _ in sub_question_ids(req3.query_bundle)}}
     if point == "M5-out":
         m3, plan = state["m3"], state.get("plan") or {}
         return {"drawn_ids": {c.chart_id for c in m3.chart_contents} | {c.get("chart_id") for c in plan.get("charts") or []}
                 | {o.get("overlay_id") for o in plan.get("overlays") or []}}
     if point == "M6-in":
-        return {"record_ids": {r.id for r in state.get("records") or []}}
+        from backend.agent.chart_calculate.planner import sub_question_ids
+        return {"record_ids": {r.id for r in state.get("records") or []},
+                "sub_ids": {sid for sid, _ in sub_question_ids(state["bundle"])},
+                "chart_ids": {c.chart_id for c in state["req3"].charts},
+                "role_unit_ids": set(state.get("role_unit_ids") or [])}
     if point == M6:
         req6 = state["req6"]
-        return {"record_ids": {r.id for r in req6.records}, "step_ids": {c.step_id for c in req6.calc_results}}
+        # withheld_ids: 모듈 6 이 보류 사유 caveat 의 ref 로 쓰는 범위 (하위 질문 ID · 차트 ID, KOS-38)
+        return {"record_ids": {r.id for r in req6.records}, "step_ids": {c.step_id for c in req6.calc_results},
+                "withheld_ids": {x for w in req6.withheld for x in (w.sub_question_id, w.chart_id) if x}}
     return {}
 
 
@@ -144,36 +154,72 @@ def _route(state: QAState, point: str) -> str:
     return (state.get("routes") or {}).get(point, "fail")
 
 
+def _dropped_request(point: str, chart, index: int) -> dict | None:
+    """뺀 차트가 사용자가 지정한 차트(request 있음)면 안내용 기록. 틀린 값 때문에 빠졌을 수 있어 모양을 믿지 않는다"""
+    c = dump(chart) if hasattr(chart, "model_dump") else chart
+    if not isinstance(c, dict) or not c.get("request"):
+        return None
+    req = c["request"]
+    names = req.get("preferred") if isinstance(req, dict) else None
+    name = next((n["text"] for n in names if isinstance(n, dict) and n.get("text")), None) if isinstance(names, list) else None
+    return {"point": point, "chart_id": str(c.get("chart_id") or f"?{index}"), "name": name}
+
+
+def requested_drops(point: str, prefix: str, items: list, dropped: list | None) -> list[dict]:
+    """dropped 의 경로(예: charts[1]) 중 prefix 목록의 원소를 찾아 사용자가 지정한 차트만 고른다"""
+    out = []
+    for d in dropped or []:
+        path = d.get("path", "")
+        if not (path.startswith(f"{prefix}[") and path.endswith("]")):
+            continue
+        i = int(path[len(prefix) + 1:-1])
+        if i < len(items) and (r := _dropped_request(point, items[i], i)):
+            out.append(r)
+    return out
+
+
 # ── A0 · M2-in ─────────────────────────────────────────────────
 def check_input(state: QAState) -> dict:
-    """A0 에이전트 입력: ViewSet + view_bundle(QueryBundle). status 가 ok 가 아니면 중단"""
+    """A0 에이전트 입력: ViewSet + view_bundle(QueryBundle). status 가 ok 가 아니면 중단
+    형식 오류가 아닌 중단: records 가 비어 있음(no_data) · 사전에도 표에도 없는 지표(indicator_not_found) → 알맞은 안내 문구로 끝낸다"""
     vs = state.get("viewset")
     upd, val = judge(state, "A0", lambda v: {"viewset": v, "view_bundle": (v or {}).get("view_bundle")},
                      lambda c: {**c["viewset"], "view_bundle": c["view_bundle"]}, False, value=vs or {})
     if upd["routes"]["A0"] != "ok":
+        errors = [i for i in upd.get("issues") or [] if i.severity == ERROR]
+        if len(errors) == 1 and errors[0].path == "viewset.records" and errors[0].kind == "empty":
+            errors[0].kind, errors[0].message = "no_data", NO_DATA_MESSAGE
+            return {**upd, "stopped_at": "A0", "stop_note": NO_DATA_MESSAGE}
         return {**upd, "stopped_at": "A0"}
     if val.get("status") != "ok":
         _add(upd, issues=mark([Issue("A0", "viewset.status", "enum", ERROR,
                                      f"status 가 ok 가 아님 ({val.get('status')}) — 되묻기·선택은 Retriever 에서 먼저 끝내야 함",
                                      repr(val.get("status")))], "stop"))
         return {**upd, "routes": {"A0": "fail"}, "stopped_at": "A0"}
+    if names := unanswerable(val, state.get("analysis_notes")):
+        msg = no_indicator_message(names)
+        _add(upd, issues=mark([Issue("A0", "viewset.units", "indicator_not_found", ERROR, msg, ", ".join(names))], "stop"))
+        return {**upd, "routes": {"A0": "fail"}, "stopped_at": "A0", "stop_note": msg}
     return {**upd, "viewset": val}
 
 
 def prepare_m2(state: QAState) -> dict:
-    """ViewSet → 모듈 2 입력 (run_modules 와 같은 변환: view_input_of · split_roles) + M2-in 검사"""
-    from backend.agent.modules import split_roles, view_input_of
+    """ViewSet → 모듈 2 입력 (run_modules 와 같은 변환: view_input_of · split_roles_linked) + M2-in 검사
+    role_links: 질문에서 뺀 역할 단위(분모·조건)가 어느 본 질문을 지원하는지 — 모듈 3 · 6 에 그대로 넘긴다 (KOS-26)"""
+    from backend.agent.modules import split_roles_linked, view_input_of
     from backend.schemas.query import QueryBundle
     vs = state["viewset"]
     vb = dict(vs.get("view_bundle") or {})
     vb.setdefault("query_id", vs.get("query_id"))
     vb.setdefault("original", vs.get("original") or "")
-    vb, view_input, role_views = split_roles(vb, view_input_of(vs))
+    all_sub_ids = {f"{vb.get('query_id')}-{i}" for i in range(1, len(vb.get("sub_questions") or []) + 1)}
+    vb, view_input, role_views, role_links = split_roles_linked(vb, view_input_of(vs))
+    kept_sub_ids = {f"{vb.get('query_id')}-{i}" for i in range(1, len(vb.get("sub_questions") or []) + 1)}
     upd, val = judge(state, "M2-in", lambda v: v, lambda v: v, False, value={"query_bundle": vb, "view_input": view_input})
     if upd["routes"]["M2-in"] != "ok":
         return {**upd, "stopped_at": "M2-in"}
     return {**upd, "bundle": QueryBundle.model_validate(val["query_bundle"]), "view_input": val["view_input"],
-            "role_views": role_views}
+            "role_views": role_views, "role_links": role_links, "role_unit_ids": sorted(all_sub_ids - kept_sub_ids)}
 
 
 # ── 모듈 2 ──────────────────────────────────────────────────────
@@ -192,6 +238,10 @@ def check_m2(state: QAState) -> dict:
         return {**upd, "stopped_at": M2}
     if route in ("ok", "partial"):
         upd.update(out2=val, plan=val.get("chart_plan"))
+    if route == "partial":                  # 뺀 차트의 request 는 원래 출력에만 남아 있다
+        raw = (state.get("outs") or {}).get(M2) or {}
+        items = (raw.get("chart_plan") or {}).get("charts") or []
+        _add(upd, dropped_requests=requested_drops(M2, "chart_plan.charts", items, upd.get("dropped")))
     return upd
 
 
@@ -218,6 +268,8 @@ def adapt(state: QAState) -> dict:
             _add(upd, issues=mark([Issue("M3-in", f"charts[{i}]", "type", ERROR,
                                          f"모듈 3 입력으로 바꾸지 못함: {e.__class__.__name__}: {str(e)[:150]}")], "drop"),
                  dropped=[{"point": "M3-in", "path": f"charts[{i}]"}])
+            if r := _dropped_request("M3-in", c, i):
+                _add(upd, dropped_requests=[r])
     records = records_of(view_input)
     errors += unknown_view_ids(charts, records)
     charts += skipped_sets(out2["errors"], bundle, charts, view_input)
@@ -231,16 +283,20 @@ def adapt(state: QAState) -> dict:
                 c.view_ids = list(dict.fromkeys([*c.view_ids, *extra_ids]))
         _add(upd, notes=[f"역할 단위(분모·조건)의 View 를 세트에 붙임: {extra_ids}"])
     upd.update(charts=charts, records=records, chart_errors=errors, charts_dump=[c.model_dump(mode="json") for c in charts])
-    req3 = Module3Request.model_construct(records=records, query_bundle=bundle, charts=charts)
+    req3 = Module3Request.model_construct(records=records, query_bundle=bundle, charts=charts,
+                                          role_links=state.get("role_links") or [])
     j, val = judge(state, "M3-in", dump, Module3Request.model_validate, False, value=req3,
                    ctx=ref_ctx({**state, "records": records}, "M3-in"))
-    _add(upd, issues=j.pop("issues", []), dropped=j.pop("dropped", []), checked=j.pop("checked", []))
+    dropped_now = j.pop("dropped", [])
+    _add(upd, issues=j.pop("issues", []), dropped=dropped_now, checked=j.pop("checked", []))
     upd.update(j)
     route = j["routes"]["M3-in"]
     if route == "fail":
         return {**upd, "stopped_at": "M3-in"}
     if route == "partial":
+        _add(upd, dropped_requests=requested_drops("M3-in", "charts", charts, dropped_now))
         upd["charts_dump"] = [c.model_dump(mode="json") for c in val.charts]
+        upd["role_links"] = list(val.role_links)       # 뺀 role_links 가 모듈 6 으로 넘어가지 않게
     return {**upd, "req3": val}
 
 
@@ -322,7 +378,8 @@ def draw(state: QAState, config: RunnableConfig) -> dict:
         out = m["module5"](chart_plan=plan or {"query_id": m3.query_id, "charts": []}, module3_output=m3, save=False)
     except Exception as e:  # noqa: BLE001  (그림이 실패해도 답변은 낸다 — modules._draw 와 같은 메모)
         return {"drawn": [], "notes": [f"모듈 5 실패: {e.__class__.__name__}: {str(e)[:200]}"], "checked": ["M5-out"],
-                "issues": mark([exc_issue("M5-out", e)], "skip"), "skipped": ["M5-out"]}
+                "issues": mark([exc_issue("M5-out", e)], "skip"), "skipped": ["M5-out"],
+                "render_error": f"{e.__class__.__name__}: {str(e)[:200]}"}
     results = list(out.get("results") or [])
     raw = {"results": [draw_result_raw(r) for r in results], "html": out.get("html"),
            "load_errors": out.get("load_errors") or {}}
@@ -332,7 +389,7 @@ def draw(state: QAState, config: RunnableConfig) -> dict:
     if not c.ok:
         d = drop_items(raw, c.error_locs, RULES["M5-out"].drop)
         if d is None or not check("M5-out", d[0], ref_ctx(state, "M5-out")).ok:
-            return {**upd, "drawn": [], "issues": mark(c.issues, "skip"), "skipped": ["M5-out"]}
+            return {**upd, "drawn": [], "issues": mark(c.issues, "skip"), "skipped": ["M5-out"], "render_rejected": True}
         bad = {loc[1] for loc in c.error_locs}
         upd.update(issues=mark(c.issues, "drop"),
                    dropped=[{"point": "M5-out", "path": path_str(("results", i)), "as": "failed"} for i in sorted(bad)])
@@ -359,7 +416,8 @@ def build_m6(state: QAState) -> dict:
     try:
         req6 = Module6Request(query_bundle=state["bundle"], records=state["records"], calc_results=m3.calc_results,
                               displays=m3.displays, answer_steps=m3.chart_plan.answer_steps,
-                              plan_warnings=m3.chart_plan.warnings, max_rows=state.get("max_rows", 50))
+                              plan_warnings=m3.chart_plan.warnings, withheld=m3.chart_plan.withheld,
+                              role_links=state.get("role_links") or [], max_rows=state.get("max_rows", 50))
     except Exception as e:  # noqa: BLE001
         return {"checked": ["M6-in"], "issues": mark([exc_issue("M6-in", e)], "skip"), "skipped": ["M6-in"],
                 "routes": {"M6-in": "fail"}}
@@ -387,8 +445,38 @@ def check_m6(state: QAState) -> dict:
 
 
 # ── 마무리 ──────────────────────────────────────────────────────
+def chart_status(state: QAState, m3, drawn: list, stopped: str | None) -> tuple[dict, list[Issue]]:
+    """KOS-41 차트 요청의 최종 결과 + QA 가 뺀 요청 차트의 안내. 여기서 실패해도 답변은 그대로 나간다
+    charts_dump 를 쓴다: state 의 charts 에는 M3-in 에서 뺀 차트가 남아 있어 응답의 charts 와 달라진다
+    QA 가 중단하면 중단 메시지가 이미 나가므로 뺀 차트의 안내를 더하지 않는다"""
+    from backend.schemas.chart import ChartRequestOutcome, RenderState
+    issues: list[Issue] = []
+    try:
+        from backend.agent.chart_notice import finalize_chart_request
+        out = finalize_chart_request(state.get("charts_dump") or [], m3, drawn, draw=state.get("draw", True),
+                                     error=state.get("render_error"), stopped=bool(stopped),
+                                     rejected=bool(state.get("render_rejected")))
+    except Exception as e:  # noqa: BLE001
+        out = {"render_status": {}, "request_outcomes": [], "chart_notices": []}
+        issues = mark([Issue("A9", "chart_status", "exception", ERROR,
+                             f"차트 요청 결과 확정 실패: {e.__class__.__name__}: {str(e)[:200]}")], "warn")
+    if stopped:
+        return out, issues
+    have = {o["chart_id"] for o in out["request_outcomes"]}
+    for d in state.get("dropped_requests") or []:
+        cid = d["chart_id"]
+        if cid in have:
+            continue
+        have.add(cid)
+        out["render_status"].setdefault(cid, RenderState(state="skipped", reason="no_chart_content").model_dump(mode="json"))
+        out["request_outcomes"].append(ChartRequestOutcome(chart_id=cid, outcome="table_only",
+                                                           reason="validation_failed").model_dump(mode="json"))
+        out["chart_notices"] = list(dict.fromkeys([*out["chart_notices"], chart_dropped_message(d.get("name"))]))
+    return out, issues
+
+
 def finalize(state: QAState) -> dict:
-    """run_modules 와 같은 8개 키 + qa. 중단하지 않았으면 A9(최종 결과) 검사 (경고만)"""
+    """run_modules 와 같은 11개 키 + qa. 중단하지 않았으면 A9(최종 결과) 검사 (경고만)"""
     m3, m6 = state.get("m3"), state.get("m6")
     result = {"charts": state.get("charts_dump") or [], "chart_errors": state.get("chart_errors") or [],
               "chart_plan": state.get("plan"), "records": [r.model_dump(mode="json") for r in state.get("records") or []],
@@ -396,12 +484,17 @@ def finalize(state: QAState) -> dict:
               "answer": m6.model_dump(mode="json") if m6 is not None else None, "notes": list(state.get("notes") or [])}
     issues, checked = list(state.get("issues") or []), list(state.get("checked") or [])
     stopped = state.get("stopped_at")
+    status, status_issues = chart_status(state, m3, result["drawn"], stopped)
+    result.update(status)
+    issues += status_issues
     if not stopped:
         c = check("A9", result)
         checked.append("A9")
         issues += mark(c.issues, "warn") if not c.ok else mark(c.issues)
+    # 내용 경고: 최종 결과를 읽기만 한다 (대응 없음)
+    issues += mark(meaning_issues(m3, m6, state.get("bundle"), result["charts"], result["drawn"]))
     result["qa"] = summarize(issues, state.get("retries") or [], state.get("dropped") or [],
-                             state.get("skipped") or [], checked, stopped)
+                             state.get("skipped") or [], checked, stopped, state.get("stop_note"))
     return {"result": result}
 
 

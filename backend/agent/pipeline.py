@@ -95,7 +95,7 @@ def run_chat(question, today=None, top_k=None, n_views=None, max_rows=40, auto_s
     if answer_mode == "modules":
         from backend.agent.modules import as_answer_result
         from backend.agent.qa import run_modules_with_qa      # QA: 모듈 사이마다 형식 검사·대응 (backend/agent/qa)
-        out["modules"] = run_modules_with_qa(vs, draw=draw, max_rows=max_rows)
+        out["modules"] = run_modules_with_qa(vs, analysis=analysis, draw=draw, max_rows=max_rows)
         qa = out["modules"]["qa"]
         if out["modules"].get("answer"):
             out["result"] = as_answer_result(out["modules"])
