@@ -8,13 +8,9 @@
 
 ### 처음 한 번
 
-**터미널 1: 백엔드 (저장소 루트)**
+**터미널 1: 백엔드 실행 (저장소 루트)**
 
 ```powershell
-python -m pip install -r requirements-dev.txt    # 백엔드에 필요한 Python 패키지 설치
-Copy-Item .env.example .env                      # 백엔드 설정 파일(.env)을 예시에서 복사
-notepad .env                                     # KOSIS_API_KEY, HCX_API_KEY 등을 입력하고 저장
-python -m backend.rag.ingestion.prepare          # 수집 데이터로 검색 색인과 값 사전 만들기
 python -m uvicorn backend.main:app --port 8000   # 백엔드 서버 켜기 (8000번 포트)
 ```
 
@@ -33,7 +29,7 @@ npm run dev                          # 프론트 개발 서버 켜기 (5173번 �
 
 ```powershell
 # 터미널 1: 저장소 루트
-python -m uvicorn backend.main:app --port 8000   # 백엔드 서버 켜기 (8000번 포트)
+uvicorn backend.main:app --reload --port 8000   # 백엔드 서버 켜기 (8000번 포트)
 
 # 터미널 2: 저장소 루트
 cd frontend\web    # 프론트 폴더로 이동
@@ -47,11 +43,7 @@ Windows Git Bash 기준이며, 터미널 1은 Python 가상환경이 이미 켜�
 **처음 한 번: 터미널 1, 백엔드 (저장소 루트)**
 
 ```bash
-python -m pip install -r requirements-dev.txt    # 백엔드에 필요한 Python 패키지 설치
-cp .env.example .env                             # 백엔드 설정 파일(.env)을 예시에서 복사
-notepad .env                                     # KOSIS_API_KEY, HCX_API_KEY 등을 입력하고 저장
-python -m backend.rag.ingestion.prepare          # 수집 데이터로 검색 색인과 값 사전 만들기
-python -m uvicorn backend.main:app --port 8000   # 백엔드 서버 켜기 (8000번 포트)
+uvicorn backend.main:app --reload --port 8000   # 백엔드 서버 켜기 (8000번 포트)
 ```
 
 **처음 한 번: 터미널 2, 프론트 (저장소 루트에서 시작)**
@@ -67,7 +59,7 @@ npm run dev                   # 프론트 개발 서버 켜기 (5173번 포트)
 
 ```bash
 # 터미널 1: 저장소 루트
-python -m uvicorn backend.main:app --port 8000   # 백엔드 서버 켜기 (8000번 포트)
+uvicorn backend.main:app --reload --port 8000   # 백엔드 서버 켜기 (8000번 포트)
 
 # 터미널 2: 저장소 루트
 cd frontend/web    # 프론트 폴더로 이동

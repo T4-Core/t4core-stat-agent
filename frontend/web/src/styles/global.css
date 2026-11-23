@@ -44,6 +44,9 @@ input:focus-visible { outline: none; }
 .nav-history a[aria-current='page'] { width: 95.77px; padding: 0; }
 .nav-history a:not([aria-current]) { font-size: 14px; }
 .header-spacer { flex: none; width: 38px; height: 38px; }
+.admin-entry { display: grid; flex: none; width: 38px; height: 38px; place-items: center; color: var(--primary-800); background: var(--surface-200); border-radius: 50%; transition: background .15s ease, color .15s ease; }
+.admin-entry:hover { color: #fff; background: var(--primary-600); }
+.admin-entry:focus-visible { outline: 2px solid var(--primary-700); outline-offset: 2px; }
 
 .tag-chip { display: inline-flex; flex: none; align-items: center; border-radius: 999px; background: var(--surface-130); color: var(--text-600); white-space: nowrap; }
 .tag-S { padding: 3px 10px; font-size: 12px; }
