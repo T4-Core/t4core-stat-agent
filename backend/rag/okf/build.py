@@ -156,6 +156,11 @@ def set_current(root: Path, h: str):
 
 
 def current(root: Path) -> str:
+    """CURRENT 가 가리키는 빌드. 환경 변수 OKF_BUILD_OVERRIDE 가 있으면 그 빌드 (gate.py 가 새 빌드를 바꾸기 전에 재 볼 때 —
+    '-' 는 빌드 없음)"""
+    o = os.environ.get("OKF_BUILD_OVERRIDE", "").strip()
+    if o:
+        return "" if o == "-" or not (Path(root) / o / "manifest.json").exists() else o
     p = Path(root) / "CURRENT"
     return p.read_text(encoding="utf-8").strip() if p.exists() else ""
 
@@ -170,8 +175,9 @@ def prune(root: Path, keep=KEEP):
 
 
 def build(bundle=None, root=None, profiles_dir=None, idx=None, idx_dir=None, *, force=False, embed=None,
-          settings=None, log=print) -> dict:
-    """→ manifest. 검사 오류면 {"ok": False, "lint": …} 를 돌려주고 CURRENT 는 그대로"""
+          settings=None, log=print, gate=None) -> dict:
+    """→ manifest. 검사 오류면 {"ok": False, "lint": …} 를 돌려주고 CURRENT 는 그대로
+    gate: callable(새 해시, 지금 해시) → {"ok": bool, …} (gate.py). 불합격이면 새 빌드는 남기고 CURRENT 는 그대로"""
     bundle = Path(bundle or bundle_dir(settings))
     root = Path(root or build_root(settings))
     recs = T.load_profiles(profiles_dir) if profiles_dir and Path(profiles_dir).exists() else []
@@ -185,9 +191,13 @@ def build(bundle=None, root=None, profiles_dir=None, idx=None, idx_dir=None, *, 
     h = input_hash(bundle, profiles_dir, idx_dir or (getattr(idx, "dir", None) if idx is not None else None))
     out = root / h
     if out.exists() and (out / "manifest.json").exists() and not embed:
+        g = _gate(gate, h, current(root), log)
+        if g is not None and not g.get("ok"):
+            return {"ok": False, "hash": h, "gate": g, "reused": True}
         set_current(root, h)
         log(f"같은 입력의 빌드가 이미 있음 → CURRENT = {h}")
-        return {**json.loads((out / "manifest.json").read_text(encoding="utf-8")), "ok": True, "reused": True}
+        return {**json.loads((out / "manifest.json").read_text(encoding="utf-8")), "ok": True, "reused": True,
+                **({"gate": g} if g is not None else {})}
     tmp = root / f"{h}.tmp-{os.getpid()}"
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
@@ -215,7 +225,21 @@ def build(bundle=None, root=None, profiles_dir=None, idx=None, idx_dir=None, *, 
     if out.exists():
         shutil.rmtree(out, ignore_errors=True)
     os.replace(tmp, out)
+    g = _gate(gate, h, current(root), log)
+    if g is not None and not g.get("ok"):
+        log(f"빌드 {h} 는 만들었지만 검사 불합격 → CURRENT 그대로 ({current(root) or '-'}). 그래도 쓰려면 okf use {h}")
+        return {**manifest, "ok": False, "gate": g}
     set_current(root, h)
     prune(root)
     log(f"빌드 {h} → CURRENT (표 {len(cat)} · 개념 {len(concepts)} · 별칭 {manifest['aliases']} · 코드북 {len(cbs)})")
-    return {**manifest, "ok": True}
+    return {**manifest, "ok": True, **({"gate": g} if g is not None else {})}
+
+
+def _gate(gate, new, base, log):
+    if gate is None or new == base:
+        return None
+    try:
+        return gate(new, base)
+    except SystemExit as e:  # compare.find_run 이 실행을 못 찾음
+        log(f"검사를 못 함: {e} → 빌드를 바꾸지 않음")
+        return {"ok": False, "error": str(e)}

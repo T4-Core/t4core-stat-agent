@@ -17,7 +17,7 @@ import numpy as np
 from backend.rag.search.facets import facet_text
 from backend.rag.search.text import TOTALS, bigrams, idf, norm, variants
 
-KIND_W = {"item": 1.0, "dim": 0.8, "obj": 0.5}
+KIND_W = {"item": 1.0, "dim": 0.8, "obj": 0.5, "alias": 0.9}  # alias = OKF 개념의 승인된 별칭 (okf_terms.py)
 MAX_LEN = 24
 
 
@@ -62,15 +62,22 @@ class TitleChannel:
 
 
 class ValueChannel:
-    def __init__(self, facets):
+    def __init__(self, facets, aliases=None, alias_w=KIND_W["alias"]):
+        """aliases: 표 순서대로 [{alias, canon}] (OKF 개념 별칭 — okf_terms.table_aliases). 별칭 → 그 표의 값 표현
+        질문에서 별칭이 맞으면 정규 이름의 표기 변형도 '찾은 값'에 넣음 (feasibility 가 그 분류를 쓴다고 보게)"""
         self.n = len(facets)
         table = defaultdict(dict)  # 표현(norm) → {표 번호: 가중치}
+        self.canon = defaultdict(set)  # 별칭 표현 → 정규 이름 표기 변형
         self._cohort = []  # 출생연도(코호트) 분류가 있는 표
         for i, f in enumerate(facets):
             def add(name, w):
                 for v in variants(name):
                     if 2 <= len(v) <= MAX_LEN and table[v].get(i, 0) < w:
                         table[v][i] = w
+            for e in (aliases[i] if aliases else None) or []:
+                add(e["alias"], alias_w)
+                for v in variants(e["alias"]):
+                    self.canon[v] |= set(variants(e["canon"]))
             for n in f.items:
                 add(n, KIND_W["item"])
             for obj, kind, names in f.dims:
@@ -106,12 +113,14 @@ class ValueChannel:
                 s[i] += w * kw
         if cohort and self._cohort:  # '1983년생' → 출생연도 분류가 있는 표
             s[self._cohort] += idf(len(self._cohort), self.n)
-        return s, found
+        extra = [c for key in found for c in sorted(self.canon.get(key, ())) if c not in found]
+        return s, list(dict.fromkeys(found + extra))
 
 
 class Channels:
-    def __init__(self, corpus, facets, embedder=None, log=None, dense_groups=None):
-        """dense_groups = [(채널 이름, [(문서 묶음 이름, 글 목록)])] — 첫 채널이 'dense', 나머지는 'dense_<이름>'"""
+    def __init__(self, corpus, facets, embedder=None, log=None, dense_groups=None, aliases=None, alias_w=KIND_W["alias"]):
+        """dense_groups = [(채널 이름, [(문서 묶음 이름, 글 목록)])] — 첫 채널이 'dense', 나머지는 'dense_<이름>'
+        aliases = {tbl_id: [{alias, canon}]} — OKF 개념 별칭 (값 채널에)"""
         from backend.rag.search.index import BM25Retriever, CharNgramTokenizer, DenseRetriever, Doc, KiwiTokenizer
         self.docs = corpus.docs()
         self.facets = [facets[d.id] for d in self.docs]
@@ -120,7 +129,7 @@ class Channels:
         mini = _MiniCorpus([Doc(d.id, facet_text(f)) for d, f in zip(self.docs, self.facets)], corpus.signature() + ":facet")
         self.ngram = BM25Retriever(CharNgramTokenizer((2, 3), keep_words=False), name="ngram", cache=False).fit(mini)
         self.title = TitleChannel(self.facets)
-        self.value = ValueChannel(self.facets)
+        self.value = ValueChannel(self.facets, [aliases.get(d.id) for d in self.docs] if aliases else None, alias_w)
         self.denses = []
         if embedder is not None:
             for gname, views in (dense_groups or [("rule", None)]):

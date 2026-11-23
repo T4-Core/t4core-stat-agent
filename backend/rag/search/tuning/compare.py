@@ -19,6 +19,8 @@
   python -m backend.rag.search.tuning.compare --golden <셋> --dense hcx arctic-ko bge-m3-ko ens-ko   # 임베딩 모델 비교
       (첫 dense 가 기준 → report.md 'dense 비교' 에 질문별 득실 · 부호 검정 p. 로컬 모델은 search/embedders.py)
   python -m backend.rag.search.tuning.compare --golden <합성 셋> --alt <alt_positives.jsonl> --split heldout
+  python -m backend.rag.search.tuning.compare --from-run hard_okf2 --audit <gold_audit.jsonl>
+      (정답 표시 검토 반영 지표를 따로 — gold_audit.py. --from-run 은 그 실행의 날짜(--today)도 이어받아 질의 분석 캐시를 그대로 씀)
   python -m backend.rag.search.tuning.compare --from-run docs_hard --dense bge-m3-ko --dense-docs "rule,def" --ce
       (교차 인코더 재정렬 'search+ce' 를 'search' 와 나란히 — '방법 비교' 절에 질문별 득실·부호 검정)
   python -m backend.rag.search.tuning.compare --list-runs                       # 이전 실행 (골든셋·alt 경로가 기록돼 있음)
@@ -355,6 +357,23 @@ def evaluate_one(pipe, row, units, top_k, pool):
             res[f"groups@{k}_alt"] = int(all((set(v) | set(alt.get(g, [])) | set(alt.get("ALL", []))) & top
                                                  for g, v in row["groups"].items()))
         res["alt_tables"] = " ".join(sorted(acc2 - acceptable))
+    # 검토 반영 기준 (gold_audit.py): 완화 정답 + 검토가 제안한 대체 정답 · 정답 표시가 틀린 변형은 뺌 (지표 None)
+    aud = row.get("audit")
+    if aud is not None:
+        res["audit_flags"] = " ".join(aud.get("flags") or [])
+        res["audit_excluded"] = int(bool(aud.get("exclude")))
+        if not aud.get("exclude"):
+            extra = set(aud.get("alt") or [])
+            acc3 = acceptable | {t for v in (alt or {}).values() for t in v} | extra
+            pos3 = next((i for i, t in enumerate(ranking, 1) if t in acc3), None)
+            res["rank_aud"] = pos3
+            res["mrr_aud"] = round(1 / pos3, 4) if pos3 else 0.0
+            for k in KS:
+                res[f"hit@{k}_aud"] = int(bool(pos3 and pos3 <= k))
+            for k in (5, 10):
+                top = set(ranking[:k])
+                res[f"groups@{k}_aud"] = int(all((set(v) | set((alt or {}).get(g, [])) | set((alt or {}).get("ALL", [])) | extra)
+                                                 & top for g, v in row["groups"].items()))
     return res
 
 
@@ -366,6 +385,7 @@ def _mean(xs):
 METRICS = ["hit@1", "hit@3", "hit@5", "hit@10", "groups@5", "groups@10", "mrr", "pool@k", "pool_groups@k",
            "gold_unmet_any", "sibling_confusion", "near_confusion", "in_corpus", "dense@10", "dense@50", "rwdense@10"]
 ALT_METRICS = ["hit@1_alt", "hit@3_alt", "hit@5_alt", "hit@10_alt", "groups@5_alt", "groups@10_alt", "mrr_alt"]
+AUD_METRICS = ["hit@1_aud", "hit@3_aud", "hit@5_aud", "hit@10_aud", "groups@5_aud", "groups@10_aud", "mrr_aud"]
 
 
 def aggregate(recs):
@@ -373,15 +393,19 @@ def aggregate(recs):
     if any(r.get("mrr_alt") is not None for r in recs):
         out.update({m: _mean([r.get(m) for r in recs]) for m in ALT_METRICS})
         out["with_alt"] = _mean([int(bool(r.get("alt_tables"))) for r in recs])
+    if any(r.get("audit_excluded") is not None for r in recs):
+        out.update({m: _mean([r.get(m) for r in recs]) for m in AUD_METRICS})
+        out["n_aud"] = sum(1 for r in recs if r.get("mrr_aud") is not None)
     return out
 
 
 def run(rows, analysis, denses, llm, top_k, pool, log=print, tuned=None, docs=("rule",), cards=None, kos14=None, ce=None,
-        arms=None, raw_analysis=None):
+        arms=None, raw_analysis=None, okf=None):
     """tuned: 폴더 — dense(·문서)마다 <폴더>/search.tuned.<dense>[.<docs>].yaml 의 가중치로 (없으면 기본 가중치, 이름에 * 없음)
     docs: dense 문서 구성 목록 (index.parse_docs). 두 개 이상이거나 rule 이 아니면 구성 이름이 '<dense>|<docs>'
     ce: 교차 인코더 재정렬 설정(dict) — 주면 방법 'search+ce' 를 함께 (ce_rerank.py)
-    arms: ARMS 이름 목록 — 구성마다 arm 을 붙여 나란히 (이름 '<dense>|<docs>|<arm>'). raw_analysis = 검증 전 단위 (arm off)"""
+    arms: ARMS 이름 목록 — 구성마다 arm 을 붙여 나란히 (이름 '<dense>|<docs>|<arm>'). raw_analysis = 검증 전 단위 (arm off)
+    okf: ['on', 'off'] — OKF 개념 별칭(값 채널)을 켜고 끈 구성을 나란히 (이름 '<dense>|okf-on'). 질의 분석은 같은 것을 씀"""
     from backend.rag.search.tuning.tune import load_tuned, tuned_path
     per, info = [], {}
     docs = list(docs or ["rule"])
@@ -390,44 +414,50 @@ def run(rows, analysis, denses, llm, top_k, pool, log=print, tuned=None, docs=("
         for dd in (docs if dense0 != "none" else docs[:1]):
             st = load_tuned(dense0, tuned, dd) if tuned else None
             base = f"{dense0}|{dd}" if label_docs and dense0 != "none" else dense0
-            dense = f"{base}*" if st else base               # * = 그 모델(·문서)에 맞춘 가중치
+            dense_base = f"{base}*" if st else base          # * = 그 모델(·문서)에 맞춘 가중치
             if tuned:
                 log(f"  {base}: " + (f"맞춘 가중치 {tuned_path(dense0, tuned, dd).name}" if st else "맞춘 가중치 없음 → 기본 가중치"))
-            settings = dict(st or {})
-            if dd != "rule":
-                settings.update({"dense_docs": dd, "dense_cards": cards, "kos14_cards": kos14})
-            methods = [("search", False, None)] + ([("search+ce", False, ce)] if ce else []) \
-                + ([("search+llm", True, None)] if llm else [])
-            for m, use_llm, ce_cfg in methods:
-                st_m = dict(settings)
-                if ce_cfg:
-                    st_m["ce_rerank"] = {**ce_cfg, "enabled": True}
-                try:
-                    pipe0 = get_search_for(dense0, use_llm, st_m or None)
-                except Exception as e:  # noqa: BLE001  (구성 하나가 비교 전체를 막지 않게)
-                    name = f"{m}[{dense}]"
-                    info[name] = {"error": f"{e.__class__.__name__}: {str(e)[:300]}"}
-                    log(f"  ✗ {name}: {info[name]['error']}")
-                    continue
-                for arm in (arms or [None]):
-                    label = f"{dense}|{arm}" if arm else dense
-                    name = f"{m}[{label}]"
-                    t0 = time.time()
-                    pipe, units_of_row = pipe0, analysis
-                    if arm:
-                        feas, prune = arm_settings(arm)
-                        pipe = with_feas(pipe0, feas)
-                        units_of_row = analysis if prune else (raw_analysis or analysis)
-                    for row in rows:
-                        res = evaluate_one(pipe, row, units_of_row[row["qid"]], top_k, pool)
-                        per.append({"method": m, "dense": label, "config": name, **{k: row[k] for k in (
-                            "qid", "record_id", "variant", "hop_type", "reasoning_type", "subtype", "survey", "difficulty")},
-                            "split": row.get("split") or (row["difficulty"] if row["difficulty"] in ("dev", "test", "train") else ""),
-                            "question": row["question"], "gold": " ".join(row["gold"]), **res})
-                    info[name] = {"n_docs": len(pipe.docs), "corpus": pipe.corpus.signature()[:120],
-                                  "seconds": round(time.time() - t0, 1), "dense_docs": dd, **({"tuned": st} if st else {}),
-                                  **({"arm": arm, "feas": arm_settings(arm)[0], "prune_units": arm_settings(arm)[1]} if arm else {})}
-                    log(f"  {name}: 문서 {len(pipe.docs)} · {info[name]['seconds']}초")
+            settings0 = dict(st or {})
+            for ov in (okf or [None]):
+                settings = dict(settings0)
+                if ov:
+                    settings["okf"] = {"enabled": ov == "on"}
+                dense = f"{dense_base}|okf-{ov}" if ov else dense_base
+                if dd != "rule":
+                    settings.update({"dense_docs": dd, "dense_cards": cards, "kos14_cards": kos14})
+                methods = [("search", False, None)] + ([("search+ce", False, ce)] if ce else []) \
+                    + ([("search+llm", True, None)] if llm else [])
+                for m, use_llm, ce_cfg in methods:
+                    st_m = dict(settings)
+                    if ce_cfg:
+                        st_m["ce_rerank"] = {**ce_cfg, "enabled": True}
+                    try:
+                        pipe0 = get_search_for(dense0, use_llm, st_m or None)
+                    except Exception as e:  # noqa: BLE001  (구성 하나가 비교 전체를 막지 않게)
+                        name = f"{m}[{dense}]"
+                        info[name] = {"error": f"{e.__class__.__name__}: {str(e)[:300]}"}
+                        log(f"  ✗ {name}: {info[name]['error']}")
+                        continue
+                    for arm in (arms or [None]):
+                        label = f"{dense}|{arm}" if arm else dense
+                        name = f"{m}[{label}]"
+                        t0 = time.time()
+                        pipe, units_of_row = pipe0, analysis
+                        if arm:
+                            feas, prune = arm_settings(arm)
+                            pipe = with_feas(pipe0, feas)
+                            units_of_row = analysis if prune else (raw_analysis or analysis)
+                        for row in rows:
+                            res = evaluate_one(pipe, row, units_of_row[row["qid"]], top_k, pool)
+                            per.append({"method": m, "dense": label, "config": name, **{k: row[k] for k in (
+                                "qid", "record_id", "variant", "hop_type", "reasoning_type", "subtype", "survey", "difficulty")},
+                                "split": row.get("split") or (row["difficulty"] if row["difficulty"] in ("dev", "test", "train") else ""),
+                                "question": row["question"], "gold": " ".join(row["gold"]), **res})
+                        info[name] = {"n_docs": len(pipe.docs), "corpus": pipe.corpus.signature()[:120],
+                                      "seconds": round(time.time() - t0, 1), "dense_docs": dd, **({"tuned": st} if st else {}),
+                                      "okf": getattr(pipe, "okf", None),
+                                      **({"arm": arm, "feas": arm_settings(arm)[0], "prune_units": arm_settings(arm)[1]} if arm else {})}
+                        log(f"  {name}: 문서 {len(pipe.docs)} · {info[name]['seconds']}초")
     return per, info
 
 
@@ -582,6 +612,23 @@ def report_md(meta, table, fails, wins, per):
                 L.append(f"| {_cell(t['config'])} | {_cell(t['value'])} | {t['n']} | {_fmt(t.get('with_alt'))} | "
                          + " | ".join(f"{_fmt(t[m])} → {_fmt(t[m + '_alt'])}" for m in ("hit@1", "hit@5", "hit@10", "groups@5", "mrr"))
                          + " |")
+    if any("mrr_aud" in t for t in table):  # 검토 반영 (gold_audit.py)
+        first = next(iter(dict.fromkeys(r["config"] for r in per)), None)
+        fl = Counter(c for r in per if r["config"] == first for c in str(r.get("audit_flags") or "").split())
+        nx = sum(1 for r in per if r["config"] == first and r.get("audit_excluded"))
+        L += ["", "## 검토 반영 (gold_audit.py — 정답 표시 검토)", "",
+              f"- 검토 파일: `{meta.get('audit')}` · 걸린 검사 (기준 구성): "
+              + (" · ".join(f"{k} {v}" for k, v in sorted(fl.items())) or "없음") + f" · 평가에서 뺀 변형 {nx}",
+              ("- 검토 반영 = 완화 정답 + 검토가 제안한 대체 정답(SEX 기본 · P_DRIFT 는 human accept 만), "
+               "UNIVERSE 같은 정답 표시 오류는 뺌. 엄격·완화 지표는 위와 같음 (바꾸지 않음)"), "",
+              "| 구성 | 값 | n → 검토 n | hit@1 완화 → 검토 | hit@5 완화 → 검토 | hit@10 완화 → 검토 | mrr 완화 → 검토 |",
+              "|---|---|---|---|---|---|---|"]
+        for t in table:
+            if t["group"] in ("ALL", "variant", "split") and "mrr_aud" in t:
+                L.append(f"| {_cell(t['config'])} | {_cell(t['value'])} | {t['n']} → {t['n_aud']} | "
+                         + " | ".join(f"{_fmt(t.get(m + '_alt', t.get(m)))} → {_fmt(t[m + '_aud'])}"
+                                      for m in ("hit@1", "hit@5", "hit@10", "mrr"))
+                         + " |")
     cols = ["n", "hit@1", "hit@3", "hit@5", "hit@10", "groups@5", "groups@10", "mrr", "dense@10", "dense@50", "rwdense@10",
             "pool@k", "gold_unmet_any", "sibling_confusion", "near_confusion", "in_corpus"]
     for group in ("ALL", "variant", "hop_type", "reasoning_type", "split"):
@@ -681,7 +728,8 @@ def list_runs():
     return out
 
 
-NUM_TEXT = {"question", "gold", "top1", "top1_nm", "top5", "fail", "gold_unmet", "alt_tables", "qid", "record_id", "variant",
+NUM_TEXT = {"question", "gold", "top1", "top1_nm", "top5", "fail", "gold_unmet", "alt_tables", "audit_flags", "qid", "record_id",
+            "variant",
             "hop_type", "reasoning_type", "subtype", "survey", "difficulty", "split", "method", "dense", "config"}
 
 
@@ -762,6 +810,8 @@ def main(argv=None):
     ap.add_argument("--name", default="compare")
     ap.add_argument("--alt", default=None, help="대체 정답 파일 (alt_gold.py 의 alt_positives.jsonl) → 엄격/완화 지표")
     ap.add_argument("--alt-exact-only", action="store_true", help="반올림 일치(rounded)는 대체 정답으로 치지 않음")
+    ap.add_argument("--audit", default=None,
+                    help="정답 표시 검토 파일 (gold_audit.py 의 gold_audit.jsonl) → '검토 반영' 지표를 따로 (엄격·완화는 그대로)")
     ap.add_argument("--cache", default=None, help="다른 compare 폴더의 analysis_cache.jsonl — 같은 질의 분석을 다시 씀")
     ap.add_argument("--tuned", nargs="?", const="configs", default=None, metavar="폴더",
                     help="dense 마다 <폴더>/search.tuned.<dense>.yaml (tune 결과) 가중치로. 폴더 기본 configs. 이름 뒤 * = 맞춘 가중치")
@@ -770,6 +820,8 @@ def main(argv=None):
     ap.add_argument("--arms", nargs="*", default=None, choices=list(ARMS),
                     help="앞단 수정을 켜고 끈 구성을 나란히: off(수정 전) units cycle move geo cond all. 첫 arm 이 기준")
     ap.add_argument("--raw-units", action="store_true", help="캐시된 질의 분석에 하위 질문 검증을 다시 적용하지 않음")
+    ap.add_argument("--okf", nargs="*", default=None, choices=["on", "off"],
+                    help="OKF 개념 별칭(검색 값 채널)을 켠·끈 구성을 나란히 (같은 질의 분석) — search/okf_terms.py")
     a = ap.parse_args(argv)
     if a.rebuild_report:
         f = rebuild_report(find_run(a.rebuild_report))
@@ -786,12 +838,16 @@ def main(argv=None):
         a.golden = a.golden or cfg.get("golden")
         if a.alt is None and cfg.get("alt"):
             a.alt = cfg["alt"]
+        if a.audit is None and cfg.get("audit"):
+            a.audit = cfg["audit"]
+        if "--today" not in given and cfg.get("today"):
+            a.today = cfg["today"]       # 질의 분석 캐시 키에 날짜가 들어감 — 다른 날 다시 써도 HCX 를 다시 부르지 않게
         if "--variants" not in given and cfg.get("variants"):
             a.variants = cfg["variants"]
         if a.cache is None and (prev / "analysis_cache.jsonl").exists():
             a.cache = str(prev / "analysis_cache.jsonl")
-        print(f"[이전 실행] {prev.name} → golden {a.golden} · alt {a.alt or '-'} · 변형 {a.variants} · 캐시 {a.cache or '-'}",
-              flush=True)
+        print(f"[이전 실행] {prev.name} → golden {a.golden} · alt {a.alt or '-'} · 변형 {a.variants} · 캐시 {a.cache or '-'}"
+              f" · 날짜 {a.today}", flush=True)
     a.golden = a.golden or "synthetic_gold_pipeline/outputs/datasets/synthetic_gold_dataset.jsonl"
 
     from backend.core.config import RUNS_DIR
@@ -805,6 +861,15 @@ def main(argv=None):
         for r in rows:
             r["alt_groups"] = alt.get(r["record_id"], {})
         print(f"[대체 정답] {sum(bool(any(v.values())) for v in alt.values())}/{len(alt)} 레코드 ← {a.alt}", flush=True)
+    if a.audit:
+        from backend.rag.search.tuning.gold_audit import load_audit
+        aud = load_audit(a.audit)
+        for r in rows:
+            r["audit"] = aud.get((r["record_id"], r["variant"]), {"alt": [], "exclude": False, "flags": []})
+        nx = sum(1 for r in rows if r["audit"].get("exclude"))
+        npend = sum(1 for r in rows if r["audit"].get("pending"))
+        print(f"[정답 검토] 제안 대체 정답이 있는 변형 {sum(1 for r in rows if r['audit'].get('alt'))} · 뺀 변형 {nx}"
+              f" · 사람 검토를 기다리는 변형 {npend} ← {a.audit}", flush=True)
     cache = out / "analysis_cache.jsonl"
     if a.cache and Path(a.cache).resolve() != cache.resolve() and not cache.exists():
         import shutil
@@ -822,12 +887,12 @@ def main(argv=None):
     ce = {"model": a.ce_model, "mode": a.ce_mode, "top_n": a.ce_top_n, "doc": a.ce_doc, "k": a.ce_k,
           "weight": a.ce_weight} if a.ce else None
     per, info = run(rows, analysis, a.dense, a.llm, a.top_k, a.pool, tuned=a.tuned, docs=a.dense_docs, cards=a.cards,
-                    kos14=a.kos14, ce=ce, arms=a.arms, raw_analysis=raw_analysis)
+                    kos14=a.kos14, ce=ce, arms=a.arms, raw_analysis=raw_analysis, okf=a.okf)
     table, fails, wins = summarize(per)
     meta = {"created": datetime.now().isoformat(timespec="seconds"), "golden": a.golden, "n_rows": len(rows),
             "variants": a.variants, "analyze": a.analyze, "today": a.today, "top_k": a.top_k, "pool": a.pool,
-            "dense": a.dense, "dense_docs": a.dense_docs, "ce": ce, "configs": info, "alt": a.alt,
-            "arms": a.arms, "prune_units": not a.raw_units, "n_pruned": n_pruned,
+            "dense": a.dense, "dense_docs": a.dense_docs, "ce": ce, "configs": info, "alt": a.alt, "audit": a.audit,
+            "arms": a.arms, "okf": a.okf, "prune_units": not a.raw_units, "n_pruned": n_pruned,
             "analysis_status": dict(Counter(u[0].get("status") for u in analysis.values()))}
     (out / "summary.json").write_text(json.dumps({"meta": meta, "table": table, "fails": fails, "wins": wins,
                                                   "dense_vs_base": dense_vs_base(per)},
@@ -843,7 +908,8 @@ def main(argv=None):
         if t["group"] in ("ALL", "variant"):
             print(f"  {t['config']:28s} {t['value']:4s} n={t['n']:3d} hit@1={_fmt(t['hit@1'])} hit@5={_fmt(t['hit@5'])} "
                   f"groups@5={_fmt(t['groups@5'])} mrr={_fmt(t['mrr'])} pool@{a.pool}={_fmt(t['pool@k'])}"
-                  + (f" | 완화 hit@5={_fmt(t['hit@5_alt'])} mrr={_fmt(t['mrr_alt'])}" if "mrr_alt" in t else ""))
+                  + (f" | 완화 hit@5={_fmt(t['hit@5_alt'])} mrr={_fmt(t['mrr_alt'])}" if "mrr_alt" in t else "")
+                  + (f" | 검토 n={t['n_aud']} hit@1={_fmt(t['hit@1_aud'])} mrr={_fmt(t['mrr_aud'])}" if "mrr_aud" in t else ""))
     print(f"보고서 → {out / 'report.md'}")
     return out
 

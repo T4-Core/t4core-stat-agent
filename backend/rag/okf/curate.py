@@ -75,10 +75,15 @@ def concept_doc(title, description, binds, aliases=(), nots=(), calc=(), by=MIGR
         meta["verified"] = [{"by": by, "at": meta["generated"]["at"]}]
     lines = ["# 정의", "", description or "(정의를 적어 주세요)", "", "# 헷갈리는 말", ""]
     lines += [f"- {n['text']} — {n.get('why', '')}" for n in nots] or ["- (같은 뜻이 아닌 말이 있으면 x-t4-concept.not 에)"]
-    lines += ["", "# 표", ""]
-    lines += [f"- [{b.get('name')}]({b['table']}) — " + (f"분류 '{b['dim']}' 코드 {b['code']}" if "dim" in b else f"항목 {b.get('item')}")
-              for b in binds if "table" in b]
+    lines += ["", "# 표", ""] + bind_lines(binds)
     return Doc(meta, "\n".join(lines) + "\n")
+
+
+def bind_lines(binds) -> list:
+    """본문 '# 표' 줄 — '- [이름](/tables/…) — 항목 T1 | 분류 '…' 코드 … | 표 전체'"""
+    return [f"- [{b.get('name')}]({b['table']}) — " + (f"분류 '{b['dim']}' 코드 {b['code']}" if "dim" in b else
+                                                      f"항목 {b['item']}" if "item" in b else "표 전체")
+            for b in binds if isinstance(b, dict) and "table" in b]
 
 
 def write_new(bundle: Path, rel: str, doc: Doc) -> Path:

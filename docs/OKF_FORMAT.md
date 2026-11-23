@@ -168,9 +168,141 @@ python -m backend.rag.okf approve 모자가정 [--value 모+미혼자녀] [--by 
 python -m backend.rag.okf build
 ```
 
+## 검색 연결 (`backend/rag/search/okf_terms.py`)
+
+검색기는 만들어질 때 지금 빌드(`CURRENT`)의 개념을 읽는다. 승인된 별칭과, 그 개념이 표에 묶인 정보를 쓴다. `dim_kind` 규칙 개념은 모든 연령 표에 해당해 신호가 되지 않으므로 뺀다.
+
+- **값 채널 (기본 켜짐):** 별칭을 그 표의 값 표현으로 넣는다(가중치 `search.yaml okf.value_weight`, 기본 0.9).
+  - 질문에 '싱글맘'이 나오면 '모+미혼자녀' 코드가 있는 표들이 점수를 받는다.
+  - 정규 이름('모+미혼자녀')도 '연결된 값'으로 친다. 그래서 그 표는 '안 쓰는 분류' 감점을 받지 않는다.
+  - 드문 표현이라, 같은 조사의 다른 표는 기존 조건 누락 규칙(`cond_miss`)으로 뒤로 간다.
+- **dense 문서 `okf` (선택):** 표 설명문 끝에 `일상어: 싱글맘, 한부모 엄마 (모+미혼자녀)` 줄을 붙인다.
+  - 별칭이 없는 표는 설명문 그대로라 임베딩 캐시를 다시 쓴다.
+  - 켜는 법: `search.yaml dense_docs: okf`, 또는 compare `--dense-docs rule okf`.
+- **빌드가 바뀌면** 검색기 캐시 키(`get_search`)가 달라져서 새로 만들어진다.
+- **끄기:**
+  - `search.yaml okf.enabled: false` — 검색만 끈다.
+  - `pipeline.yaml okf_use: false` — 사전과 검색 모두 끈다.
+
+```powershell
+# 같은 질의 분석으로 OKF 켬·끔 비교 (첫 값이 기준 → report.md 'dense 비교' 에 질문별 득실·부호 검정)
+python -m backend.rag.search.tuning.compare --golden <셋> --alt <alt> --dense hcx --okf off on --name okf_ab
+# dense 문서까지
+python -m backend.rag.search.tuning.compare --golden <셋> --dense hcx --dense-docs rule okf --okf on --name okf_dense
+```
+
+`--okf` 는 검색 쪽만 켜고 끈다. 질의 분석(정규 어휘 사전의 별칭 → 조건 보충)은 두 구성이 같은 캐시를 쓴다.
+
+테스트는 내 PC 의 실제 빌드를 읽지 않는다(`tests/conftest.py` 가 빈 폴더로 바꿈).
+
+## 개념 초안 모으기 (`python -m backend.rag.okf drafts`)
+
+compare 결과에서 "일상어(P)라서 못 찾은" 문항을 골라 개념 초안을 만든다. 같은 레코드의 O(공식 용어) 질문과 비교해서 고른다.
+
+```powershell
+python -m backend.rag.okf drafts --runs storage\runs\search_compare\<hard 실행> storage\runs\search_compare\<easy 실행>
+#   → storage/runs/okf_drafts/<시각>/drafts.md (사람이 읽음) · drafts.json
+python -m backend.rag.okf drafts --runs … --write          # 개념마다 concepts/_inbox/draft-*.md (status: draft) + 표에서 정의
+python -m backend.rag.okf drafts --runs … --write --hcx    # + HCX 제안 (정의 다듬기 · 별칭 판정 · 헷갈리는 말)
+python -m backend.rag.okf assist [경로 …] [--no-hcx]        # 이미 있는 _inbox 초안에 같은 것 (경로 없으면 전부)
+python -m backend.rag.okf verify /concepts/_inbox/draft-….md --to population/birth [--alias 표현 …]
+#   고친 뒤 → stable + 승인 + concepts/population/birth.md 로 옮김
+python -m backend.rag.okf lint ; python -m backend.rag.okf build
+```
+
+**1. 문항 고르기**
+- P 가 1위를 놓쳤고(대체 정답 포함 순위) O 보다 순위가 나쁜 레코드만 고른다.
+- 둘 다 못 찾은 문항은 어휘 문제가 아니라서 뺀다.
+- 기본은 dev 레코드만 쓴다(`--split`). heldout 으로 평가하기 위해서다.
+
+**2. 분류** — O 에만 있는 내용어(Kiwi 형태소)가 정답 표의 무엇과 맞는지 본다.
+
+- 코드·항목 이름이 O 에 통째로 있으면 그것만 묶는다. '미혼모의 자녀' 가 O 에 있으면 '자녀' 가 같은 '미혼부의 자녀' 는 묶지 않는다.
+- 이름의 일부만 맞으면 코드 짝으로 보지 않는다. '거주지' 하나로 '1년 전 거주지_전국' 을 묶지 않고, 분류·표 이름 쪽으로 넘어간다.
+
+| 결과 | 기준 | 다음 일 |
+|---|---|---|
+| 어휘 | 코드·항목 1~2개와 맞음 (표 30개 이하에만 있는 이름) | 개념 초안 |
+| 어휘(표) | 드문 표 이름 형태소 (표 5개 이하) | 표 단위 개념 초안 |
+| 용어 | 여러 코드에 두루 맞거나 흔한 이름 ('주택' · '여자') | `configs/colloquial.yaml` 후보 |
+| 표를 못 정함 의심 | 지역이 아닌 분류 이름('체류기간별' · '연령별')만 O 에 있음 | 골든셋 검토 — P 로 바꾸며 표를 정하는 말이 빠짐 |
+| 기타 | 아무것도 안 맞음 | 시점·분기·조건 등 다른 문제 |
+
+**3. 일상어 후보**
+- P 에만 있는 내용어 1~2개로 만든다.
+- 다음은 뺀다.
+  - 흔한 말: P 질문 8% 넘게 나오는 형태소 + 기본 목록
+  - 지역 이름
+  - O 나 정답 표 이름에 이미 있는 말
+  - 성별·합계 표현('남성' · '남녀' · '나라') 과 '살' · '거주'
+  - `configs/colloquial.yaml` 이 많은 표에 있는 용어로만 바꾸는 말 ('남성' → 남자)
+- 동사로 끝나면 어절 끝까지 넣는다 ('아이를 낳' → '아이를 낳은').
+- 같은 폴더에 `analysis_cache.jsonl` 이 있으면 C 모드 `[어휘 후보]` 기록도 쓴다. 벡터 후보가 짝의 이름과 같으면 "벡터 후보 일치" 로 표시한다.
+- `colloquial.yaml` 이 같은 말을 짝과 같은 쪽으로 바꾸면 `colloquial → 출생`, 다른 말로도 바꾸면 `⚠ colloquial 은 '출생' 로도 바꿈` 으로 표시한다.
+  '낳은 아이 → 미혼모의 자녀' 처럼 경고가 붙은 별칭은 다른 표의 질문까지 끌어갈 수 있으니 더 좁은 말('미혼모가 낳은 아이')로 고친다.
+
+**묶을 표 넓히기** — 코드·항목 짝은 같은 이름의 항목(또는 같은 분류의 같은 코드)이 있는 모든 표에 묶는다.
+- 예: '출생' 항목이 있는 표 9개.
+- 정답 표에만 묶으면 검색 점수가 골든셋 정답 표에만 붙어 골든셋에 맞춘 개념이 된다.
+- 표 30개를 넘으면 넓히지 않는다(용어 쪽). 표 이름 짝은 그 표만. `--gold-only` 로 끈다.
+- 보고서의 '묶일 표' 는 `정답 표 외 N개 (같은 이름)` 로 보인다.
+
+**4. 쓰기 (`--write`)**
+- 맞는 개념이 이미 있으면 그 파일에 미승인 별칭(`by: draft:compare`, 근거 레코드)을 더한다.
+- 없으면 `_inbox/draft-<표>-<코드>.md` (status: draft) 를 만든다.
+- 다시 돌리면 아직 draft 인 초안에 새로 찾은 묶을 표를 더한다(본문 '# 표' 목록도). 승인된 개념은 건드리지 않는다.
+- 승인 전에는 아무 데도 쓰이지 않는다.
+- 사람이 틀린 후보를 지우고 정의·경계를 채운 뒤 `verify --to <영역>/<영어-이름>` 하면 stable + 승인 + 제자리로 옮겨진다.
+  그다음 build 하면 사전과 검색에 들어간다. 이미 있는 이름이면 옮기지 않는다.
+- `verify` 결과와 `lint` 는 승인된 개념에 초안 흔적이 남으면 경고한다.
+  - 정의가 아직 '(초안) …'
+  - `_inbox` 에 남아 있음
+  - 승인 안 된 초안 별칭이 남음
+
+**5. 정의 채우기 (`okf/assist.py`)** — 사람이 정의를 처음부터 쓰지 않게 한다. 아무것도 승인하지 않는다.
+
+① 사실 정의 (늘 · 비용 없음)
+- 묶인 표 파일에서만 만든다: 조사 · 항목/코드/표 · 단위 · 같은 이름이 있는 표 수 · 나누는 분류.
+  예: `인구동향조사 통계표의 항목 '출생' (단위 명). 같은 이름이 있는 표 9개 (…). 나누는 분류: 모의 연령, 성, ….`
+- KOSIS 주석 중 이 개념을 설명하는 줄을 '공식 설명' 으로 붙인다(최대 3줄, 표 ID 와 함께).
+  - 이름의 낱말이 있고 단서('개념' · '정의' · '말함' · '의미' · '대상' · '집계' · '포함' · '제외')나 산식(`… / … x 100`)이 있는 줄.
+  - 표 전체 개념은 이름이 없어도 되지만 강한 단서나 산식이 있어야 한다.
+  - 공표 · 잠정 · 명칭변경 같은 행정 줄은 뺀다.
+- description · 본문 '# 정의' · '# 헷갈리는 말' · '# 표' 를 다시 쓴다. 아직 draft 이고, 정의를 사람이 고치지 않았을 때만
+  (`x-t4-draft.text` 와 같거나 '(초안)' 으로 시작). '# 헷갈리는 말' 에 사람이 본문으로만 적은 줄이 있으면 그대로 둔다.
+
+② HCX 보조 (`--hcx` · `assist`) — 결과는 모두 제안이다.
+- 정의를 한두 문장으로 다듬는다. 주어진 사실·주석만 쓰게 하고, 근거에 없는 숫자가 나오면 버리고 ① 을 쓴다.
+  본문에는 다듬은 문장 아래 '근거(표 정보)' 와 '공식 설명' 이 남는다.
+- 별칭마다 예문(P 질문) 속 뜻을 판정해 별칭의 `review` 에 적는다: `same` · `narrow` · `broad`(다른 항목·표도 가리킴) · `wrong`.
+  - broad·wrong 이면 예문 안에 그대로 있는 더 정확한 표현을 새 미승인 별칭으로 더한다('낳은 아이' → '미혼모가 낳은 아이').
+- 헷갈리는 말: 같은 표의 다른 항목·코드와 별칭이 `colloquial.yaml` 로 바뀌는 말 중에서만 골라 `not` 에 더한다.
+- HCX 가 안 되면 ① 까지만 한다. 판정이 끝난 초안은 다시 부르지 않는다(`--force` 로 다시).
+
+`verify` 는 `--alias` 로 고르지 않으면 판정이 broad·wrong 인 별칭을 빼고 승인한다. 뺀 것은 결과의 `skipped_aliases` 에 나온다.
+맞다고 보면 `--alias` 로 직접 고른다. 사람이 하는 일은 파일을 훑어 틀린 줄을 지우고 `verify --to …` 하는 것뿐이다.
+
+binds 는 코드·항목 말고 표 전체(`{table, name: 표 이름}`)에도 걸 수 있다(검사는 표 이름이 바뀌었는지만 본다).
+
+## 빌드 전 검사 (`python -m backend.rag.okf build --gate <compare 실행>`)
+
+새 빌드를 `CURRENT` 로 바꾸기 전에, 이전 compare 실행의 질문으로 **지금 빌드와 새 빌드를 나란히** 검색해 본다 (`okf/gate.py`).
+
+```powershell
+python -m backend.rag.okf build --gate hard_okf2                   # 그 실행의 골든셋·split·alt·audit·날짜·질의 분석 캐시
+python -m backend.rag.okf build --gate hard_okf2 --gate-max-loss 1  # hit@5 순손실 1문항까지 허용
+```
+
+- 질의 분석은 그 실행의 캐시만 쓴다. HCX 를 부르지 않고, 캐시에 없는 질문은 건너뛴다.
+- 빌드만 바꿔 검색한다(`OKF_BUILD_OVERRIDE`). 검사하는 동안에도 `CURRENT` 는 그대로다.
+- 같은 질문끼리 hit@5(alt 가 있으면 완화 hit@5)와 mrr 를 비교한다.
+  - **불합격**: 잃은 질문 수 − 얻은 질문 수 > `--gate-max-loss`(기본 0), 또는 mrr 하락 > `--gate-mrr-drop`(기본 0.01).
+  - 불합격이면 새 빌드 폴더는 남고 `CURRENT` 는 그대로다. 결과는 `<빌드>/gate.json` 에 남는다.
+  - 잃은 질문마다 그 질문에 걸린 **새 별칭**을 보여 준다 — 고칠 개념을 바로 찾게.
+  - 그래도 쓰려면 `python -m backend.rag.okf use <해시>`.
+- 한계: 질의 분석이 캐시라서, 별칭이 질의 분석(어휘 사전 `aliases.json`)에 주는 영향은 재지 않는다. 검색 쪽(값 채널 · dense 문서)만 잰다.
+
 ## 아직 하지 않은 것
 
-- 검색 인덱스 텍스트(dense 카드·어휘 채널)에 링크된 개념의 별칭을 넣는 일. 지금은 질의 모듈(정규 어휘 사전)만 OKF 를 읽는다.
-- 에이전트·모듈 6 에서 `concepts_for` 를 불러 주의사항을 붙이는 연결.
-- 교체 전 golden compare 로 성능 확인(떨어지면 교체 막기).
-- `configs/colloquial.yaml`(정규식 → 검색어)은 표·코드에 묶이지 않는 검색 확장이라 옮기지 않았다.
+- 에이전트와 모듈 6 에서 `concepts_for` 를 불러 주의사항을 붙이는 연결 — 설계안: [OKF_CAVEATS_DESIGN.md](OKF_CAVEATS_DESIGN.md).
+- `configs/colloquial.yaml`(정규식 → 검색어)은 표·코드에 묶이지 않는 검색 확장이라 옮기지 않았다. drafts 의 '용어 후보'가 그 파일의 후보다.

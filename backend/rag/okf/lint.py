@@ -4,7 +4,7 @@
   error   tables/·classifications/·concepts/ 아래 파일의 프론트매터 오류 · (프론트매터는 있는데) type 없음
           개념 binds 의 표가 없음 · 그 표에 분류·코드·항목이 없음 · superseded_by 가 없는 경로
           한 개념 안에서 별칭이 not(같은 뜻 아님)과 같음
-  warn    코드·항목은 있는데 이름이 다름 (개편 의심) · binds 가 폐기된 표를 가리킴 (superseded_by 를 따라가 확인)
+  warn    코드·항목·표 이름이 다름 (개편 의심) · binds 가 폐기된 표를 가리킴 (superseded_by 를 따라가 확인)
           별칭이 두 개념에 걸림 · 별칭이 다른 개념의 not 과 같음 · binds 없는 개념 · 본문 링크 깨짐
   info    승인 안 된 별칭 수 · 합계 코드에 묶인 개념 · 프론트매터 없는 파일(README 등 — 건너뜀)
 
@@ -121,8 +121,9 @@ def lint(bundle, codebooks=None) -> Report:
     tables = {k: v for k, v in docs.items() if v.type == "Stat Table"}
     concepts = {k: v for k, v in docs.items() if v.type == "Stat Concept"}
 
+    from backend.rag.okf.drafts import draft_warnings
     alias_owner, not_owner = defaultdict(set), defaultdict(set)
-    n_pending = 0
+    n_pending = n_draft = 0
     for p, d in concepts.items():
         cid = concept_id(bundle, p)
         _, aliases, nots, binds = concept_body(d.meta)
@@ -140,6 +141,10 @@ def lint(bundle, codebooks=None) -> Report:
             not_owner[n].add(cid)
         if not binds:
             rep.add("warn", cid, "binds 가 없음 (어느 표·코드인지 모름)")
+        for w in draft_warnings(bundle, p, d):  # 초안(drafts --write)을 승인하고 남은 흔적
+            rep.add("warn", cid, w)
+        if d.meta.get("status") == "draft":
+            n_draft += 1
         for b in binds:
             _check_bind(rep, bundle, p, cid, b, tables, codebooks)
     for a, owners in alias_owner.items():
@@ -150,6 +155,8 @@ def lint(bundle, codebooks=None) -> Report:
             rep.add("warn", ", ".join(sorted(owners)), f"별칭 '{a}' 이 다른 개념({', '.join(sorted(clash))})의 not 과 같음")
     if n_pending:
         rep.add("info", "concepts", f"승인 안 된 별칭 {n_pending}개 (쓰이지 않음 — python -m backend.rag.okf approve)")
+    if n_draft:
+        rep.add("info", "concepts", f"초안 개념 {n_draft}개 (status draft — 쓰이지 않음 · python -m backend.rag.okf verify <경로> --to …)")
     return rep
 
 
@@ -181,8 +188,9 @@ def _check_bind(rep, bundle, p, cid, b, tables, codebooks):
         elif b.get("name") and norm(items[str(b["item"])]) != norm(b["name"]):
             rep.add("warn", cid, f"{where} 항목 {b['item']} 이름이 '{items[str(b['item'])]}' (개념에는 '{b['name']}')")
         return
-    if "dim" not in b:
-        rep.add("error", cid, "binds 에 dim·item 이 없음")
+    if "dim" not in b:  # 표 전체에 묶인 개념 ('외국인주민 자녀' → 그 표) — 표 이름이 바뀌었으면 알림
+        if b.get("name") and norm(b["name"]) != norm(doc.meta.get("title")):
+            rep.add("warn", cid, f"{where} 표 이름이 '{doc.meta.get('title')}' (개념에는 '{b['name']}')")
         return
     codes, dim = table_codes(doc, b["dim"], codebooks)
     if dim is None:

@@ -8,6 +8,6 @@ license: 내부용
 
 - [표](/tables/index.md) — 1092개 (자동 생성)
 - [분류](/classifications/index.md) — 265개 (코드가 많은 차원, 자동 생성)
-- [개념](/concepts/index.md) — 2개 (사람이 관리)
+- [개념](/concepts/index.md) — 9개 (사람이 관리)
 
 - [변경 기록](/log.md)

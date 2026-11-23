@@ -30,7 +30,7 @@ role_units: true                         # 분모('…중 비율'·'천 명당')
 vocab_check: drop                        # drop = 표 항목·분류 코드·질문 원문·용어 사전 어디에도 없는 값 지움 / log = 기록만 / off
 vocab_slots: [대상, 지표, 조건]
 vocab_alias_fill: true                   # 질문의 별칭('싱글맘') → 정규 이름('모+미혼자녀')을 조건에 더함
-vocab_path: ""                           # 비우면 CSV_INDEX_DIR/vocab.json (python -m backend.rag.query_analyzer.vocab build). 없으면 CSV 값 사전으로 만듦
+vocab_path: ""                           # 비우면 OKF 빌드의 vocab.json (okf_use) → CSV_INDEX_DIR/vocab.json → 없으면 CSV 값 사전으로 만듦
 # 벡터 후보 — 질문 낱말이 사전에 없을 때 (벡터 파일: python -m backend.rag.query_analyzer.vocab build --embed hcx. 없으면 건너뜀)
 vocab_suggest: log                       # off / log = 후보만 기록 / hcx = HCX 가 후보 목록 안에서 같은 뜻만 고름 (조건·지표에 더함)
 vocab_suggest_embedder: hcx              # 벡터 파일을 만든 임베더와 같아야 함

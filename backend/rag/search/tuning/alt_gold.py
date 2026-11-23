@@ -16,6 +16,9 @@
   (선택) --loose-items : 항목 이름이 달라도 ('이동자수' ↔ '총전입') 같은 조사의 표에서 같은 시점·지역·조건의
        총계 행 값이 정답 값과 정확히 같으면 대체 정답 (match = loose). 우연히 같을 수 있는 작은 값은 빼고
        (정수 loose_min 이상만), 사실을 모두 맞춰야 함. 기본 끔 — compare 는 loose 도 완화 정답으로 셈 (--alt-exact-only 면 뺌)
+  (자동) 정답 사실의 항목 이름이 '계' · '총계' 처럼 총계뿐이면 이름이 아무것도 알려 주지 않으므로 위 loose 확인을 늘 함
+       (예: 1985년 안동군 '행정구역/주택의종류/주택의편익시설별 주택' 의 '계' ↔ '총조사 주택총괄' 의 '주택수' — 같은 값)
+       alternatives 에 why: total_item 으로 남음. 이미 만든 파일은 --restart 로 다시
 
 출력  alt_positives.jsonl (정답 데이터셋 옆, 레코드마다 한 줄 · 이어서 실행 가능)
         {dataset_id, gold_tables, status, groups: {R1: {n_facts, checked, alternatives: [{tbl_id, tbl_nm, match, checked}]}}}
@@ -160,7 +163,11 @@ class Judge:
         return [f"C{d['level']}_NM" for d in t.get("dims") or [] if d.get("kind") == "regions"]
 
     def _value_match(self, row, s):
-        from synthetic_gold_pipeline.tools.units import UnitIncompatible, conversion_factor, unit_info
+        from synthetic_gold_pipeline.tools.units import (
+            UnitIncompatible,
+            conversion_factor,
+            unit_info,
+        )
         c, g = _dec(row.get("DT")), s["value"]
         if c is None or g is None:
             return None
@@ -256,14 +263,16 @@ class Judge:
                     if all(ms):
                         alts.append({"tbl_id": t, "tbl_nm": (self.idx.table(t) or {}).get("tbl_nm", ""),
                                      "match": "rounded" if "rounded" in ms else "exact", "checked": len(ms)})
-                if self.loose_items:
+                total_item = all(re.sub(r"\s+", "", s["item"] or "") in TOTALS for s in specs)
+                if self.loose_items or total_item:
                     seen = set(gold) | {x["tbl_id"] for x in alts}
                     surveys = {(self.idx.table(t) or {}).get("survey_nm") for t in gold} - {None, ""}
                     for t in self.candidates(specs, seen, loose=True, surveys=surveys):
                         ms = [self.fact_in_table(t, s, loose=True) for s in specs]
                         if all(ms):
                             alts.append({"tbl_id": t, "tbl_nm": (self.idx.table(t) or {}).get("tbl_nm", ""),
-                                         "match": "loose", "checked": len(ms)})
+                                         "match": "loose", "checked": len(ms),
+                                         **({"why": "total_item"} if total_item and not self.loose_items else {})})
             out["groups"][g] = {"n_facts": len(ids), "checked": len(specs), "alternatives": alts}
         return out
 
