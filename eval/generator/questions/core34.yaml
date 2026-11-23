@@ -1,0 +1,1441 @@
+# core34 — 회귀 비교용 버전 고정(immutable) 세트. 문항 추가 · 의미 변경 금지
+# 기대값(values)은 5회차(11-18) 계산값 중 기준선 문서에서 원본 View 와 일치로 판정된 문항만 옮겼다.
+# 단위는 평가 정규형(ratio · pp · times · 원단위). verified=false: 제3자 대조 전
+name: core34
+version: '1.0'
+frozen: true
+questions:
+- id: Q01
+  group: 연산 12종
+  question: 2025년 서울 인구는?
+  scope: in
+  sub_questions:
+  - key: pop
+    match:
+      item_any:
+      - 인구
+      op_any:
+      - raw
+      region_any:
+      - 서울
+    answerable_when:
+    - when:
+        view_has_row:
+          item: 인구
+          period: '2025'
+          region: 서울
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: raw
+      operands: []
+  required_caveats:
+  - projection
+  expect_text: 'raw: 서울 2025년 값 하나'
+  verified: false
+  notes: 표가 장래인구추계면 추계 고지가 필수. 실제 인구 표가 선택되면 고지 불필요
+- id: Q02
+  group: 연산 12종
+  question: 최근 5년 혼인건수 얼마나 변했어?
+  scope: in
+  sub_questions:
+  - key: chg
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - change
+      - growth_rate
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 혼인건수
+          min_periods: 2
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: change
+    m3:
+      op: change
+      operands: []
+    direction: up
+    values:
+    - role: FINAL
+      value: 47819.0
+      unit: 건
+  expect_text: 'change/growth_rate 두 시점: 2021→2025 값 하나, 방향이 맞다'
+  verified: false
+- id: Q03
+  group: 연산 12종
+  question: 최근 5년 혼인건수 매년 증감률은?
+  scope: in
+  sub_questions:
+  - key: gr
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - growth_rate
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 혼인건수
+          min_periods: 5
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: growth_rate
+    m3:
+      op: growth_rate
+      operands: []
+    values:
+    - role: FINAL
+      value: -0.00424400151682796
+      unit: ratio
+      key:
+        시점: '2022'
+    - role: FINAL
+      value: 0.010261359486671187
+      unit: ratio
+      key:
+        시점: '2023'
+    - role: FINAL
+      value: 0.1484841756301089
+      unit: ratio
+      key:
+        시점: '2024'
+    - role: FINAL
+      value: 0.08054421524018489
+      unit: ratio
+      key:
+        시점: '2025'
+  expect_text: 'growth_rate 직전 시점 대비: 연도별 값 4개, 음수는 감소'
+  verified: false
+- id: Q04
+  group: 연산 12종
+  question: 최근 10년 출생아수 연평균 증가율은?
+  scope: in
+  sub_questions:
+  - key: cagr
+    match:
+      item_any:
+      - 출생아수
+      op_any:
+      - cagr
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 출생아수
+          min_periods: 10
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: growth_rate
+    m3:
+      op: cagr
+      operands: []
+    direction: down
+    values:
+    - role: FINAL
+      value: -0.050700205000999254
+      unit: ratio
+  expect_text: 'cagr: 값 하나, 경과 9년'
+  verified: false
+- id: Q05
+  group: 연산 12종
+  question: 2024년 전국 대비 서울 출생아 비중은?
+  scope: in
+  sub_questions:
+  - key: share
+    match:
+      item_any:
+      - 출생아수
+      op_any:
+      - share
+      region_any:
+      - 서울
+    answerable_when:
+    - when:
+        operands_valid:
+          operands:
+          - region: 서울
+            period: '2024'
+            item: 출생아수
+          denominator:
+            region: 전국
+            period: '2024'
+            item: 출생아수
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - bar
+      - pie
+      - donut
+      - null
+      measure: share
+    m3:
+      op: share
+      operands:
+      - region: 서울
+        period: '2024'
+        item: 출생아수
+      denominator:
+        region: 전국
+        period: '2024'
+        item: 출생아수
+    values:
+    - role: FINAL
+      value: 0.17457839768040048
+      unit: ratio
+  expect_text: 'share: 분모 전국을 밝힌다'
+  verified: false
+- id: Q06
+  group: 연산 12종
+  question: 2024년 서울과 부산 인구 차이는?
+  scope: in
+  sub_questions:
+  - key: diff
+    match:
+      item_any:
+      - 인구
+      op_any:
+      - diff
+      region_any:
+      - 서울
+      - 부산
+    answerable_when:
+    - when:
+        operands_valid:
+          operands:
+          - region: 서울
+            period: '2024'
+            item: 인구
+          - region: 부산
+            period: '2024'
+            item: 인구
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - bar
+      - null
+      measure: null
+    m3:
+      op: diff
+      operands:
+      - region: 서울
+        period: '2024'
+        item: 인구
+      - region: 부산
+        period: '2024'
+        item: 인구
+    values:
+    - role: FINAL
+      value: 5751812.0
+      unit: 명
+  expect_text: 'diff: 서울 − 부산, 누가 큰지 맞다'
+  verified: false
+- id: Q07
+  group: 연산 12종
+  question: 2024년 서울 인구는 부산의 몇 배야?
+  scope: in
+  sub_questions:
+  - key: ratio
+    match:
+      item_any:
+      - 인구
+      op_any:
+      - ratio
+      region_any:
+      - 서울
+      - 부산
+    answerable_when:
+    - when:
+        operands_valid:
+          operands:
+          - region: 서울
+            period: '2024'
+            item: 인구
+          - region: 부산
+            period: '2024'
+            item: 인구
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - bar
+      - null
+      measure: null
+    m3:
+      op: ratio
+      operands:
+      - region: 서울
+        period: '2024'
+        item: 인구
+      - region: 부산
+        period: '2024'
+        item: 인구
+      result_unit: 배
+    values:
+    - role: FINAL
+      value: 2.812757350148741
+      unit: times
+  expect_text: 'ratio: ○배'
+  verified: false
+- id: Q08
+  group: 연산 12종
+  question: 2023년 시도별 인구 순위
+  scope: in
+  sub_questions:
+  - key: rank
+    match:
+      item_any:
+      - 인구
+      op_any:
+      - rank
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_categories:
+          dim: 시도
+          min: 2
+          item: 인구
+      expect: answer
+    - expect: hold
+      hold_reason: item_mismatch
+    m2:
+      acceptable_charts:
+      - bar
+      - map
+      - null
+      measure: rank
+    m3:
+      op: rank
+      operands: []
+  expect_text: 'rank 지역끼리: 1위 경기도, 전국 없음'
+  verified: false
+  notes: 1위 경기도, 전국 제외. 인구 항목이 없는 표(출생성비 등)만 오면 보류가 정답
+- id: Q09
+  group: 연산 12종
+  question: 최근 10년 혼인건수가 가장 적은 해는?
+  scope: in
+  sub_questions:
+  - key: min
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - extreme
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 혼인건수
+          min_periods: 10
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: null
+    m3:
+      op: extreme
+      operands: []
+    values:
+    - role: FINAL
+      value: 191690.0
+      unit: 건
+      key:
+        시점: '2022'
+  expect_text: 'extreme(min) 해끼리: 가장 적은 해 하나'
+  verified: false
+- id: Q10
+  group: 연산 12종
+  question: 최근 10년 혼인건수가 많은 해 순서대로 알려줘
+  scope: in
+  sub_questions:
+  - key: rank
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - rank
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 혼인건수
+          min_periods: 10
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - bar
+      - null
+      measure: rank
+    m3:
+      op: rank
+      operands: []
+    values:
+    - role: FINAL
+      value: 281635.0
+      unit: 건
+      key:
+        시점: '2016'
+    - role: FINAL
+      value: 264455.0
+      unit: 건
+      key:
+        시점: '2017'
+    - role: FINAL
+      value: 257622.0
+      unit: 건
+      key:
+        시점: '2018'
+    - role: FINAL
+      value: 240326.0
+      unit: 건
+      key:
+        시점: '2025'
+    - role: FINAL
+      value: 239159.0
+      unit: 건
+      key:
+        시점: '2019'
+    - role: FINAL
+      value: 222412.0
+      unit: 건
+      key:
+        시점: '2024'
+    - role: FINAL
+      value: 213502.0
+      unit: 건
+      key:
+        시점: '2020'
+    - role: FINAL
+      value: 193657.0
+      unit: 건
+      key:
+        시점: '2023'
+    - role: FINAL
+      value: 192507.0
+      unit: 건
+      key:
+        시점: '2021'
+    - role: FINAL
+      value: 191690.0
+      unit: 건
+      key:
+        시점: '2022'
+  expect_text: 'rank 해끼리: 해마다 다른 순위'
+  verified: false
+- id: Q11
+  group: 연산 12종
+  question: 2024년 미취학아동 수는?
+  scope: in
+  sub_questions:
+  - key: sum
+    match:
+      item_any:
+      - 0세
+      - 1세
+      - 2세
+      - 3세
+      - 4세
+      - 5세
+      - 미취학
+      - 인구
+      op_any:
+      - aggregate
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_row:
+          item: 0세
+          period: '2024'
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: aggregate
+      operands: []
+    values:
+    - role: FINAL
+      value: 1557996.0
+      unit: 명
+  expect_text: 'aggregate(sum) 0~5세: 나이별 합 하나'
+  verified: false
+- id: Q12
+  group: 연산 12종
+  question: 2024년 출생아수에서 사망자수를 뺀 값은?
+  scope: in
+  sub_questions:
+  - key: combine
+    match:
+      item_any:
+      - 출생아수
+      - 사망자수
+      op_any:
+      - diff
+      - combine
+      region_any: []
+    answerable_when:
+    - when:
+        operands_valid:
+          operands:
+          - period: '2024'
+            item: 출생아수
+          - period: '2024'
+            item: 사망자수
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: diff
+      operands:
+      - period: '2024'
+        item: 출생아수
+      - period: '2024'
+        item: 사망자수
+    direction: down
+    values:
+    - role: FINAL
+      value: -120252.0
+      unit: 명
+  expect_text: 'combine: 출생 − 사망'
+  verified: false
+- id: Q13
+  group: 시점
+  question: 서울 인구는?
+  scope: in
+  sub_questions:
+  - key: pop
+    match:
+      item_any:
+      - 인구
+      op_any:
+      - raw
+      region_any:
+      - 서울
+    answerable_when:
+    - when:
+        view_has_row:
+          item: 인구
+          region: 서울
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: raw
+      operands: []
+    values:
+    - role: FINAL
+      value: 8896466.0
+      unit: 명
+  expect_text: '연도 없음: 최신 연도 값 + 그 연도를 밝힘'
+  verified: false
+  notes: '연도 없음: 최신 연도 값 + 그 연도를 밝힘'
+- id: Q14
+  group: 시점
+  question: 2026년 혼인건수는?
+  scope: in
+  sub_questions:
+  - key: raw
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - raw
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_row:
+          item: 혼인건수
+          period: '2026'
+      expect: answer
+    - expect: hold
+      hold_reason: missing_period
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: raw
+      operands: []
+  required_caveats:
+  - missing_period:2026
+  expect_text: 자료 없음을 밝히거나, View 가 대체를 기록했으면 대체 연도와 그 사실을 함께
+  verified: false
+  notes: View 가 2025로 대체했으면 대체 연도와 그 사실을 함께 (substituted_period)
+- id: Q15
+  group: 시점
+  question: 2021년부터 2026년까지 혼인건수 추이
+  scope: in
+  sub_questions:
+  - key: trend
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - raw
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 혼인건수
+          min_periods: 2
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: null
+    m3:
+      op: raw
+      operands: []
+    values:
+    - role: FINAL
+      value: 192507.0
+      unit: 건
+      key:
+        시점: '2021'
+    - role: FINAL
+      value: 191690.0
+      unit: 건
+      key:
+        시점: '2022'
+    - role: FINAL
+      value: 193657.0
+      unit: 건
+      key:
+        시점: '2023'
+    - role: FINAL
+      value: 222412.0
+      unit: 건
+      key:
+        시점: '2024'
+    - role: FINAL
+      value: 240326.0
+      unit: 건
+      key:
+        시점: '2025'
+  required_caveats:
+  - missing_period:2026
+  expect_text: 있는 기간만 + 2026 없음 경고
+  verified: false
+- id: Q16
+  group: 시점
+  question: 최근 12개월 월별 혼인건수 추이
+  scope: in
+  sub_questions:
+  - key: monthly
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - raw
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 혼인건수
+          min_periods: 12
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: null
+    m3:
+      op: raw
+      operands: []
+  expect_text: 월 라벨 정렬, 월 간격
+  verified: false
+  notes: 월 라벨이어야 한다. 연도 값을 월별 추이로 답하면 미달
+- id: Q17
+  group: 시점
+  question: 2000년과 2024년 출생아수 비교
+  scope: in
+  sub_questions:
+  - key: cmp
+    match:
+      item_any:
+      - 출생아수
+      op_any:
+      - raw
+      - diff
+      - change
+      region_any: []
+    answerable_when:
+    - when:
+        operands_valid:
+          operands:
+          - period: '2000'
+            item: 출생아수
+          - period: '2024'
+            item: 출생아수
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - bar
+      - line
+      - null
+      measure: null
+    m3:
+      op: raw
+      operands: []
+    values:
+    - role: FINAL
+      value: 640089.0
+      unit: 명
+      key:
+        시점: '2000'
+    - role: FINAL
+      value: 238317.0
+      unit: 명
+      key:
+        시점: '2024'
+  expect_text: 두 시점 비교
+  verified: false
+- id: Q18
+  group: 지역
+  question: 2024년 전국 출생아수는?
+  scope: in
+  sub_questions:
+  - key: raw
+    match:
+      item_any:
+      - 출생아수
+      op_any:
+      - raw
+      region_any:
+      - 전국
+    answerable_when:
+    - when:
+        view_has_row:
+          item: 출생아수
+          period: '2024'
+          region: 전국
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: raw
+      operands: []
+    values:
+    - role: FINAL
+      value: 238317.0
+      unit: 명
+  expect_text: 전국 값
+  verified: false
+- id: Q19
+  group: 지역
+  question: 2024년 경기도 시군구별 인구 순위
+  scope: in
+  sub_questions:
+  - key: rank
+    match:
+      item_any:
+      - 인구
+      op_any:
+      - rank
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_categories:
+          dim: 시군구
+          min: 2
+          item: 인구
+      expect: answer
+    - expect: hold
+      hold_reason: item_mismatch
+    m2:
+      acceptable_charts:
+      - bar
+      - null
+      measure: rank
+    m3:
+      op: rank
+      operands: []
+  expect_text: 시군구 순위, 경기도 합계 행 없음
+  verified: false
+- id: Q20
+  group: 지역
+  question: 2024년 전국과 서울 혼인건수 비교
+  scope: in
+  sub_questions:
+  - key: cmp
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - raw
+      - diff
+      - ratio
+      region_any:
+      - 전국
+      - 서울
+    answerable_when:
+    - when:
+        operands_valid:
+          operands:
+          - region: 전국
+            period: '2024'
+            item: 혼인건수
+          - region: 서울
+            period: '2024'
+            item: 혼인건수
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - bar
+      - null
+      measure: null
+    m3:
+      op: raw
+      operands: []
+  expect_text: 전국 행이 없으면 그 사실을 밝힘 (질의 분석 쪽 알려진 문제)
+  verified: false
+- id: Q21
+  group: 지역
+  question: 2024년 세종 인구는?
+  scope: in
+  sub_questions:
+  - key: raw
+    match:
+      item_any:
+      - 인구
+      op_any:
+      - raw
+      region_any:
+      - 세종
+    answerable_when:
+    - when:
+        view_has_row:
+          item: 인구
+          period: '2024'
+          region: 세종
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: raw
+      operands: []
+    values:
+    - role: FINAL
+      value: 378793.0
+      unit: 명
+  expect_text: 세종특별자치시 값
+  verified: false
+- id: Q22
+  group: 지역
+  question: 2024년 서울, 부산, 대구 인구 합계는?
+  scope: in
+  sub_questions:
+  - key: sum
+    match:
+      item_any:
+      - 인구
+      op_any:
+      - aggregate
+      - combine
+      region_any:
+      - 서울
+      - 부산
+      - 대구
+    answerable_when:
+    - when:
+        operands_valid:
+          operands:
+          - region: 서울
+            period: '2024'
+            item: 인구
+          - region: 부산
+            period: '2024'
+            item: 인구
+          - region: 대구
+            period: '2024'
+            item: 인구
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - bar
+      - null
+      measure: null
+    m3:
+      op: aggregate
+      operands: []
+    values:
+    - role: FINAL
+      value: 14404254.0
+      unit: 명
+  expect_text: 세 지역 합, 전국을 더하지 않음
+  verified: false
+- id: Q23
+  group: 단위·자릿수
+  question: 2024년 합계출산율은?
+  scope: in
+  sub_questions:
+  - key: raw
+    match:
+      item_any:
+      - 합계출산율
+      op_any:
+      - raw
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_row:
+          item: 합계출산율
+          period: '2024'
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: raw
+      operands: []
+  required_caveats:
+  - projection
+  expect_text: 소수 자릿수 유지 (0.7○○)
+  verified: false
+  notes: 소수 자릿수 유지. 추계 표면 추계 고지
+- id: Q24
+  group: 단위·자릿수
+  question: 고령인구비율은 10년 동안 얼마나 늘었어?
+  scope: in
+  sub_questions:
+  - key: chg
+    match:
+      item_any:
+      - 고령인구비율
+      op_any:
+      - change
+      - diff
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 고령인구비율
+          min_periods: 2
+      expect: answer
+    - expect: hold
+      hold_reason: item_mismatch
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: null
+    m3:
+      op: change
+      operands: []
+  expect_text: '%p 로 표시'
+  verified: false
+  notes: '%p 로 표시'
+- id: Q25
+  group: 단위·자릿수
+  question: 2024년 1인가구 수는?
+  scope: in
+  sub_questions:
+  - key: raw
+    match:
+      item_any:
+      - 1인가구
+      - 가구
+      op_any:
+      - raw
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_row:
+          item: 1인가구
+          period: '2024'
+      expect: answer
+    - expect: hold
+      hold_reason: item_mismatch
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: raw
+      operands: []
+  expect_text: 표 단위 그대로, 소수 안 붙음
+  verified: false
+- id: Q26
+  group: 결측
+  question: 2000년부터 2025년까지 세종특별자치시 인구 추이
+  scope: in
+  sub_questions:
+  - key: trend
+    match:
+      item_any:
+      - 인구
+      op_any:
+      - raw
+      region_any:
+      - 세종
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 인구
+          min_periods: 2
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: null
+    m3:
+      op: raw
+      operands: []
+  required_caveats:
+  - missing_period
+  expect_text: '출범(2012) 전 연도가 없거나 비어 있음: 있는 해만 + 경고'
+  verified: false
+  notes: '출범(2012) 전 연도 없음: 있는 해만 + 경고'
+- id: Q27
+  group: 하위질문
+  question: 최근 5년 혼인건수와 출생아수 추이
+  scope: in
+  sub_questions:
+  - key: marriage
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - raw
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 혼인건수
+          min_periods: 5
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: null
+    m3:
+      op: raw
+      operands: []
+    values:
+    - role: FINAL
+      value: 192507.0
+      unit: 건
+      key:
+        시점: '2021'
+    - role: FINAL
+      value: 191690.0
+      unit: 건
+      key:
+        시점: '2022'
+    - role: FINAL
+      value: 193657.0
+      unit: 건
+      key:
+        시점: '2023'
+    - role: FINAL
+      value: 222412.0
+      unit: 건
+      key:
+        시점: '2024'
+    - role: FINAL
+      value: 240326.0
+      unit: 건
+      key:
+        시점: '2025'
+  - key: births
+    match:
+      item_any:
+      - 출생아수
+      op_any:
+      - raw
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 출생아수
+          min_periods: 5
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: null
+    m3:
+      op: raw
+      operands: []
+    values:
+    - role: FINAL
+      value: 260562.0
+      unit: 명
+      key:
+        시점: '2021'
+    - role: FINAL
+      value: 249186.0
+      unit: 명
+      key:
+        시점: '2022'
+    - role: FINAL
+      value: 230028.0
+      unit: 명
+      key:
+        시점: '2023'
+    - role: FINAL
+      value: 238317.0
+      unit: 명
+      key:
+        시점: '2024'
+    - role: FINAL
+      value: 254341.0
+      unit: 명
+      key:
+        시점: '2025'
+  expect_text: 하위 질문 2개, 두 지표 모두 답
+  verified: false
+- id: Q28
+  group: 하위질문
+  question: 최근 5년 서울 출생아수가 전국에서 차지하는 비중 추이
+  scope: in
+  sub_questions:
+  - key: share
+    match:
+      item_any:
+      - 출생아수
+      op_any:
+      - share
+      region_any:
+      - 서울
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 출생아수
+          min_periods: 5
+      expect: answer
+    - expect: hold
+      hold_reason: missing_denominator
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: share
+    m3:
+      op: share
+      operands: []
+    values:
+    - role: FINAL
+      value: 0.17474152025237755
+      unit: ratio
+      key:
+        시점: '2021'
+    - role: FINAL
+      value: 0.17096466093600765
+      unit: ratio
+      key:
+        시점: '2022'
+    - role: FINAL
+      value: 0.1715269445458814
+      unit: ratio
+      key:
+        시점: '2023'
+    - role: FINAL
+      value: 0.17457839768040048
+      unit: ratio
+      key:
+        시점: '2024'
+    - role: FINAL
+      value: 0.1789565976386033
+      unit: ratio
+      key:
+        시점: '2025'
+  expect_text: 역할 단위(분모) View 가 세트에 붙고 비중 계산
+  verified: false
+  notes: 역할 단위(분모) View 가 세트에 붙고 비중 계산. 전국 행이 없으면 보류가 정답
+- id: Q29
+  group: 범위 밖·계산 불가
+  question: 오늘 날씨 어때?
+  scope: out
+  expect_text: 범위 밖 안내 (모듈 3·6 을 타지 않음)
+  verified: false
+- id: Q30
+  group: 범위 밖·계산 불가
+  question: 서울 혼인건수의 남녀 비율
+  scope: in
+  sub_questions:
+  - key: ratio
+    match:
+      item_any:
+      - 혼인건수
+      op_any:
+      - ratio
+      - share
+      region_any:
+      - 서울
+    answerable_when:
+    - when:
+        operands_valid:
+          op: ratio
+          operands:
+          - region: 서울
+            item: 혼인건수
+            성별: 남자
+          - region: 서울
+            item: 혼인건수
+            성별: 여자
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - null
+      - bar
+      measure: null
+    m3:
+      op: ratio
+      operands: []
+  expect_text: 자료에 없는 조합이면 계산하지 못한 이유를 사용자 말로
+  verified: false
+  notes: 남녀 구분 자료가 없으면 계산하지 못한 이유를 사용자 말로. 혼인건수 단위는 '건' (표 메타데이터가 '명'이면 data 귀책)
+- id: Q31
+  group: 직접 추가한 질문
+  question: 80~90년대 대구 출생아수는?
+  scope: in
+  sub_questions:
+  - key: trend
+    match:
+      item_any:
+      - 출생아수
+      op_any:
+      - raw
+      region_any:
+      - 대구
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 출생아수
+          min_periods: 10
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: null
+    m3:
+      op: raw
+      operands: []
+  required_caveats:
+  - missing_period:1980
+  expect_text: 1980~1999 연도별. 대구직할시(1981~94) 이름 때문에 일부 연도가 빠지지 않는지, 어떤 값으로 답했는지 밝히는지
+  verified: false
+- id: Q32
+  group: 직접 추가한 질문
+  question: 최근 20년 서울, 부산, 대전, 대구 결혼 건수 비교
+  scope: in
+  sub_questions:
+  - key: cmp
+    match:
+      item_any:
+      - 혼인건수
+      - 결혼
+      op_any:
+      - raw
+      region_any:
+      - 서울
+      - 부산
+      - 대전
+      - 대구
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 혼인건수
+          min_periods: 20
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - bar
+      - line
+      - null
+      measure: null
+    m3:
+      op: raw
+      operands: []
+  expect_text: 혼인건수 동의어, 지역 4개 × 20년, 전국 안 더함, 합계 안 냄
+  verified: false
+  notes: 지역 4개 × 20년, 전국을 더하지 않음
+- id: Q33
+  group: 직접 추가한 질문
+  question: 가장 사망자수가 많은 해는?
+  scope: in
+  sub_questions:
+  - key: max
+    match:
+      item_any:
+      - 사망자수
+      op_any:
+      - extreme
+      - rank
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_rows:
+          item: 사망자수
+          min_periods: 2
+      expect: answer
+    - expect: hold
+      hold_reason: from_predicate
+    m2:
+      acceptable_charts:
+      - line
+      - bar
+      - area
+      - null
+      measure: null
+    m3:
+      op: extreme
+      operands: []
+    values:
+    - role: FINAL
+      value: 372939.0
+      unit: 명
+      key:
+        시점: '2022'
+  expect_text: 전체 기간 비교로 해 하나. 최신 한 해만 오면 '한 해뿐' 안내가 맞는 동작
+  verified: false
+- id: Q34
+  group: 직접 추가한 질문
+  question: 우리나라로 이민 온 사람 중에 어떤 나라 사람이 가장 많아?
+  scope: in
+  sub_questions:
+  - key: rank
+    match:
+      item_any:
+      - 외국인
+      - 국적
+      op_any:
+      - rank
+      - extreme
+      region_any: []
+    answerable_when:
+    - when:
+        view_has_categories:
+          dim: 국적
+          min: 2
+      expect: answer
+    - expect: hold
+      hold_reason: missing_operand
+    m2:
+      acceptable_charts:
+      - bar
+      - null
+      measure: null
+    m3:
+      op: extreme
+      operands: []
+  expect_text: 국적끼리 비교. 대륙 소계 · 총계가 1위가 되지 않는지, 표가 없으면 자료 없음
+  verified: false
+  notes: 국적끼리 비교. 대륙 소계 · 총계가 1위가 되면 미달. 국적 행 없이 '계'만 오면 보류가 정답
