@@ -1,7 +1,7 @@
-"""지표 집계 → summary.json · report.md, 두 실행 비교 (계획 2.4 · 2.7 · 2.9)
+"""지표 집계 → summary.json · report.md, 두 실행 비교 (criteria.md 5 · 6장)
 
   python -m eval.generator.report <runs.jsonl> --set core34 [--review review.csv] [--out DIR]
-  python -m eval.generator.report --compare A.verdicts.jsonl B.verdicts.jsonl      # 질문 단위 쌍 비교 (D-7)
+  python -m eval.generator.report --compare A.verdicts.jsonl B.verdicts.jsonl      # 질문 단위 쌍 비교
 분모가 0 인 지표는 N/A (0% 로 쓰지 않는다). source=adapter 로 추정한 지표는 따로 표시한다.
 """
 import argparse
@@ -180,7 +180,7 @@ def markdown(s: dict, title: str) -> str:
 
 
 def compare(a_path, b_path) -> str:
-    """질문 단위 쌍 비교. 회귀 = 이전 통과가 모든 회차 미달 / Generator 귀책 미달 증가 (계획 2.9)"""
+    """질문 단위 쌍 비교. 회귀 = 이전 통과가 모든 회차 미달 / Generator 귀책 미달 증가 (criteria.md 6장)"""
     def load(p):
         by = defaultdict(list)
         for x in trace.load(p):
@@ -225,7 +225,7 @@ def main(argv=None):
 
 
 def _review_sheet(vs: list[RunVerdict], path: Path):
-    """수동 판정 시트 (계획 2.8). 자동 결과를 채워 두고 사람은 verdict · first_failure · slot · faithfulness · tags · note 만 쓴다"""
+    """수동 판정 시트 (method.md 3.2). 자동 결과를 채워 두고 사람은 verdict · first_failure · slot · faithfulness · tags · note 만 쓴다"""
     import csv
     with path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)

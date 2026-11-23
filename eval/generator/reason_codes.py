@@ -1,4 +1,4 @@
-"""보류 사유 문장 → 평가기 사유 코드 (계획 2.4.3, D-15)
+"""보류 사유 문장 → 평가기 사유 코드
 
 모듈 3 에 사유 코드 필드가 없어 Withheld.text · CalcResult.note · chart_plan.warnings 의 문장에서 도출한다.
 원문 note 패턴은 core/reasons.py 의 _RULES, 사용자 문장은 그 변환 결과에 대응한다. 모르는 문구는 unclassified (수동 판정).

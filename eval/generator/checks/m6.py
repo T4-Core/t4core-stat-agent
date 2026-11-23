@@ -1,4 +1,4 @@
-"""모듈 6 answer_compose + 사용자 응답 문장 (계획 2.3.1 1단계, 2.4)
+"""모듈 6 answer_compose + 사용자 응답 문장 (criteria.md 3장 1단계)
 
   - 금지 문구 (내부 오류 · None · nan)
   - 표시 반올림 (c)층: 계산 요약 표의 결과 문자열 == 평가기 기대 표시값 (display_ref.py, 팀 format_value 와 독립)

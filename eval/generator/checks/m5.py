@@ -1,4 +1,4 @@
-"""모듈 5 draw_chart: 렌더링 상태 · Chart-Data Fidelity · Spec Lint (계획 2.4, 2.5)"""
+"""모듈 5 draw_chart: 렌더링 상태 · Chart-Data Fidelity · Spec Lint"""
 from eval.generator import trace
 from eval.generator.chart_extract import compare
 from eval.generator.findings import Finding
@@ -7,7 +7,7 @@ PERCENT_UNITS = {"%", "%p"}
 
 
 def render_states(run: dict) -> dict[str, dict]:
-    """render_status(4판) 우선. 11-20 이전 trace 는 drawn[].status 에서 추정 (source=adapter)"""
+    """render_status(KOS-41) 우선. 11-20 이전 trace 는 drawn[].status 에서 추정 (source=adapter)"""
     mods = trace.mods(run)
     if mods.get("render_status"):
         return {k: {**v, "source": "schema"} for k, v in mods["render_status"].items()}

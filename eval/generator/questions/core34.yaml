@@ -1,6 +1,6 @@
-# core34 — 회귀 비교용 동결 세트 (계획 2.2). 문항 추가 · 의미 변경 금지
+# core34 — 회귀 비교용 버전 고정(immutable) 세트. 문항 추가 · 의미 변경 금지
 # 기대값(values)은 5회차(11-18) 계산값 중 기준선 문서에서 원본 View 와 일치로 판정된 문항만 옮겼다.
-# 단위는 평가 정규형(ratio · pp · times · 원단위). verified=false: 제3자 대조 전 (계획 Q-4)
+# 단위는 평가 정규형(ratio · pp · times · 원단위). verified=false: 제3자 대조 전
 name: core34
 version: '1.0'
 frozen: true

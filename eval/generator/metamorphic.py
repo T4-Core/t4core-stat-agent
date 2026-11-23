@@ -1,4 +1,4 @@
-"""Metamorphic Test (계획 2.6, D-17)
+"""Metamorphic Test
 
   MT-1  ViewSet 안 View 순서 섞기 → 차트 · op · 결과 값이 같아야 한다 (replay, 실제 HCX)
   MT-2  -O / -P 질문 쌍(synth) → E2E 판정 · 수치가 같아야 한다 (두 실행 결과 비교, HCX 없음)

@@ -1,4 +1,4 @@
-"""평가기 기대 표시값 (계획 2.4 (c)층, D-23)
+"""평가기 기대 표시값 (criteria.md 4.2 (c)층)
 
 팀 format_value 를 import 하지 않고 같은 명세로 독립 구현한다. 평가 대상 함수로 기대값을 만들면 그 함수의 결함을 잡지 못한다.
   원값 → Decimal(repr(v)) / Decimal(repr(unit_scale)) → quantize(10^-digits, ROUND_HALF_UP) → 0 이면 부호 제거 → 천 단위 쉼표 → 단위

@@ -1,4 +1,4 @@
-"""QA Fault Injection (형식) · FI-SEM (내용 경고) · FI-CONTRA (계획 2.7, D-20)"""
+"""QA Fault Injection (형식) · FI-SEM (내용 경고) · FI-CONTRA"""
 from eval.generator.faults import contra_injection, fault_injection, mutants, semantic_injection
 from eval.generator.verdict import judge
 from tests.eval_generator._fx import births, run, share_calc

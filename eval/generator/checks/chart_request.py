@@ -1,4 +1,4 @@
-"""차트 지정 요청 (KOS-41): Request Parse · Outcome · Notice 정합 · 요청 오인식 (계획 2.4, D-21)"""
+"""차트 지정 요청 (KOS-41): Request Parse · Outcome · Notice 정합 · 요청 오인식"""
 from backend.schemas.chart import OUTCOME_REASONS
 from eval.generator import trace
 from eval.generator.findings import Finding
@@ -46,7 +46,7 @@ def check(q: Question, run: dict) -> list[Finding]:
         st = states.get(o["chart_id"]) or {}
         want = (exp.outcome, exp.reason)
         if st.get("state") in ("failed", "skipped") and st.get("reason") in RENDER_OUTCOME:
-            want = RENDER_OUTCOME[st["reason"]]          # 렌더링 단계 결과는 실행 조건으로 정해진다 (D-21)
+            want = RENDER_OUTCOME[st["reason"]]          # 렌더링 단계 결과는 실행 조건으로 정해진다
         ok = o.get("outcome") == want[0] and (want[1] is None or o.get("reason") == want[1]) and \
             (exp.final_chart is None or want[0] != exp.outcome or o.get("final_chart") == exp.final_chart)
         out.append(Finding("request_outcome", "metric", "E2E", ok, f"{o.get('outcome')}/{o.get('reason')}/{o.get('final_chart')} "

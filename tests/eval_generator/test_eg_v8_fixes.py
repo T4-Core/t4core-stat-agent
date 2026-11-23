@@ -1,4 +1,4 @@
-"""V-8 live 실행에서 찾은 판정기 결함의 회귀 시험"""
+"""11-23 live 실행(v8_core34)에서 찾은 판정기 결함의 회귀 테스트"""
 from eval.generator.checks.m3 import AMBIGUOUS, asked_indicator, find_value
 from eval.generator.schema import Question, ValueSpec
 from eval.generator.verdict import judge
@@ -10,7 +10,7 @@ SHARE_ALL_REGIONS = {"step_id": "a1", "op": "share", "unit": "%", "value": [
 
 
 def test_partial_key_match_narrowed_by_region():
-    """V-8 Q28: share 를 전국 포함 모든 지역에 계산 → key {시점} 에 두 점이 맞는다. 기대 지역(서울)으로 좁힌다"""
+    """11-23 live 실행 Q28: share 를 전국 포함 모든 지역에 계산 → key {시점} 에 두 점이 맞는다. 기대 지역(서울)으로 좁힌다"""
     vs = ValueSpec(role="FINAL", value=0.17474, unit="ratio", key={"시점": "2021"})
     c, p = find_value([SHARE_ALL_REGIONS], vs, "share", ["서울"])
     assert p["value"] == 17.474152025237753
@@ -33,7 +33,7 @@ def _q32(item):
 
 
 def test_value_from_unasked_indicator_fails_even_if_unmatched():
-    """V-8 Q32: 질의 분석이 지역을 지표로 나눠 '항목=서울' 인 다른 표의 값을 '결혼 건수' 로 답함 → 하위 질문 대응과 무관하게 1단계 미달"""
+    """11-23 live 실행 Q32: 질의 분석이 지역을 지표로 나눠 '항목=서울' 인 다른 표의 값을 '결혼 건수' 로 답함 → 하위 질문 대응과 무관하게 1단계 미달"""
     r = _q32("서울")
     assert [f.ok for f in asked_indicator(Q32, r)] == [False]
     assert judge(Q32, r).verdict == "미달"

@@ -1,4 +1,4 @@
-"""판정 절차: 0단계 범위 · 1단계 출력 정확성 · 2단계 완전성 (계획 2.3.1, D-10 · D-14)"""
+"""판정 절차: 0단계 범위 · 1단계 출력 정확성 · 2단계 완전성 (criteria.md 3장)"""
 from eval.generator.schema import Question
 from eval.generator.verdict import judge
 from tests.eval_generator._fx import births, run, share_calc
@@ -61,7 +61,7 @@ def test_in_scope_question_sent_out_of_scope_is_scope_error_not_pass():
 
 
 def test_wrong_value_with_notified_omission_is_fail_not_hold():
-    """Q27: 혼인건수 값이 틀리고 출생아수 누락을 고지 → 상태 조합과 관계없이 1단계 미달 (0.6장 #2)"""
+    """Q27: 혼인건수 값이 틀리고 출생아수 누락을 고지 → 상태 조합과 관계없이 1단계 미달"""
     rec = {"id": "r", "table": {"columns": ["시점", "항목", "값"], "rows": [["2021", "혼인건수(건)", 192507.0]]},
            "metadata": {"unit": "건"}}
     calc = {"step_id": "a1", "sub_question_id": "q1-1", "op": "raw", "value": [{"key": {"시점": "2021"}, "value": 99999.0}],

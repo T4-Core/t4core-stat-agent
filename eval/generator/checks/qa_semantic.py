@@ -1,4 +1,4 @@
-"""QA 내용 경고 ↔ 수동 판정 태그 대조, Unanswerable Detection (계획 2.7, D-20 · D-27)
+"""QA 내용 경고 ↔ 수동 판정 태그 대조, Unanswerable Detection
 
 내용 경고는 출력을 바꾸지 않는 detector 다. 정답 라벨은 판정 시트의 태그(review.csv 의 tags 열)에서 온다.
 """

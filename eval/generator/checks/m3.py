@@ -1,4 +1,4 @@
-"""모듈 3 chart_calculate: 연산 · 피연산자 · 계산 정확도 · 보류 (계획 2.3.1 1단계, 2.4)
+"""모듈 3 chart_calculate: 연산 · 피연산자 · 계산 정확도 · 보류 (criteria.md 3장 1단계)
 
 계산 값 비교는 (a)층: 정규형 원값, 원자료 정밀도 기준 허용오차.
 """
@@ -41,7 +41,7 @@ AMBIGUOUS = {"ambiguous": True}
 
 
 def find_value(calcs: list[dict], vs: ValueSpec, op: str | None, regions: list[str] | None = None) -> tuple[dict | None, dict | None]:
-    """기대값에 대응하는 결과 점. key 가 부분 일치하는 점이 여럿이면(share 를 전국 포함 모든 지역에 계산 — V-8 Q28)
+    """기대값에 대응하는 결과 점. key 가 부분 일치하는 점이 여럿이면(share 를 전국 포함 모든 지역에 계산 — 11-23 live 실행 Q28)
     기대 지역으로 좁힌다. 그래도 여럿이고 값이 다르면 (None, AMBIGUOUS) → 수동"""
     pool = [c for c in calcs if has_value(c) and (op is None or c.get("op") == op)] or [c for c in calcs if has_value(c)]
     hits = []
@@ -168,7 +168,7 @@ def hold_grounded(res: SubResult, run: dict, spec: SubQuestion | None = None) ->
 
 def asked_indicator(q, run: dict) -> list[Finding]:
     """값을 낸 질문용 계산이 질문한 지표의 행으로 계산됐는가 (1단계, 출력한 모든 내용. 기대 하위 질문과 대응되지 않은 출력 포함)
-    V-8 Q32: 질의 분석이 지역을 지표로 나눠 '항목=서울' 인 다른 표의 값을 '결혼 건수' 로 답함"""
+    11-23 live 실행 Q32: 질의 분석이 지역을 지표로 나눠 '항목=서울' 인 다른 표의 값을 '결혼 건수' 로 답함"""
     asked = [w for s in q.sub_questions for w in s.match.item_any]
     if not asked:
         return []

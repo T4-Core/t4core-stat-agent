@@ -1,4 +1,4 @@
-"""numeric_match 와 semantic_ok 분리 (계획 2.2, D-5 · D-25)"""
+"""numeric_match 와 semantic_ok 분리 (criteria.md 4.3)"""
 from eval.generator import binding
 from synthetic_gold_pipeline.schemas.dataset import ExpectedClaim
 from synthetic_gold_pipeline.tools.evaluation_tool import NumericAnswerEvaluator
@@ -8,7 +8,7 @@ WANT = {"region": "서울", "period": "2024"}
 
 
 def test_existing_evaluator_false_pass_reproduced():
-    """기존 평가기는 FINAL 값의 지역 · 기간을 보지 않는다 (0.6장 #5)"""
+    """기존 평가기는 FINAL 값의 지역 · 기간을 보지 않는다"""
     claims = [ExpectedClaim(claim_id="f", role="FINAL", value=100, value_text="100", unit="명", period="2024", region="서울특별시")]
     chk = NumericAnswerEvaluator().evaluate("2023년 부산광역시 100명입니다.", claims, {"unit_required": True})
     assert chk.final_value_ok and chk.passed

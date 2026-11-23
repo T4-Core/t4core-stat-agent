@@ -1,4 +1,4 @@
-"""모듈 2 chart_decision: 차트 유형 · measure (계획 2.4). 기대 하위 질문 단위"""
+"""모듈 2 chart_decision: 차트 유형 · measure. 기대 하위 질문 단위"""
 from eval.generator.findings import Finding
 from eval.generator.schema import SubQuestion
 from eval.generator.status import SubExpect

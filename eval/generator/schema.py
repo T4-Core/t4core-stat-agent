@@ -1,4 +1,4 @@
-"""질문 세트의 기대 결과 스키마 (계획 2.2). 실행 전에 작성하고, 실행 결과를 보고 바꾸지 않는다"""
+"""질문 세트의 기대 결과 스키마 (criteria.md 2장). 실행 전에 작성하고, 실행 결과를 보고 바꾸지 않는다"""
 from pathlib import Path
 from typing import Any, Literal
 
@@ -95,7 +95,7 @@ class Question(BaseModel):
     required_facts: list[str] = Field(default_factory=list)
     chart_request: ChartRequestSpec | None = Field(None, description="생략 = 요청 없음이 정답 (오인식 검사 대상)")
     expect_text: str = Field("", description="기존 questions.py 의 expect 문장 (원문 보존)")
-    verified: bool = Field(False, description="원본 View 와 대조해 제3자가 확인했는가 (계획 Q-4)")
+    verified: bool = Field(False, description="원본 View 와 대조해 제3자가 확인했는가")
     notes: str = ""
 
 

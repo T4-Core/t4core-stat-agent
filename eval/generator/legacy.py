@@ -1,4 +1,4 @@
-"""과거 slim trace(profiling/modules36/results/*.jsonl) → RunRecord (계획 3.2, 2.4.3)
+"""과거 slim trace(profiling/modules36/results/*.jsonl) → RunRecord
 
 slim trace 에는 ViewSet 전체 · 모듈 요청 전체가 없다 (Record 는 모듈에 넘긴 것만, 행 400개까지).
 그래서 replay · oracle · A0 지표는 N/A 이고, 하위 질문 연결 · 보류 범위는 어댑터(source=adapter)로 추정한다.

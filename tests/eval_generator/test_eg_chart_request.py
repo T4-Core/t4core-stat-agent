@@ -1,4 +1,4 @@
-"""차트 지정 요청 (계획 2.4, D-21)"""
+"""차트 지정 요청 (KOS-41)"""
 from eval.generator.checks.chart_request import check
 from eval.generator.schema import Question
 from tests.eval_generator._fx import births, run, share_calc

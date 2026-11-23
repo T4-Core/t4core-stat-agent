@@ -1,4 +1,4 @@
-"""QA 평가 (계획 2.7, D-20): Fault Injection(형식 검사) · FI-SEM(내용 경고) · FI-CONTRA(의미 정합성 미검사) · Policy Compliance
+"""QA 평가: Fault Injection(형식 검사) · FI-SEM(내용 경고) · FI-CONTRA(의미 정합성 미검사) · Policy Compliance
 
   python -m eval.generator.faults <runs.jsonl[.gz]> [--policy] [--out DIR]
 형식 검사 지표에는 내용 경고(SEMANTIC_KINDS)를 넣지 않는다. FI-CONTRA 는 QA Recall 에 넣지 않고 어느 단계가 잡는지만 기록한다.

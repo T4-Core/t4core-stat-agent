@@ -1,4 +1,4 @@
-"""Generator 실행기 (계획 2.1 · 3.2, D-18 · D-19)
+"""Generator 실행기 (criteria.md 1장)
 
   live   : 질문 → analyze → build_viewset → run_modules_with_qa(vs, analysis, mods=기록 래퍼) → 최종 result 조립 (run_chat 과 같은 순서)
   replay : 저장한 ViewSet + analysis → run_modules_with_qa (--no-qa 면 직렬 run_modules, QA on/off 비교 전용)
@@ -189,7 +189,7 @@ def replay_one(src: dict, run_no: int, *, draw: bool, qa: bool, max_rows: int) -
 
 
 def oracle_request(m6_req: dict, verified_m3: dict) -> dict:
-    """저장한 Module6Request 에서 M3 유래 필드만 검증된 M3 출력으로 바꾼다. 값은 M3 스키마 표현 그대로 (평가 정규형을 넣지 않는다, D-24)"""
+    """저장한 Module6Request 에서 M3 유래 필드만 검증된 M3 출력으로 바꾼다. 값은 M3 스키마 표현 그대로 (평가 정규형을 넣지 않는다)"""
     from backend.schemas.chart import Step
     out = copy.deepcopy(m6_req)
     plan = verified_m3.get("chart_plan") or {}

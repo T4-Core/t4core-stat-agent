@@ -1,4 +1,4 @@
-"""A0 기대 라벨은 하위 질문 보류 사유와 분리해 입력 스냅샷으로 정한다 (계획 2.2.2, D-27)"""
+"""A0 기대 라벨은 하위 질문 보류 사유와 분리해 입력 스냅샷으로 정한다 (criteria.md 2.3)"""
 from eval.generator.status import a0_label, expectations
 from eval.generator.verdict import judge
 from tests.eval_generator._fx import births, run, share_calc

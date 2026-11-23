@@ -1,4 +1,4 @@
-"""Chart-Data Fidelity (계획 2.5.1, D-12)
+"""Chart-Data Fidelity (criteria.md 5장 M5)
 
 figure(Plotly JSON)와 ChartContent 를 같은 정규형 셀 {(series, category): value} 로 바꿔 비교한다.
 figure 값은 v / unit_scale 이고 반올림하지 않으므로 비교는 (b)층: 기대 원값 / unit_scale 과 rtol=1e-9.

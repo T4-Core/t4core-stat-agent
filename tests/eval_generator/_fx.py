@@ -1,4 +1,4 @@
-"""Generator 평가기 시험용 합성 RunRecord (HCX 없음). 실제 통계값이 아니라 판정 규칙을 고정하는 입력이다"""
+"""Generator 평가기 테스트용 합성 RunRecord (HCX 없음). 실제 통계값이 아니라 판정 규칙을 고정하는 입력이다"""
 import copy
 
 REC_BIRTH = "view::101_DT_1B81A23::Y::q1-1::breakdown"

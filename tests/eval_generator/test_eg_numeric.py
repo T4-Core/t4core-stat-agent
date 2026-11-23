@@ -1,4 +1,4 @@
-"""허용오차 3층 · 평가 정규형 · 기대 표시값 (계획 2.4, D-16 · D-23 · D-24)"""
+"""허용오차 3층 · 평가 정규형 · 기대 표시값 (criteria.md 4장)"""
 import pytest
 
 from backend.agent.chart_calculate.display import format_value

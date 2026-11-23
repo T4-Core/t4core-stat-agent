@@ -1,4 +1,4 @@
-"""Chart-Data Fidelity: 차트 유형별 extractor (계획 2.5.1, D-12)"""
+"""Chart-Data Fidelity: 차트 유형별 extractor"""
 import copy
 import json
 
@@ -63,7 +63,7 @@ def test_pyramid_sign_removed(drawn):
 
 
 def test_scatter_label_swap_detected(drawn):
-    """서울 · 부산의 좌표는 그대로 두고 레이블만 맞바꾸면 불일치 (0.6장 #8)"""
+    """서울 · 부산의 좌표는 그대로 두고 레이블만 맞바꾸면 불일치"""
     for t in ("scatter", "bubble"):
         c, d, fig = _by_type(drawn, t)
         li = c["columns"].index(c["encoding"]["label"])

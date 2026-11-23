@@ -1,4 +1,4 @@
-"""기대 하위 질문 ↔ 출력 하위 질문 대응 · 지표 분모 (계획 2.4.1, D-11)"""
+"""기대 하위 질문 ↔ 출력 하위 질문 대응 · 지표 분모"""
 from eval.generator.report import summarize
 from eval.generator.schema import Question
 from eval.generator.subq import match

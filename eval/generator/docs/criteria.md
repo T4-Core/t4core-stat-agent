@@ -2,7 +2,6 @@
 
 - 대상: 모듈 2 `chart_decision` · 3 `chart_calculate` · 5 `draw_chart` · 6 `answer_compose` · QA (`backend/agent/qa`)
 - 범위: ViewSet 이후부터 사용자에게 나간 최종 응답까지. 질의 분석 · 검색 · View 품질은 `synthetic_gold_pipeline/score_rag_results.py`가 평가한다.
-- 근거: 구현 계획 `docs/plans/2026-11-20-generator-평가-체계.md`(6판), 평가 기법 `docs/notes/2026-11-19-generator-평가-기법.md`
 - 기준 코드: `develop` `e719402`
 - 합격선은 **제안값**이며 팀 합의 후 확정한다(6장).
 

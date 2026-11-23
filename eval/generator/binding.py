@@ -1,4 +1,4 @@
-"""숫자 일치(numeric_match)와 의미적 정답(semantic_ok) 분리 (계획 2.2, D-5 · D-25)
+"""숫자 일치(numeric_match)와 의미적 정답(semantic_ok) 분리 (criteria.md 4.3)
 
 numeric_match: 문장의 숫자가 기대값과 같은가. 숫자 추출은 synthetic_gold_pipeline 의 extract_numbers 를 재사용한다
 semantic_ok  : 그 숫자가 기대한 지역 · 기간 · 지표에 연결되는가

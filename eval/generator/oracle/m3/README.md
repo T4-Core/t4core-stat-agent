@@ -1,4 +1,4 @@
-# 검증된 M3 출력 (Oracle 조건, 계획 2.4.2)
+# 검증된 M3 출력 (Oracle 조건)
 
 - 파일: `<질문 id>.json` = `Module3Output` 전체(JSON). 모듈 6 입력에 쓰이는 필드(`calc_results` · `displays` · `chart_plan.answer_steps` · `chart_plan.warnings` · `chart_plan.withheld`)를 사람이 원본 View와 대조해 확정한다.
 - 값은 M3 스키마 표현 그대로 둔다(share = `17.458`, 단위 `%`). 평가 정규형으로 바꾸지 않는다.

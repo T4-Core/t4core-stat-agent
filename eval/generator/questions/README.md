@@ -2,8 +2,8 @@
 
 | 파일 | 세트 | 용도 | 변경 규칙 |
 |---|---|---|---|
-| `core34.yaml` | core34 | 회귀 비교 (수정 전후를 같은 세트로) | **동결.** 문항 추가 · 의미 변경 금지 |
-| `ext_chart_request.yaml` | ext-chart-request | 차트 지정 요청(KOS-41) 처리 | 동결 · 추가만 |
+| `core34.yaml` | core34 | 회귀 비교 (수정 전후를 같은 세트로) | **버전 고정(immutable).** 문항 추가 · 의미 변경 금지 |
+| `ext_chart_request.yaml` | ext-chart-request | 차트 지정 요청(KOS-41) 처리 | 버전 고정(immutable), 문항 추가만 허용 |
 | (새 파일) | ext-* | 모듈 담당자가 추가하는 세트 | 버전을 붙여 추가만 |
 
 스키마는 `eval/generator/schema.py`의 `Question`이다. 필드 의미와 판정 규칙은 `eval/generator/docs/criteria.md` 2장을 따른다.

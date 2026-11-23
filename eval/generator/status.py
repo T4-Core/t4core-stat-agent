@@ -1,4 +1,4 @@
-"""기대 상태 결정 (계획 2.2 · 2.2.1 · 2.2.2 · 2.3.1, D-10 · D-22 · D-27)
+"""기대 상태 결정 (criteria.md 2장)
 
 조건 술어는 입력 스냅샷만 본다: 하위 질문 답변 가능성은 ViewSet 의 Record, A0 기대 라벨은 ViewSet + analysis 메모.
 Generator 출력과 analysis.status 는 기대를 정하는 데 쓰지 않는다.
@@ -140,7 +140,7 @@ def expectations(q: Question, run: dict) -> tuple[str, list[SubExpect]]:
     """(A0 기대 라벨, 하위 질문 기대). A0 가 stop_* 이면 하위 질문 기대 사유를 A0 사유로 덮는다"""
     if q.scope == "out":
         return "out_of_scope", []
-    # slim trace 에는 ViewSet 전체가 없어(Record 는 모듈에 넘긴 것만) A0 기대를 정할 수 없다 → n/a (계획 2.4.3)
+    # slim trace 에는 ViewSet 전체가 없어(Record 는 모듈에 넘긴 것만) A0 기대를 정할 수 없다 → n/a
     label = a0_label(run) if run.get("viewset") is not None else "n/a"
     records = trace.records_of(run)
     if label.startswith("stop_"):

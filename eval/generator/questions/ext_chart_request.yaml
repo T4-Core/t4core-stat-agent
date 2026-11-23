@@ -1,5 +1,5 @@
-# ext-chart-request — 차트 지정 요청(KOS-41) 처리 평가 세트 (계획 2.2, 4판). core34 처럼 동결 · 추가만
-# 기대 outcome 은 렌더링 단계 값(render_failed · not_rendered)을 적지 않는다. 판정 시 render_status 로 바꾼다 (D-21)
+# ext-chart-request — 차트 지정 요청(KOS-41) 처리 평가 세트. core34 처럼 버전 고정(immutable), 문항 추가만 허용
+# 기대 outcome 은 렌더링 단계 값(render_failed · not_rendered)을 적지 않는다. 판정 시 render_status 로 바꾼다
 # 요청 해석 기대값은 docs/modules/기능_추가_차트_변경_요청_처리.md 의 사례와 tests/chart_request/ 규칙을 기준으로 했다. verified=false
 name: ext-chart-request
 version: '1.0'

@@ -1,4 +1,4 @@
-"""operands_valid (계획 2.2.1, D-22 · D-26) · 원본 행 복원 (D-25)"""
+"""operands_valid (criteria.md 2.2) · 원본 행 복원"""
 from eval.generator import resolve as R
 from tests.eval_generator._fx import REC_BIRTH, births, record
 
@@ -50,7 +50,7 @@ def test_ambiguous_row_goes_manual():
     assert (p.reason, "manual" in p.tags) == ("ambiguous_row", True)
 
 
-# ── 단위 정합은 연산별 (D-26) ──
+# ── 단위 정합은 연산별 ──
 POP = record("pop", ["시점", "시도별", "항목", "값"], [["2024", "서울특별시", "인구(명)", 100.0]])
 AREA = record("area", ["시점", "시도별", "항목", "값"], [["2024", "서울특별시", "면적(㎢)", 2.0]])
 POP_C = {"region": "서울", "period": "2024", "item": "인구"}

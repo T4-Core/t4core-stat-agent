@@ -1,4 +1,4 @@
-"""MT-3a: 입력 · 결과 · displays · 원본 Record 행을 함께 바꾼 정합 사례 (계획 2.6, D-17)"""
+"""MT-3a: 입력 · 결과 · displays · 원본 Record 행을 함께 바꾼 정합 사례"""
 import copy
 
 from backend.agent.answer_compose.facts import Facts

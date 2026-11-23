@@ -1,4 +1,4 @@
-"""Oracle 요청 (계획 2.4.2, D-13 · D-24) · 실행 기록 (D-19)"""
+"""Oracle 요청 · 실행 기록"""
 import copy
 
 from eval.generator.run import M3_FIELDS_FOR_M6, Recorder, assemble_result, oracle_request, run_generator

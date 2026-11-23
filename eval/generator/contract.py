@@ -1,4 +1,4 @@
-"""저장한 출력에 현재 QA 스키마 검사(qa_check.check)를 다시 돌린다 (계획 3.2, profiling/modules36/contract_check.py 이전)
+"""저장한 출력에 현재 QA 스키마 검사(qa_check.check)를 다시 돌린다 (profiling/modules36/contract_check.py 이전)
 
 지점: M2-out · M3-out · M6-out · A9(run_modules 반환 11개 키). 형식 경고와 내용 경고(SEMANTIC_KINDS)를 나눠 센다.
   python -m eval.generator.contract <runs.jsonl[.gz]>

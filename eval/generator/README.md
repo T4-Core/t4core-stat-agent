@@ -3,7 +3,6 @@
 모듈 2 · 3 · 5 · 6 + QA의 출력 품질을 재현 가능한 절차로 측정한다.
 
 - 기준: [docs/criteria.md](docs/criteria.md) · 방법: [docs/method.md](docs/method.md) · 기준선: [docs/baseline.md](docs/baseline.md)
-- 구현 계획: `docs/plans/2026-11-20-generator-평가-체계.md`
 
 ## 빠른 시작
 
@@ -38,10 +37,10 @@ python -m eval.generator.report --compare <이전>/runs_report/verdicts.jsonl <�
 | `faults.py` | Fault Injection · FI-SEM · FI-CONTRA · Policy Compliance |
 | `metamorphic.py` | MT-1 · MT-2 · MT-3a |
 | `legacy.py` | 과거 slim trace → RunRecord |
-| `questions/` | 질문 세트 (`core34` 동결 · `ext_chart_request`) |
+| `questions/` | 질문 세트 (`core34` 버전 고정(immutable) · `ext_chart_request`) |
 | `oracle/m3/` | 검증된 M3 출력 (Oracle 조건) |
 
-## 시험
+## 테스트
 
 ```bash
 t4core-stat-agent/.venv/Scripts/python -m pytest tests/eval_generator -q     # HCX 없음
@@ -49,4 +48,4 @@ t4core-stat-agent/.venv/Scripts/python -m pytest tests/eval_generator -q     # H
 
 ## 경로
 
-실행 결과는 `backend.core.config.EVAL_RUNS_DIR`(기본 `storage/runs/eval_generator`, git 제외)에 둔다. 저장소에는 질문 세트 · 문서 · 도구 · 시험만 둔다.
+실행 결과는 `backend.core.config.EVAL_RUNS_DIR`(기본 `storage/runs/eval_generator`, git 제외)에 둔다. 저장소에는 질문 세트 · 문서 · 도구 · 테스트만 둔다.

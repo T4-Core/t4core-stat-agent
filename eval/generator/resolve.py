@@ -1,4 +1,4 @@
-"""좌표 → Record 행 resolver (계획 2.2.1, D-22 · D-25 · D-26)
+"""좌표 → Record 행 resolver (criteria.md 2.2)
 
 binding 복원 · operands_valid · MT-3a 변형 Record 갱신이 같은 함수를 쓴다.
 행을 하나로 특정하지 못하면 판단하지 않고 호출자에게 '모호함' 을 돌려준다.
@@ -183,7 +183,7 @@ class Pred:
 
 def operands_valid(records: list[dict], operands: list[dict], denominator: dict | None = None,
                    op: str | None = None, result_unit: str | None = None) -> Pred:
-    """계획 2.2.1. 처음 실패한 검사의 사유 코드를 돌려준다"""
+    """criteria.md 2.2. 처음 실패한 검사의 사유 코드를 돌려준다"""
     found: list[tuple[str, Row]] = []
     for role, coords in (("operand", operands), ("denominator", [denominator] if denominator else [])):
         for c in coords:
@@ -242,7 +242,7 @@ def _same_population(a: Row, b: Row) -> bool:
 
 
 def resolve_input(records: list[dict], inp: dict, select: dict[str, list] | None = None) -> tuple[Row | None, str | None]:
-    """CalcInput(record_id + item + key) + 단계의 select → 원본 행. key 는 고정 차원을 생략하므로 select 로 보완한다 (D-25)"""
+    """CalcInput(record_id + item + key) + 단계의 select → 원본 행. key 는 고정 차원을 생략하므로 select 로 보완한다"""
     rec = next((r for r in records if r.get("id") == inp.get("record_id")), None)
     if rec is None:
         return None, "no_record"

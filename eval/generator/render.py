@@ -1,4 +1,4 @@
-"""모듈 5 재렌더링 + Chart-Data Fidelity · Spec Lint (계획 2.5, V-5). HCX 호출 없음
+"""모듈 5 재렌더링 + Chart-Data Fidelity · Spec Lint. HCX 호출 없음
 
 저장한 모듈 2 차트 계획(modules.chart_plan)과 모듈 3 출력으로 run_module5 를 다시 돌린다. 같은 입력이면 같은 그림이다.
 slim trace 는 figure 를 저장하지 않았으므로 과거 회차의 Fidelity 는 이 도구로만 산출된다.
