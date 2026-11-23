@@ -39,6 +39,11 @@ vocab_suggest_min_score: 0.55            # 코사인 하한 (임베더마다 다
 vocab_suggest_max_terms: 3
 vocab_suggest_learn: true                # hcx 가 고른 짝 → 학습 사전 '승인 대기' (POST /api/v1/rag/lexicon/learn approve=true 로 승인)
 
+# ── OKF 지식 카탈로그 (storage/okf · docs/OKF_FORMAT.md) ──
+okf_use: true                            # 빌드(storage/okf_build/CURRENT)가 있으면 vocab.json·별칭을 거기서 (없으면 예전대로)
+okf_dir: ""                              # 비우면 storage/okf
+okf_build_dir: ""                        # 비우면 storage/okf_build
+
 # ── 서브쿼리 ──
 split_when_no_common_table: true         # split_policy: no_common_table 일 때, 지표들을 함께 가진 표가 없으면 나눔
 split_policy: always                     # always = 지표마다 서브쿼리 / no_common_table = 함께 가진 표가 없을 때만

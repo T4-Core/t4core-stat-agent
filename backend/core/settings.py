@@ -48,6 +48,10 @@ class Settings(BaseModel):
     vocab_suggest_min_score: float = 0.55        # 코사인 하한 — 임베더마다 다르니 log 로 보고 조정
     vocab_suggest_max_terms: int = 3             # 질문 하나에서 후보를 찾을 낱말 수
     vocab_suggest_learn: bool = True             # hcx 가 고른 짝 → 학습 사전 '승인 대기' (승인 전엔 쓰지 않음)
+    # OKF 지식 카탈로그 (backend/rag/okf, docs/OKF_FORMAT.md) — 빌드(okf_build/CURRENT)가 있으면 정규 어휘 사전·별칭을 거기서 읽음
+    okf_use: bool = True
+    okf_dir: str = ""                            # 비우면 storage/okf (OKF_DIR)
+    okf_build_dir: str = ""                      # 비우면 storage/okf_build (OKF_BUILD_DIR)
     # 서브쿼리
     split_when_no_common_table: bool = True
     split_policy: str = "always"                 # always / no_common_table

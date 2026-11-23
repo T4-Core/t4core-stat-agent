@@ -11,6 +11,8 @@ storage/*
 !storage/README.md
 !storage/parquet/
 !storage/indices/
+# [ADDED] OKF 지식 카탈로그 번들은 올림 (파생물 storage/okf_build/ 는 storage/* 규칙으로 제외)
+!storage/okf/
 storage/parquet/*
 storage/indices/*
 !storage/**/.gitkeep

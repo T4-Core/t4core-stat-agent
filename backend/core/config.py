@@ -10,6 +10,8 @@
   EMBED_CACHE      HCX 임베딩 캐시 (sqlite)                     storage/indices/embed_cache.sqlite
   RUNS_DIR         단계별 실행 기록·검색 비교 결과              storage/runs
   ANSWERS_DIR      /chat save=true 결과                         storage/answers
+  OKF_DIR          OKF 지식 카탈로그 번들 (git 에 커밋)          storage/okf
+  OKF_BUILD_DIR    번들 파생물 (빌드별 폴더 + CURRENT)          storage/okf_build
   PRIVATE_DIR      개인 파이프라인 플러그인 (git 제외)          ./private, ../private, ../<저장소>_private
 
 확인: GET /api/v1/system/paths  또는  python -m backend.core.config
@@ -75,6 +77,8 @@ CSV_INDEX_DIR = _env_path("CSV_INDEX_DIR") or STORAGE_DIR / "csv_index"
 EMBED_CACHE = _env_path("EMBED_CACHE") or STORAGE_DIR / "indices" / "embed_cache.sqlite"
 RUNS_DIR = _env_path("RUNS_DIR") or STORAGE_DIR / "runs"
 ANSWERS_DIR = _env_path("ANSWERS_DIR") or STORAGE_DIR / "answers"
+OKF_DIR = _env_path("OKF_DIR") or STORAGE_DIR / "okf"                     # OKF 지식 카탈로그 번들 (git 에 커밋)
+OKF_BUILD_DIR = _env_path("OKF_BUILD_DIR") or STORAGE_DIR / "okf_build"   # 번들 파생물 (빌드별 폴더 + CURRENT)
 PRIVATE_DIR = _pick(("PRIVATE_DIR",), [ROOT / "private", ROOT.parent / "private", ROOT.parent / f"{ROOT.name}_private"],
                     None, marker="pipelines")
 
@@ -83,6 +87,7 @@ def paths():
     named = {"ROOT": ROOT, "ENV_PATH": ENV_PATH, "STORAGE_DIR": STORAGE_DIR, "KOSIS_DATA_DIR": KOSIS_DATA_DIR,
              "VIEW_OUT_DIR": VIEW_OUT_DIR, "TABLE_INDEX_DIR": TABLE_INDEX_DIR, "CSV_INDEX_DIR": CSV_INDEX_DIR,
              "EMBED_CACHE": EMBED_CACHE, "RUNS_DIR": RUNS_DIR, "ANSWERS_DIR": ANSWERS_DIR, "PRIVATE_DIR": PRIVATE_DIR,
+             "OKF_DIR": OKF_DIR, "OKF_BUILD_DIR": OKF_BUILD_DIR,
              "FRONTEND_DIR": FRONTEND_DIR}
     out = {k: {"path": str(v) if v else None, "exists": bool(v) and Path(v).exists()} for k, v in named.items()}
     if CONFIG_WARNINGS:
