@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+!package-lock.json
+*.log
+
+# 저장소 루트 .gitignore 의 data 폴더 제외 규칙에서 화면 코드만 다시 포함합니다.
+!src/data/
+!src/data/**
