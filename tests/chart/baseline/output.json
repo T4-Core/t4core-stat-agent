@@ -54,6 +54,7 @@
             "input": null,
             "denominator": null,
             "display_ref": "d1",
+            "sub_question_id": null,
             "from": null,
             "to": null,
             "base": null,
@@ -118,6 +119,7 @@
             "input": null,
             "denominator": null,
             "display_ref": "d2",
+            "sub_question_id": null,
             "from": null,
             "to": null,
             "base": null,
@@ -162,6 +164,7 @@
         "input": null,
         "denominator": null,
         "display_ref": "d1",
+        "sub_question_id": "27077dec-1",
         "from": "2021",
         "to": "2025",
         "base": null,
@@ -200,6 +203,7 @@
         "input": null,
         "denominator": null,
         "display_ref": "d2",
+        "sub_question_id": "27077dec-2",
         "from": "2021",
         "to": "2025",
         "base": null,
@@ -214,7 +218,8 @@
       "a2": "c2.s1"
     },
     "notes": [],
-    "warnings": []
+    "warnings": [],
+    "withheld": []
   },
   "chart_contents": [
     {
@@ -353,6 +358,7 @@
   "calc_results": [
     {
       "step_id": "a1",
+      "sub_question_id": "27077dec-1",
       "op": "raw",
       "value": [
         {
@@ -444,10 +450,12 @@
         "view::101_DT_1B8000G::Y::27077dec-1-1::trend"
       ],
       "scope_label": null,
+      "agg": null,
       "note": null
     },
     {
       "step_id": "a2",
+      "sub_question_id": "27077dec-2",
       "op": "raw",
       "value": [
         {
@@ -539,6 +547,7 @@
         "view::101_DT_1B8000G::Y::27077dec-2-1::trend"
       ],
       "scope_label": null,
+      "agg": null,
       "note": null
     }
   ],

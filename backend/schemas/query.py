@@ -32,6 +32,17 @@ class AgeRange(BaseModel):
     to: int | None = Field(None, description="끝 나이 (포함). 없으면 상한 없음 (예: 65세 이상)")
 
 
+# [NEW 11-20] 조건의 열·연산자·값 보존 (KOS-26). 조건(list[str])은 검색 보조어라 어댑터가 값만 남기고 연산자와 열 이름을 버렸다
+#   ('가구원수>=5' → '5'). 모듈 3 이 '이 조건을 실제로 적용했는가' 를 검사하려면 이 구조가 필요하다
+class Condition(BaseModel):
+    field: str | None = Field(None, description="분류 축 이름 (혼인상태, 가구원수). 원문에 없으면 None")
+    op: Literal["=", "!=", ">", ">=", "<", "<="] = "="
+    value: str = Field(..., description="미혼, 5, 99000 (숫자는 쉼표 없이)")
+    unit: str | None = Field(None, description="명, 가구 (숫자 기준일 때)")
+    text: str = Field(..., description="원문 표기 ('가구원수 99,000명 이상')")
+    source: Literal["slot", "threshold"] = "slot"
+
+
 class Filters(BaseModel):
     """슬롯 dict. 빈 슬롯은 None (View 생성 때 기본값 적용)"""
     model_config = ConfigDict(populate_by_name=True)
@@ -47,9 +58,21 @@ class Filters(BaseModel):
     출생연도: list[int] | None = Field(None, description="출생연도(코호트) 분류 값 — 시점과 다름 (1983년생 → [1983])")
     원문표현: list[str] | None = Field(None, description="질문 원문에 있던 CSV 표현 중 다른 슬롯에 없는 것 "
                                                     "(대상·지표로 못 고른 분류·항목을 고를 때만 씀)")
+    조건식: list[Condition] | None = Field(None, description="[NEW 11-20] 이 단위의 결과를 **제한하는** 조건 (열·연산자·값·단위). "
+                                                           "역할 단위(분모·조건)에는 넣지 않고 역할이 없는 본 질문에만 넣는다")
     역할: str | None = Field(None, description="검색 단위의 역할: 분모 / 조건 (query_analyzer/roles.py). "
                                              "분모 단위는 같은 조사·수준의 단순한 인구·가구 표를 찾음")
     의도: str | None = Field(None, description="View 종류를 정하는 의도: 값 조회 / 추이 / 비교 / 순위")
+
+
+class RoleLink(BaseModel):
+    """[NEW 11-20] 역할 단위(분모·조건)가 어느 본 질문을 지원하는가. split_roles 가 역할 단위를 질문에서 빼기 전에 남긴다
+    (뺀 뒤에는 모듈 6 이 어느 결과가 보조 결과인지 알 방법이 없다)"""
+    unit_id: str = Field(..., description="뺀 하위 질문 ID ('{query_id}-{순번}')")
+    role: Literal["분모", "조건"]
+    term: str = Field("", description="역할 단위의 말 (가구원수)")
+    supports: list[str] = Field(default_factory=list, description="이 단위가 지원하는 본 하위 질문 ID. add_role_units 가 대상을 기록하지 않아 남은 본 질문 전부")
+    record_ids: list[str] = Field(default_factory=list, description="이 단위에서 세트에 붙인 View 의 Record.id")
 
 
 class QueryBundle(BaseModel):

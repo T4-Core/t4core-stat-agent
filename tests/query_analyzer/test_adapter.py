@@ -90,3 +90,26 @@ def test_intent_mapping_to_view():
     for it, view in (("증감률", "추이"), ("증감", "추이"), ("구성비", "비교"), ("합계", "값 조회")):
         vb, notes = to_view_bundle({"original": "x", "rewritten": "x", "intent": it, "filters": {"지표": ["인구수"]}})
         assert vb["filters"]["의도"] == view and any(it in n for n in notes)
+
+
+def _regions(regions, **kw):
+    vb, notes = to_view_bundle({"original": "x", "rewritten": "x", "intent": "비교",
+                                "filters": {"시점": ["2023년"], "지역": regions, "지표": ["혼인건수"], **kw}})
+    return vb["filters"].get("지역"), notes
+
+
+def test_national_with_other_regions_is_kept():
+    # '2023년 전국과 서울의 혼인건수 비교' → 전국 합계 행과 서울 행을 함께 조회 (예전: 전국을 지움)
+    q = "2023년 전국과 서울의 혼인건수 비교"
+    _, b = _run(q, {"시점": ["2023년"], "지역": ["전국", "서울특별시"]},
+                {"시점": ["2023년"], "지역": ["전국", "서울특별시"], "대상": ["혼인"], "지표": ["혼인건수"], "의도": ["비교"]})
+    vb, notes = to_view_bundle(b)
+    assert vb["filters"]["지역"] == ["전국", "서울특별시"], vb["filters"]
+    assert any("전국 합계 행도 같이 조회" in n for n in notes)
+    assert _regions(["서울특별시", "전국"])[0] == ["서울특별시", "전국"]     # 순서는 질문대로
+
+
+def test_national_only_and_regions_only_unchanged():
+    assert _regions(["전국"]) == (None, [])                                  # 전국만 → View 기본값(전국 합계)
+    assert _regions(["서울특별시", "부산광역시"])[0] == ["서울특별시", "부산광역시"]
+    assert _regions(["전국", "전국"])[0] is None

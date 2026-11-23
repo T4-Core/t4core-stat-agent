@@ -28,6 +28,7 @@ from backend.agent.chart_calculate.display import format_value, strip_unit, unit
 from backend.agent.chart_calculate.select import ITEM_COL, REGION_HINTS, VALUE_COL  # noqa: F401  (REGION_HINTS: 예전 위치 호환)
 from backend.agent.chart_calculate.specs import SPECS, requirements_for
 from backend.agent.chart_calculate.validate import check_chart
+from backend.core.reasons import humanize
 from backend.schemas.chart import AxisSpec, ChartContent, ChartPlan, ChartValidation, CheckResult, Display, Plan, Step
 from backend.schemas.record import Record
 
@@ -132,6 +133,14 @@ def _long(branches: list[_Branch], keep_missing: bool = False) -> tuple[list[str
                     continue
             name = strip_unit(str(p.key[ITEM_COL])) if ITEM_COL in p.key else b.label
             rows.append([p.key.get(c) for c in dims] + [name, p.value])
+        if keep_missing:      # [NEW 11-17] 값이 비어 점이 못 된 시점도 값 None 행으로: 그 시점이 가로축에 남고 선이 끊긴다
+            have = {tuple(sorted((c, str(v)) for c, v in p.key.items())) for p in b.calc.points}
+            for m in b.calc.missing:
+                if tuple(sorted((c, str(v)) for c, v in m.items())) in have:
+                    continue
+                skipped += 1
+                name = strip_unit(str(m[ITEM_COL])) if ITEM_COL in m else b.label
+                rows.append([m.get(c) for c in dims] + [name, None])
     if TIME_COL in dims:
         ti = dims.index(TIME_COL)
         idx = [period_index(r[ti]) for r in rows]
@@ -410,7 +419,9 @@ def _compose(chart_type: str, plan: Plan, branches: list[_Branch], displays: dic
                                    record.metadata.get("prd_se") if record else None),
         encoding=enc, axis=axis, options=_options(chart_type, plan, live, rows, cols, enc, displays, record, dual),
         columns=cols, rows=rows, record_ids=list(dict.fromkeys(i for b in branches for i in b.calc.record_ids)),
-        warnings=list(dict.fromkeys(warnings + more)))
+        # [CHANGED 11-17] 이전: 계산 단계의 내부 문구 그대로 ('2023: 직전 시점(2022) 값이 없어 계산하지 않음'). 모듈 5 가 ⚠ 로 사용자에게
+        #   보여 주므로 모듈 6 의 답변 · 주의사항과 같은 문장으로 바꾼다 (자체 검토 A-6). 원문은 CalcResult.note · validation 에 남는다
+        warnings=list(dict.fromkeys(humanize(w) for w in warnings + more)))
 
 
 def _totals(plan: Plan, content: ChartContent) -> dict | None:

@@ -56,4 +56,5 @@ def test_failed_calc_and_caveats_appended():
     f = Facts(request(results=[growth(), growth("a2", None).model_copy(update={"note": "기준값 0"})]))
     lines = compose(f, build_caveats(f)).splitlines()
     assert lines[0].endswith("혼인건수 증감률을 계산하지 못했습니다(기준 값이 0이라 비율을 계산할 수 없습니다).")
-    assert lines[1].startswith("※ 혼인건수 증감률을 계산하지 못했습니다: 기준 값이 0이라 비율을 계산할 수 없습니다")
+    # [CHANGED 11-17] 이전: 같은 실패를 ※ 줄로 한 번 더 썼다 → 본문만 (보고서 13장). caveats 목록에는 남는다
+    assert len(lines) == 1 and any(c.source == "calc_note" for c in build_caveats(f))

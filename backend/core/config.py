@@ -76,6 +76,7 @@ TABLE_INDEX_DIR = _env_path("TABLE_INDEX_DIR") or STORAGE_DIR / "indices" / "tab
 CSV_INDEX_DIR = _env_path("CSV_INDEX_DIR") or STORAGE_DIR / "csv_index"
 EMBED_CACHE = _env_path("EMBED_CACHE") or STORAGE_DIR / "indices" / "embed_cache.sqlite"
 RUNS_DIR = _env_path("RUNS_DIR") or STORAGE_DIR / "runs"
+EVAL_RUNS_DIR = _env_path("EVAL_RUNS_DIR") or RUNS_DIR / "eval_generator"   # [NEW 11-23 KOS-40] Generator 평가 실행 결과 (git 제외)
 ANSWERS_DIR = _env_path("ANSWERS_DIR") or STORAGE_DIR / "answers"
 OKF_DIR = _env_path("OKF_DIR") or STORAGE_DIR / "okf"                     # OKF 지식 카탈로그 번들 (git 에 커밋)
 OKF_BUILD_DIR = _env_path("OKF_BUILD_DIR") or STORAGE_DIR / "okf_build"   # 번들 파생물 (빌드별 폴더 + CURRENT)

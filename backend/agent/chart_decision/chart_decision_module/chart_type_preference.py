@@ -58,3 +58,162 @@ def shape_score(chart, profile, measure):
             return SHAPE_SCORES["bar_rank"], "순위"
         return SHAPE_SCORES["bar_base"], "기본"
     return 0, ""
+
+
+# ── [NEW 11-20 KOS-41] 차트 지정 요청 해석 ────────────────────────────────────────
+# 순서: ① 후보 추출 → ② 문맥·범위 해석 → ③ 긍정/제외 분류. 문맥을 먼저 걸면 '막대 말고 원그래프로', '막대나 원그래프로',
+# '서울은 막대, 부산은 꺾은선으로' 의 막대가 탈락하므로 제외 표지 · 대안 연결 · 절별 지정도 차트 용법으로 인정한다.
+# requested_chart() 는 기존 호출을 위해 그대로 둔다 (노드 · 파이프라인은 parse_chart_request 를 쓴다).
+from .chart_type_rules import (  # noqa: E402
+    ALTERNATIVE_CONNECTORS, AMBIGUOUS_CHART_WORDS, NAME_TRAILERS, NEGATION_MARKS, UNSUPPORTED_CHART_WORDS,
+    USAGE_PREDICATES, USAGE_SUFFIXES,
+)
+
+_HANGUL = re.compile(r"[가-힣]")
+_PRED = "|".join(map(re.escape, USAGE_PREDICATES))
+_USE = re.compile(rf"(?:으로|로|처럼|위에|상에)\s*.{{0,20}}?(?:{_PRED})")      # '막대로 보여줘', '지도 위에 … 보여줘'
+_USE_END = re.compile(r"(?:으로|로)\s*(?:$|[,.;!?)\]])")                      # '꺾은선으로' (문장 끝)
+_NEG = re.compile(rf"(?:은|는|를|을|도)?\s*(?:{'|'.join(map(re.escape, NEGATION_MARKS))})")
+_TOPIC = re.compile(r"([가-힣A-Za-z0-9]+)(?:은|는)\s*$")                       # '서울은 막대' 의 서울
+
+
+def _candidates(text):
+    """① 후보 추출: 지원·미지원 이름의 모든 출현 (긴 이름부터, 찾은 곳은 지워 짧은 이름이 다시 걸리지 않게). 단어 경계만 본다"""
+    names = [(w, c, True) for w, c in CHART_WORDS.items()] + [(w, None, False) for w in UNSUPPORTED_CHART_WORDS]
+    masked, out = text, []
+    for w, code, sup in sorted(names, key=lambda x: -len(x[0])):
+        start = 0
+        while (i := masked.find(w, start)) >= 0:
+            j = start = i + len(w)
+            masked = masked[:i] + "\0" * len(w) + masked[j:]
+            prev, rest = (text[i - 1] if i else ""), text[j:]
+            if w in AMBIGUOUS_CHART_WORDS and _HANGUL.match(prev):               # '운동지도' 의 지도: 다른 말의 일부
+                continue
+            if rest and _HANGUL.match(rest[0]) and not rest.startswith(NAME_TRAILERS + USAGE_SUFFIXES):   # '지도자', '막대기'
+                continue
+            out.append({"name": w, "code": code, "supported": sup, "start": i, "end": j,
+                        "strong": w not in AMBIGUOUS_CHART_WORDS})
+    return sorted(out, key=lambda c: c["start"])
+
+
+def _resolve(text):
+    """② 문맥·범위 해석: 후보마다 용법 여부, 대안 묶음(group), 절별 지정(topic)을 정한다"""
+    cands = _candidates(text)
+    for k, c in enumerate(cands):
+        gap = text[cands[k - 1]["end"]:c["start"]].strip() if k else ""
+        c["group"] = (cands[k - 1]["group"] + (0 if (k and gap in ("",) + ALTERNATIVE_CONNECTORS) else 1)) if k else 0
+        rest = text[c["end"]:].lstrip()
+        flags = set()
+        if rest.startswith(USAGE_SUFFIXES):
+            flags.add("suffix")
+        if _USE.match(rest) or _USE_END.match(rest):
+            flags.add("use")
+        if _NEG.match(rest):
+            flags.add("neg")
+        if c["strong"]:
+            flags.add("strong")
+        m = _TOPIC.search(text[:c["start"]])
+        c["topic"], c["flags"] = (m.group(1) if m else None), flags
+    multi = len({c["group"] for c in cands}) >= 2
+    for c in cands:
+        c["bound"] = bool(multi and c["topic"])            # 절별 지정: 그 주제(서울)를 말하는 하위 질문에만 적용
+        if c["bound"]:
+            c["flags"].add("topic")
+    confirmed = {c["group"] for c in cands if c["flags"] & {"suffix", "use", "neg", "strong", "topic"}}
+    for c in cands:
+        c["confirmed"] = c["group"] in confirmed
+        c["role"] = "excluded" if "neg" in c["flags"] else "preferred"      # ③ 분류
+    return cands
+
+
+def _name(c):
+    return {"text": c["name"], "code": c["code"], "supported": c["supported"]}
+
+
+def parse_chart_request(sub_question, original, rewritten):
+    """질문 속 차트 지정 요청 → ChartRequestInfo 모양의 dict. 요청이 없으면 None.
+    하위 질문 → 원 질문 → 재작성 순서로 찾는다 (재작성에서 '지도로' 같은 말이 빠질 수 있다).
+    원 질문의 절별 지정('서울은 막대, 부산은 꺾은선으로')은 주제(서울)가 하위 질문에 있을 때만 적용하고,
+    어느 하위 질문의 것인지 정할 수 없으면 요청을 적용하지 않고 ambiguous_scope 로 남긴다 (첫 이름을 모든 차트에 쓰지 않는다)"""
+    sub = " ".join(str(sub_question or "").split())
+    for text in (sub, original, rewritten):
+        text = " ".join(str(text or "").split())
+        if not text:
+            continue
+        cands = [c for c in _resolve(text) if c["confirmed"]]
+        if not cands:
+            continue
+        keep, topic_groups = [], set()
+        for c in cands:
+            if c["bound"]:
+                if c["role"] == "preferred":
+                    topic_groups.add(c["group"])
+                if text != sub and c["topic"] and c["topic"] in sub:
+                    keep.append(c)
+                continue
+            keep.append(c)
+        pref = [c for c in keep if c["role"] == "preferred"]
+        exc = [c for c in keep if c["role"] == "excluded"]
+        ambiguous = len({c["group"] for c in pref}) >= 2 or (not pref and len(topic_groups) >= 2)
+        if not (pref or exc or ambiguous):
+            continue
+        stage = {"reason": None, "selected": None, "applied": True}
+        if ambiguous:
+            pref, stage["reason"], stage["applied"] = [], "ambiguous_scope", False
+        elif pref and not pref[0]["supported"]:
+            stage["reason"] = "unsupported_type"
+        return {"preferred": [_name(c) for c in pref], "excluded": [_name(c) for c in exc], "scope": "all", "stage": stage}
+    return None
+
+
+def requested_codes(info):
+    """선택 단계에 넘길 (요청 코드 목록, 제외 코드 집합). 미지원 이름은 가장 가까운 지원 차트로 바꿔 후보 앞에 둔다"""
+    if not info:
+        return [], set()
+    codes = []
+    for n in info["preferred"]:
+        code = n["code"] if n["supported"] else UNSUPPORTED_CHART_WORDS.get(n["text"])
+        if code and code not in codes:
+            codes.append(code)
+    return codes, {n["code"] for n in info["excluded"] if n["code"]}
+
+
+def record_selection(info, result, block=None):
+    """선택 단계의 결과와 사유를 info['stage'] 에 구조화해 남긴다 (설명 문장이 아니라 코드). info 가 None 이면 None.
+    block: View 적합도로 차트를 막은 이유 (차단 분기에서도 요청을 기록하기 위해 pick_chart 없이 부른다)"""
+    if info is None:
+        return None
+    st = info["stage"]
+    if block:
+        st["selected"], st["reason"] = None, "view_blocked"
+        return info
+    st["selected"] = result["chart_type"]
+    if st["reason"] is None:
+        req = result.get("request")
+        if req and not req["ok"]:
+            st["reason"] = "data_mismatch"
+        elif result["chart_type"] is None and (info["preferred"] or info["excluded"]):
+            st["reason"] = "no_candidate"
+    return info
+
+
+_GENERIC_CLAIM = re.compile(rf"(?:그래프|차트|도표)(?:를|을|로|으로|는|은|가|이|에서|와)?\s*.{{0,12}}?(?:{_PRED}|참고|확인|첨부|제공)")
+_NAME_DATA = re.compile(r"\s*(?:데이터|자료|결과)")
+
+
+def chart_claims(text):
+    """[NEW 11-20 KOS-41] 문장 속 차트 서술(차트 용법 + 생성·표시 서술)의 위치 목록 [(시작, 끝, 찾은 말)].
+    요청 추출과 같은 후보·용법 판정을 쓴다 — 정의가 둘이면 한쪽만 오탐을 고쳐도 다른 쪽에서 재발한다.
+      · 이름이 용법으로 확정(뒤에 그래프·차트 또는 '로 보여줘')된 것
+      · 차트 전용 이름 뒤에 데이터·자료·결과 ('히스토그램 데이터는')
+      · 일반어 그래프·차트·도표 뒤에 보여·그려·표시·참고 같은 서술
+    '지도자' · '막대기' · '도넛 가게' 처럼 다른 말의 일부이거나 용법이 없는 이름은 포함하지 않는다"""
+    text = " ".join(str(text or "").split())
+    out = []
+    for c in _resolve(text):
+        used = c["flags"] & {"suffix", "use"}
+        data = c["strong"] and _NAME_DATA.match(text[c["end"]:])
+        if used or data:
+            out.append((c["start"], c["end"], c["name"]))
+    out += [(m.start(), m.end(), m.group(0)) for m in _GENERIC_CLAIM.finditer(text)]
+    return sorted(out)

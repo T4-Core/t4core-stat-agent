@@ -61,10 +61,12 @@ def _chart_dec(rid):
     return ChartDecision(chart_id="c1", record_id=rid, select={"행정구역별": ["전국"]})
 
 
-def test_pick_outside_set_warns_but_plan_is_kept(req):
+def test_pick_outside_set_is_noted_and_withheld_when_it_holds_another_indicator(req):
+    """c1 은 혼인건수 질문인데 HCX 가 출생아수 View(V2, 다른 세트)를 골랐다 → 세트 밖이라는 기록 + 요청 지표가 View 에 없어 차트 보류
+    [CHANGED 11-20] 이전: 계획을 그대로 두었다 (차트 경로는 지표 대응을 보지 않았다. KOS-26 A-3)"""
     charts = [req.charts[0]]
     plan, _ = make_plan(charts, req.records, Decision(charts=[_chart_dec(V2)], answers=[]), req.query_bundle)
-    assert plan.plans and plan.plans[0].record_id == V2
+    assert not plan.plans and plan.withheld and plan.withheld[0].chart_id == "c1"
     assert any("view_ids" in n and V2 in n for n in plan.notes)
 
 

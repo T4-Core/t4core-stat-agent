@@ -98,7 +98,7 @@ def domain_terms(question, lex):
 AXIS_WORDS = (("읍면동", "읍면동"), ("시군구", "시군구"), ("시도", "시도"), ("지역별", "지역"), ("행정구역", "행정구역"))
 
 
-def soft_fill(raw, question, lex):
+def soft_fill(raw, question, lex, s=None):
     """soft 모드: 필수 슬롯이 비어도 검색할 수 있게 채움 → (슬롯, 가정 메모)
       대상·지표 없음 → 질문의 통계 용어(domain_terms). 그것도 없으면 그대로 (검색 문장은 원문)
       비교축 없음   → '시도별'·'시군구별' 같은 말이 있으면 그 수준
@@ -115,7 +115,9 @@ def soft_fill(raw, question, lex):
             out["비교축"] = [ax]
             memo.append(f"비교축 '{ax}' (질문의 '…별')")
     if not out.get("시점"):
-        memo.append("시점이 없어 최신 연도로 봄")
+        from backend.rag.query_analyzer.clarify import year_axis
+        memo.append("시점이 없고 해끼리 비교라 표의 수록 기간 전체로 봄" if s is not None and year_axis(out, s)
+                    else "시점이 없어 최신 연도로 봄")
     if not out.get("지역") and not out.get("비교축"):
         memo.append("지역이 없어 전국으로 봄")
     return out, memo
@@ -389,7 +391,7 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
         return {**base, "status": "needs_clarification", "clarifications": clar, "state": state, "trace": tr.as_list()}
     if clar:  # soft: 멈추지 않고 가정으로 진행
         with tr.step("되묻기 대신 가정 (soft)", missing=[c["slot"] for c in clar]) as st:
-            raw, memo = soft_fill(raw, question, lex)
+            raw, memo = soft_fill(raw, question, lex, s)
             grounded, _ = ground_slots(raw, lex)
             state = {**state, "raw_slots": raw}
             st.output = memo

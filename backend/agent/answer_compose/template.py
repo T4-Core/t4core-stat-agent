@@ -13,6 +13,7 @@ from backend.schemas.answer import Caveat
 from backend.schemas.chart import CalcInput, CalcResult
 
 MAX_LIST = 5       # 목록 결과를 문장에 풀어 쓰는 최대 개수
+SUMMARY_FROM = 10  # [NEW 11-20] 이보다 긴 목록은 나열하지 않고 개수 · 최댓값 · 최솟값으로 요약한다 (write.LIST_PREVIEW 와 같은 한도 — 그 뒤는 HCX 가 인용할 수 없다)
 MAX_SCOPE = 3      # 합계 · 평균의 범위(지역 등)를 이름으로 풀어 쓰는 최대 개수 (넘으면 'N개 행정구역')
 RATE_LIKE = {"%", "%p", "천명당", "‰", "index"}      # '많은/적은' 이 아니라 '높은/낮은' 을 쓰는 단위
 PLACE_HINTS = ("행정구역", "지역", "시도", "시군구")
@@ -23,7 +24,10 @@ def _moved(amount: str, v: float, head: str) -> str:
     if not v:
         return f"{head}변화가 없습니다."
     if not re.search(r"[1-9]", amount):         # [NEW 11-16] 표시하면 0.0% 인 값에 증가·감소를 붙이지 않는다 (검수 M6-11)
-        return f"{head}{amount}로 변화가 거의 없습니다."
+        # [CHANGED 11-17] 이전: f"{head}{amount}로 변화가 거의 없습니다." — '…100,003건으로 0.0%로 …' 처럼 '으로' 가 겹쳤다 (자체 검토 A-8)
+        if head.rstrip().endswith("로"):         # '…에서 2025년 100,003건으로' 뒤
+            return f"{head.rstrip()}, 변화가 거의 없습니다({amount})."
+        return f"{head}변화가 거의 없습니다({amount})."
     return f"{head}{amount} {'증가' if v > 0 else '감소'}했습니다."
 
 
@@ -94,9 +98,27 @@ def _common_key(pts: list[dict]) -> dict:
     return common if len(pts) > 1 and len(common) < len(first) else {}
 
 
+def _range_sentence(f: Facts, r: CalcResult, pts: list[dict], common: dict, label: str | None) -> str:
+    """[NEW 11-20] 한도(MAX_LIST)를 넘는 목록은 앞 몇 개만 나열하고 '외 N개' 로 줄이지 않고, 코드로 센 개수 · 최댓값 · 최솟값으로 요약한다 (M6-1 ②).
+    나열은 질문에 답하지 못하고(앞 10개는 임의의 순서), 요약값은 모두 계산 결과에서 직접 읽는다 — 모델이 요약하지 않는다"""
+    vals = [p for p in pts if isinstance(p.get("value"), (int, float)) and not isinstance(p.get("value"), bool)]
+    hi, lo = max(vals, key=lambda p: p["value"]), min(vals, key=lambda p: p["value"])
+    name = lambda p: key_text({c: v for c, v in (p.get("key") or {}).items() if c not in common})  # noqa: E731
+    head = " ".join(x for x in (key_text(common), f.fixed_text(r), label or f.label(r)) if x)
+    den = f" (분모: {f.denominator(r)})" if f.denominator(r) else ""
+    if hi["value"] == lo["value"]:
+        body = f"{len(vals)}개 값이 모두 {f.fmt_result(r, hi['value'])}입니다"
+    else:
+        body = (f"{len(vals)}개 중 가장 큰 값은 {name(hi)} {f.fmt_result(r, hi['value'])}, "
+                f"가장 작은 값은 {name(lo)} {f.fmt_result(r, lo['value'])}입니다")
+    return f"{josa(head, '은')} {body}.{den} 전체 값은 아래 표에서 확인할 수 있습니다."
+
+
 def _list_sentence(f: Facts, r: CalcResult, label: str | None = None) -> str:
     pts = points(r)
     common = _common_key(pts)
+    if len(pts) > SUMMARY_FROM and r.op != "rank" and any(isinstance(p.get("value"), (int, float)) for p in pts):
+        return _range_sentence(f, r, pts, common, label)
     parts = []
     for p in pts[:MAX_LIST]:
         rest = {c: v for c, v in (p.get("key") or {}).items() if c not in common}
@@ -166,7 +188,7 @@ def sentence(f: Facts, r: CalcResult) -> str:
     item = " ".join(x for x in (f.fixed_text(r), base) if x)        # 대상이 하나로 고정돼 있으면 앞에: '전국 인구수'
     if not has_value(r):
         return f"{josa(f.label(r), '을')} 계산하지 못했습니다{f'({humanize(r.note, r.inputs)})' if r.note else ''}."
-    if r.op == "extreme" and len(pts) == 1:
+    if r.op in ("extreme", "rank") and len(pts) == 1:      # [CHANGED 11-17] 한 점짜리 순위(top_n 1)도 '가장 ○○한 곳' 문장 (H6)
         return _extreme(f, r, pts[0], item)
     if r.op == "extreme" and len(pts) > 1 and f.extreme_kind(r) and len({p.get("value") for p in pts}) == 1:
         return _extreme_tie(f, r, pts, item)
@@ -215,5 +237,21 @@ def sentence(f: Facts, r: CalcResult) -> str:
 
 
 def compose(f: Facts, caveats: list[Caveat]) -> str:
-    body = " ".join(sentence(f, r) for r in f.req.calc_results)
-    return "\n".join([body, *(f"※ {c.text}" for c in caveats)])
+    # [NEW 11-20] 보류된 하위 질문을 대신 보여 주는 값(대체 결과)은 보류 사유를 먼저 말하고 '참고로' 로 이어 쓴다 (M6-2).
+    #   '보증부월세는 1,404가구입니다' 가 비율 질문의 답처럼 읽히지 않게 한다. 독립 결과(다른 하위 질문)는 그대로 정식 문장이다
+    sentences, said_held = [], set()
+    for r in f.req.calc_results:
+        if has_value(r) and f.role_of(r) == "대체":
+            for w in f.req.withheld:
+                if w.sub_question_id == r.sub_question_id and w.text not in said_held:
+                    said_held.add(w.text)
+                    sentences.append(w.text)
+            sentences.append(f"참고로 {sentence(f, r)}")
+        else:
+            sentences.append(sentence(f, r))
+    body = " ".join(sentences)
+    # [CHANGED 11-17] 본문이 이미 '…을 계산하지 못했습니다(사유)' 라고 말한 계산의 주의사항은 ※ 줄로 다시 쓰지 않는다 (보고서 12.3).
+    #   Module6Output.caveats 에는 그대로 남는다 (화면 · 모듈 7)
+    said = {r.step_id for r in f.req.calc_results if not has_value(r)}
+    return "\n".join([body, *(f"※ {c.text}" for c in caveats
+                              if not (c.source == "calc_note" and c.ref in said) and c.text not in said_held)])

@@ -14,13 +14,14 @@ from .chart_type_profiler import profile_data
 from .chart_type_reason import make_reason
 from .chart_type_rules import MEASURE_TO_CHARTS, OUT_OF_SCOPE, USER_WARNING_NODES
 from .chart_type_overlay import find_overlays
-from .chart_type_preference import requested_chart
+from .chart_type_preference import parse_chart_request, record_selection, requested_chart, requested_codes
 from .chart_type_schema import validate_plan
 from .chart_type_view_check import block_reason, check_view, fit_warnings
 from .chart_type_view_filter import filter_view
 
 CHART_KEYS = ["chart_id", "sub_question_ids", "view_ids", "chart_type",
-              "requirements", "fallback_charts", "measure", "reason", "warnings"]       # README 4장 출력 필드 순서
+              "requirements", "fallback_charts", "measure", "reason", "warnings",
+              "request"]       # README 4장 출력 필드 순서 + [NEW 11-20 KOS-41] 차트 지정 요청
 
 
 def chart_warnings(errors, chart_ids):
@@ -205,8 +206,17 @@ def profile_node(state):
 
 
 def _requested(m, qb):
-    """질문에서 이름으로 요청한 차트 (원 질문 → 하위질문 → 재작성 순서로 찾음, 고도화 3단계)"""
+    """질문에서 이름으로 요청한 차트 (원 질문 → 하위질문 → 재작성 순서로 찾음, 고도화 3단계). 이전 호출 호환용 — 노드는 _request_info 를 쓴다"""
     return requested_chart([qb.get("original"), m.get("sub_question"), qb.get("rewritten")])[0]
+
+
+def _request_info(m, qb):
+    """[NEW 11-20 KOS-41] 하위 질문 → 원 질문 → 재작성 순서로 차트 지정 요청을 해석한다 (없으면 None).
+    차단 판정보다 먼저 부른다 — View 적합도로 막히는 차트도 요청과 사유를 남겨야 최종 안내가 나온다"""
+    info = parse_chart_request(m.get("sub_question"), qb.get("original"), qb.get("rewritten"))
+    if info is not None:
+        info["scope"] = [m["chart_id"]]
+    return info
 
 
 def _request_warning(chart_id, r):
@@ -234,16 +244,20 @@ def chart_select_node(state):
     charts, errors = [], []
     for m in ms:
         block, exclude, why = blocks[m["chart_id"]]
+        info = _request_info(m, qb)
         base = {"chart_id": m["chart_id"], "sub_question_ids": [m["sub_question_id"]],
-                "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"]}
+                "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"], "request": info}
         if block:                                                   # View 가 질문에 맞지 않음 → 차트 없음 (표만)
+            record_selection(info, None, block=block)               # [NEW] 차단돼도 요청과 사유(view_blocked)를 남긴다
             charts.append({**base, "chart_type": None, "fallback_charts": [], "source": "rule", "blocked": True,
                            "log": [{"후보": "-", "결과": "막음", "이유": block}]})
             errors.append({"node": "chart_select", "chart_id": m["chart_id"], "level": "warning",
                            "reason": f"차트 없음(표만): {block}"})
             continue
+        codes, excl = requested_codes(info)
         r = pick_chart(m["measure"], m["profile"], use_llm=False, exclude=exclude, exclude_why=why,
-                       requested=_requested(m, qb))
+                       requested=codes, excluded=excl)
+        record_selection(info, r)
         charts.append({**base, "chart_type": r["chart_type"], "fallback_charts": r["fallback_charts"],
                        "source": r["source"], "log": r["log"]})
         errors += _request_warning(m["chart_id"], r)
@@ -261,8 +275,10 @@ def chart_llm_node(state):
         if c.get("needs_llm"):
             m = by_sq[c["sub_question_ids"][0]]
             _, exclude, why = block_reason(m, state["query_bundle"])
+            codes, excl = requested_codes(c.get("request"))
             r = pick_chart(c["measure"], m["profile"], use_llm=True, exclude=exclude, exclude_why=why,
-                           requested=_requested(m, state["query_bundle"]))
+                           requested=codes, excluded=excl)
+            record_selection(c.get("request"), r)
             c.update(chart_type=r["chart_type"], fallback_charts=r["fallback_charts"], source=r["source"], log=r["log"])
         charts.append(c)
     return {"charts": charts}

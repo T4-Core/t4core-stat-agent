@@ -9,7 +9,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from backend.schemas.chart import Display
 
-_UNIT = re.compile(r"\(([^()]+)\)\s*$")
+from backend.core.korean import UNIT_TAIL as _UNIT, strip_unit, unit_tail  # noqa: F401  [MOVED 11-17] core/korean.py
 
 # 단위 종류별 digits 기본값 (명세 4장 표). 표에 없는 단위는 OTHER_DIGITS
 COUNT_UNITS = {"명", "건", "가구", "개", "호"}
@@ -36,16 +36,11 @@ def unit_of(item: str | None, fallback: str | None = None) -> str | None:
     괄호가 없으면 fallback(View metadata.unit)을 쓰되, 단위가 하나일 때만 쓴다.
     metadata.unit 은 '명 건' 처럼 여러 단위가 붙어 올 수 있어 기준이 못 된다 (명세 4장).
     """
-    if item and (m := _UNIT.search(item)):
-        return m.group(1).strip()
+    if unit := unit_tail(item):       # [CHANGED 11-18] 이전: 끝 괄호를 모두 단위로 읽음 ('인구(1세이상)' → '1세이상')
+        return unit
     if fallback and len(fallback.split()) == 1:
         return fallback.strip()
     return None
-
-
-def strip_unit(item: str) -> str:
-    """'혼인건수(건)' → '혼인건수' (축 이름·범례용)"""
-    return _UNIT.sub("", item).strip()
 
 
 # [NEW 11-13] 비율(%)끼리의 증감·차이는 %p 다 (15.2% → 17.8% 는 2.6%p 증가). growth_rate · cagr 는 상대 변화율이라 % 그대로
@@ -99,11 +94,19 @@ def default_digits(unit: str | None, unit_scale: float = 1) -> int:
     return OTHER_DIGITS
 
 
+CHEON_MYEONG, MAN_MYEONG, CHEON_TO_MAN = "천명", "만 명", 10     # 9,340천명 → 934만 명 (읽기 쉬운 단위. 결정: 천명 단위만 환산)
+
+
 def make_display(source_unit: str | None, display_unit: str | None = None, unit_scale: float = 1,
-                 digits: int | None = None) -> Display:
+                 digits: int | None = None, *, auto_digits: int | None = None) -> Display:
+    """표시 설정. digits 는 **호출자가 정한** 자릿수(명시 설정), auto_digits 는 원 자료에서 코드가 구한 자릿수(자동 값)다.
+    [CHANGED 11-18] 이전: 둘을 구분하지 않아 천명 자료의 명시 digits 도 버렸다 (검토 9). 천명 자료는 단위 환산(display_unit · unit_scale ·
+    digits)을 하나도 정하지 않았을 때만 만 명으로 보여 준다: 자릿수는 값 크기로 format_value 가 정한다(자동 값은 환산 뒤에 맞지 않아 쓰지 않는다)"""
     unit = source_unit or ""
+    if unit == CHEON_MYEONG and display_unit is None and unit_scale == 1 and digits is None:
+        return Display(source_unit=unit, display_unit=MAN_MYEONG, unit_scale=CHEON_TO_MAN, digits=None)
     return Display(source_unit=unit, display_unit=unit if display_unit is None else display_unit,
-                   unit_scale=unit_scale, digits=digits)
+                   unit_scale=unit_scale, digits=digits if digits is not None else auto_digits)
 
 
 def register(displays: dict[str, Display], display: Display) -> str:
@@ -123,11 +126,13 @@ def format_value(value: float | int | None, display: Display) -> str | None:
     """원값 ÷ unit_scale → digits 자리로 한 번 반올림 → display_unit"""
     if value is None:
         return None
+    # float 의 round() 는 은행가 반올림(0.5 → 짝수)이라 2.5 → 2 가 된다. 사람이 기대하는 사사오입으로 맞춘다
+    scaled = Decimal(repr(value)) / Decimal(repr(display.unit_scale))
     digits = display.digits if display.digits is not None else default_digits(display.source_unit, display.unit_scale)
     if display.digits is None and not display.source_unit and float(value).is_integer():
         digits = 0       # 단위를 모르는데 정수면 소수 자리를 붙이지 않는다 (44,565.0 → 44,565)
-    # float 의 round() 는 은행가 반올림(0.5 → 짝수)이라 2.5 → 2 가 된다. 사람이 기대하는 사사오입으로 맞춘다
-    scaled = Decimal(repr(value)) / Decimal(repr(display.unit_scale))
+    if display.digits is None and (display.source_unit, display.display_unit, display.unit_scale) == (CHEON_MYEONG, MAN_MYEONG, CHEON_TO_MAN):
+        digits = 0 if scaled == 0 or abs(scaled) >= 100 else 1      # [NEW 11-18] 934만 명 · 37.9만 명 · 0만 명 (100만 이상은 소수 없이)
     rounded = scaled.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
     if rounded == 0:
         rounded = abs(rounded)      # [NEW 11-16] -0.04 → '-0.0%' · -0.4 → '-0건' 이 아니라 '0.0%' · '0건' (검수 M3-16)

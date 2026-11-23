@@ -34,6 +34,20 @@ MAX_ATTEMPTS = 2            # HCX 는 처음 한 번 + 재시도 한 번
 NO_CALC_ANSWER = "계산된 결과가 없어 수치 답변을 만들 수 없습니다."
 
 
+def no_calc_answer(request: Module6Request) -> str:
+    """[NEW 11-20] 계산 결과가 없을 때의 첫 문장 (M6-3). 이전: 고정 문구('계산된 결과가 없어 수치 답변을 만들 수 없습니다') — 시스템 사정처럼 들리고 사유가 없다.
+    지표 대응 때문에 보류했으면 '받은 자료에서 ○○을 확인하지 못했습니다' (통계가 없다고 단정하지 않는다: 확인한 범위는 받은 자료뿐이다).
+    다른 보류 사유면 그 사유 문장을, 사유가 없으면 예전 문구를 쓴다"""
+    from backend.core.korean import josa
+    held = [w.text for w in request.withheld]       # 범위를 모르는 예전 입력(plan_warnings 만)은 기존 문구를 유지한다
+    if not held:
+        return NO_CALC_ANSWER
+    indicators = [str(x) for x in (request.query_bundle.filters.지표 if request.query_bundle.filters and request.query_bundle.filters.지표 else [])]
+    if indicators and held[0].startswith("요청한 지표("):
+        return f"받은 자료에서 {josa(', '.join(indicators), '을')} 확인하지 못했습니다."
+    return held[0]
+
+
 # ── 중간 결과 (테스트 화면용. 모듈 간 계약이 아니라 schemas/ 에 두지 않는다) ──
 class AnswerAttempt(BaseModel):
     messages: list[dict[str, str]] = Field(default_factory=list, description="HCX 에 보낸 메시지")
@@ -128,7 +142,8 @@ def assemble_node(state: Module6State) -> dict:
     if "answer" in state:
         answer, method, used = state["answer"], state["method"], state.get("used", [])
     else:                                         # 계산 결과가 없어 답변할 것이 없다
-        answer = "\n".join([NO_CALC_ANSWER, *(f"※ {c.text}" for c in caveats)])
+        head = no_calc_answer(request)
+        answer = "\n".join([head, *(f"※ {c.text}" for c in caveats if c.text != head)])
         method, used = "none", []
     attempts = state.get("attempts", [])
     notes = [f"{n}차 시도 실패: {'; '.join(a.problems)}" for n, a in enumerate(attempts, 1) if a.problems]

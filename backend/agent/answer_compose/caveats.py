@@ -31,6 +31,15 @@ def _is_derived_indicator_missing(n: Note) -> bool:
     return bool(wanted) and all(_DERIVED.search(str(v)) for v in wanted if v)
 
 
+# [NEW 11-18] 조사명이 추계 · 전망 · 예측이면 표의 값은 실제 통계가 아니다. '2025년 서울 인구' 에 장래인구추계 표가 골라져도 실제 인구처럼 답했다 (Q01·Q23)
+_PROJECTION = re.compile(r"추계|전망|예측")
+
+
+def _projection_text(rec: Record) -> str | None:
+    survey = str(rec.metadata.get("survey_nm") or "")
+    return f"이 값은 '{survey}' 표의 추계(전망·예측)값이며 실제로 조사된 값이 아닙니다." if _PROJECTION.search(survey) else None
+
+
 def _note_text(n: Note) -> str:
     return n.text.strip()
 
@@ -51,12 +60,21 @@ def build_caveats(f: Facts) -> list[Caveat]:
     seen: set[str] = set()
 
     def add(source: str, ref: str, text: str) -> None:
-        if text and text not in seen:         # 같은 문장이 View 마다 반복되면 한 번만
-            seen.add(text)
+        # 같은 문장이 View 마다 반복되면 한 번만. 보류 사유는 범위(ref)가 다르면 같은 문장이어도 모두 남긴다 —
+        # q-1 과 q-2 가 같은 이유로 보류됐을 때 q-1 만 남으면 q-2 의 보류가 사라진다
+        key = (source, ref, text) if source == "plan_warning" else text
+        if text and key not in seen:
+            seen.add(key)
             out.append(Caveat(source=source, ref=ref, text=text))
 
+    # [CHANGED 11-20] 이전: 보류 사유를 모두 ref="plan" 으로 붙였다 → 어느 하위 질문의 보류인지 알 수 없어 질문 전체에 붙은 것처럼 보였다 (M6-2).
+    #   withheld 가 있으면 그 범위(하위 질문 ID · 차트 ID)를 ref 로 쓰고, 범위를 모르는 사유(예전 입력)만 "plan" 으로 둔다
+    for w in f.req.withheld:
+        add("plan_warning", w.sub_question_id or w.chart_id or "plan", w.text)
+    scoped = {w.text for w in f.req.withheld}
     for text in f.req.plan_warnings:          # 모듈 3 이 계산을 보류한 사유가 가장 먼저 (왜 답이 없는지)
-        add("plan_warning", "plan", text)
+        if text not in scoped:                # 범위를 아는 사유는 위에서 이미 넣었다
+            add("plan_warning", "plan", text)
     for rid in used_record_ids(f) or list(by_id):
         rec = by_id.get(rid)
         if rec is None:
@@ -65,6 +83,7 @@ def build_caveats(f: Facts) -> list[Caveat]:
         for n in [*rec.notes, *(rec.match.unmet if rec.match else [])]:
             if not _is_derived_indicator_missing(n):
                 add("view_note", rid, _note_text(n))
+        add("view_note", rid, _projection_text(rec) or "")      # 같은 조사의 표가 여럿이어도 한 번만 (add 가 같은 문장을 걸러 낸다)
 
     for r in f.req.calc_results:
         if not has_value(r):

@@ -344,11 +344,13 @@ View 모듈은 표를 만들며 맞추지 못한 조건을 `record.notes`에 남
 | 의도 **추이**인데 표의 시점이 `TREND_MIN_POINTS`(2)개 미만 | **`chart_type = None` (표만)** + 경고 "차트 없음(표만): 추이를 물었지만 표의 시점이 1개(1995)" |
 | 성별·연령·지역 `missing` (요청한 나눔이 표에 없음) | 경고 + 그 나눔이 꼭 필요한 차트만 후보에서 뺀다 (`SPLIT_CHARTS`: 성별·연령 → pyramid, 지역 → map) |
 | 지표 `missing` · 표 `empty` | **`chart_type = None` (표만)** + 경고 |
+| 차트에 올릴 값이 `MIN_CHART_VALUES`(2)개 미만 (예: 한 지역 2015→2018 증감 = 값 1개, 행 1개짜리 원값) | **`chart_type = None` (표만)** + 경고 "차트 없음(표만): 차트에 올릴 값이 1개뿐이라 표로 보여 줌" |
 | 지표 `default` (맞는 항목이 없어 항목 전체) | 경고 |
 
 - 경고는 `errors`에 `{"node": "view_check" | "chart_select", "chart_id", "level": "warning", "reason"}`로 남는다.
 - 막힌 차트는 combo로 묶지 않고, LLM 차트 선택(`chart_llm`)으로도 보내지 않는다.
-- 기준 값은 `chart_type_rules.py`의 `TREND_MIN_POINTS`, `SPLIT_SLOTS`, `SPLIT_CHARTS`.
+- 기준 값은 `chart_type_rules.py`의 `TREND_MIN_POINTS`, `SPLIT_SLOTS`, `SPLIT_CHARTS`, `SCALAR_MEASURES`, `SCALAR_MAX_POINTS`, `MIN_CHART_VALUES`.
+- 값 수를 미리 못 세는 경우는 bar · stacked_bar · pie · donut · treemap 의 requirements `min_categories_2` 를 모듈 3 이 계산 결과로 판정한다.
 
 ### 5-2. 요청한 나눔 (profile · `chart_type_axes.py`)
 
@@ -388,6 +390,22 @@ View 모듈은 표를 만들며 맞추지 못한 조건을 `record.notes`에 남
 - 지역: 지역 슬롯('전국')이 표의 열과 맞지 않아도 요청한 나눔 중 지역 축 열(시도 17곳 등)이 있으면 그 열로 `has_region`·`n_regions`를 센다 (map 조건).
 - log 의 남은 후보에는 `점수 n (근거)`가 붙는다. 반환값 `request`: `{chart, ok, why}` (요청이 있을 때).
 - 기준 값은 `chart_type_rules.py`의 `CHART_WORDS`, `REQUEST_ONLY_CHARTS`, `SHAPE_SCORES`.
+
+#### 차트 지정 요청 해석 (KOS-41 · `parse_chart_request`)
+
+질문의 차트 이름은 `parse_chart_request(sub_question, original, rewritten)`가 해석한다. 노드와 함수 경로(`chart_type_nodes.py`, `chart_type_pipeline.py`)가 **차단 판정(`block_reason`)보다 먼저** 부르므로, View 적합도로 막힌 차트도 요청과 사유를 남긴다. 결과는 `charts[].request`(없으면 `None`)이다.
+
+| 단계 | 내용 |
+| --- | --- |
+| ① 후보 추출 | `CHART_WORDS`와 `UNSUPPORTED_CHART_WORDS`(히스토그램·상자그림·워드클라우드 등)의 모든 출현. 단어 경계만 본다 (`지도자`, `운동지도`, `막대기`는 다른 말) |
+| ② 문맥·범위 해석 | 용법이면 요청이다: 뒤에 `그래프`·`차트` / `로`·`으로` + `보여줘` / 부정 표지(`말고`·`빼고`·`대신`) / 대안 연결(`나`·`또는`·쉼표) / 절별 지정(`서울은 막대, 부산은 꺾은선으로`). 모호한 이름(`지도`·`막대`·`버블`·`거품`·`덤벨`·`콤보`·`도넛`)은 용법이 있어야 한다 |
+| ③ 긍정/제외 분류 | `preferred`(앞 이름 우선) · `excluded`(`막대 말고`의 막대). 하위 질문 → 원 질문 → 재작성 순서. 범위를 정할 수 없으면 요청을 적용하지 않고 `stage.reason=ambiguous_scope` |
+
+`request`의 모양과 의미는 `backend/schemas/chart.py`의 `ChartRequestInfo`를 따른다.
+
+- `request.stage`: 선택 단계의 **구조화된 사유** (`unsupported_type` · `data_mismatch` · `view_blocked` · `ambiguous_scope` · `no_candidate`). 설명 문장 `reason`은 `reason_node`가 덮어쓰므로 쓰지 않는다.
+- `pick_chart(requested=[…], excluded={…})`: 제외한 차트는 요청 · measure 후보 · `fallback_charts`에서 모두 빠진다. 지원하지 않는 코드는 `KeyError` 대신 못 그리는 요청으로 기록한다.
+- **최종 결과와 사용자 안내는 이 모듈이 만들지 않는다.** 모듈 3의 재검증과 모듈 5의 렌더링 결과까지 본 뒤 `backend/agent/chart_notice.py`가 만든다 (응답의 `render_status` · `request_outcomes` · `chart_notices`).
 
 ---
 

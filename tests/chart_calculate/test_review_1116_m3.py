@@ -481,12 +481,14 @@ _YEARS = [("2018", 100.0), ("2019", 104.0), ("2020", 108.0), ("2021", 112.0), ("
 def test_recheck9_line_keeps_the_period_it_could_not_calculate_as_an_empty_value_so_the_line_breaks():
     contents, validation, displays = _line(_YEARS)
     c = contents[0]
+    # [CHANGED 11-17] 이전: 2023 만 빈 값 행. 결정: 값이 빈 해(2022) 자체도 가로축에 남긴다 (2022 와 2023 둘 다 계산 못 함)
     assert c.chart_type == "line" and [(r[0], r[-1] is None) for r in c.rows] == [
-        ("2019", False), ("2020", False), ("2021", False), ("2023", True), ("2024", False), ("2025", False)]
-    assert "계산할 수 없는 시점 1개는 선을 끊어 표시" in c.warnings
+        ("2019", False), ("2020", False), ("2021", False), ("2022", True), ("2023", True), ("2024", False), ("2025", False)]
+    assert "계산할 수 없는 시점 2개는 선을 끊어 표시" in c.warnings
     res = _draw(c, displays)
     trace = res.figure.data[0]
-    assert list(trace.x) == ["2019", "2020", "2021", "2023", "2024", "2025"] and trace.y[3] is None and not trace.connectgaps
+    assert list(trace.x) == ["2019", "2020", "2021", "2022", "2023", "2024", "2025"] and trace.y[3] is None and trace.y[4] is None \
+        and not trace.connectgaps
 
 
 def test_recheck9_missing_points_do_not_count_as_points_and_other_chart_types_still_drop_them():
@@ -540,3 +542,102 @@ def test_recheck10_conflicting_values_keep_their_original_precision_in_the_reaso
     assert (_show(1000000.0), _show(1000001), _show(0.721), _show(2.5), _show(100.0)) == ("1000000", "1000001", "0.721", "2.5", "100")
     r = _prev([("2023", 900000.0), ("2024", 1000000.0), ("2024", 1000001.0)])
     assert "(1000000, 1000001)" in r.note and "e+" not in r.note
+
+
+def _raw_line(values, ctype="line", fallback="bar", measure="raw", group="서울"):
+    from backend.agent.chart_calculate.content import build_charts
+    v = view([[y, group, "혼인건수(건)", x] for y, x in values], COLS)
+    dec = {"charts": [{"chart_id": "c1", "record_id": VID, "select": {"행정구역별": [group], "항목": ["혼인건수(건)"]}}]}
+    plan, displays = make_plan([chart(ctype=ctype, measure=measure, fallback=fallback)], [v], Decision.model_validate(dec))
+    contents, validation = build_charts(plan, [v], displays=displays)
+    return contents, validation, displays
+
+
+def test_recheck9_raw_line_keeps_the_period_whose_observed_value_is_empty_so_the_line_breaks():
+    """시험 화면에서 확인한 빈틈: 값이 비어 있는 관측 시점(raw)도 가로축에 남기고 선을 끊는다"""
+    contents, validation, displays = _raw_line([("2019", 100.0), ("2020", 104.0), ("2021", 108.0), ("2022", None), ("2023", 130.0), ("2024", 140.0)])
+    c = contents[0]
+    assert c.chart_type == "line" and [(r[0], r[-1] is None) for r in c.rows] == [
+        ("2019", False), ("2020", False), ("2021", False), ("2022", True), ("2023", False), ("2024", False)]
+    assert "계산할 수 없는 시점 1개는 선을 끊어 표시" in c.warnings
+    res = _draw(c, displays)
+    trace = res.figure.data[0]
+    assert list(trace.x) == ["2019", "2020", "2021", "2022", "2023", "2024"] and trace.y[3] is None and not trace.connectgaps
+    bar, _, _ = _raw_line([("2019", 100.0), ("2020", 104.0), ("2021", 108.0), ("2022", None), ("2023", 130.0)], ctype="bar", fallback="line")
+    assert bar[0].chart_type == "bar" and "2022" not in [r[0] for r in bar[0].rows]       # 막대는 빈 시점을 그리지 않는다
+    # 빈 시점은 CalcResult(답변용 수치)에 점으로 들어가지 않는다 — 모듈 6 의 표·문장은 지금까지와 같다
+    r = run({"op": "raw", "operands": [operand("혼인건수(건)")]}, [view(_gap_rows([("2021", 1.0), ("2022", None), ("2023", 3.0)]))])
+    assert [p["key"]["시점"] for p in r.value] == ["2021", "2023"]
+
+
+def test_recheck9_leading_and_trailing_empty_periods_are_not_added_to_the_axis():
+    contents, _, _ = _raw_line([("2018", None), ("2019", None), ("2020", 100.0), ("2021", 104.0), ("2022", 108.0), ("2023", None)])
+    assert [r[0] for r in contents[0].rows] == ["2020", "2021", "2022"]        # 값이 있는 첫 시점 앞과 마지막 시점 뒤는 뺀다
+
+
+def test_recheck9_growth_line_shows_both_the_period_it_cannot_calculate_and_the_empty_year_itself():
+    """결정: 2022 값이 비면 증감률 2022(본인 값 없음)와 2023(직전 2022 없음)을 모두 가로축에 표시"""
+    contents, _, displays = _raw_line(_YEARS, measure="growth_rate")
+    c = contents[0]
+    assert [(r[0], r[-1] is None) for r in c.rows] == [("2019", False), ("2020", False), ("2021", False), ("2022", True),
+                                                       ("2023", True), ("2024", False), ("2025", False)]
+    trace = _draw(c, displays).figure.data[0]
+    assert list(trace.x)[3:5] == ["2022", "2023"] and trace.y[3] is None and trace.y[4] is None and not trace.connectgaps
+
+
+# ══ 재검토 11 (2026-11-17): 다른 계열의 결측 행 · 지수와 합계의 빈 관측 시점 ═════════
+def _chart_and_figure(rows, regions, measure, ctype="line", **extra):
+    from backend.agent.chart_calculate.content import build_charts
+    v = view(rows, COLS)
+    dec = {"charts": [{"chart_id": "c1", "record_id": VID, "select": {"행정구역별": regions, "항목": ["혼인건수(건)"]}, **extra}]}
+    plan, displays = make_plan([chart(ctype=ctype, measure=measure)], [v], Decision.model_validate(dec))
+    contents, validation = build_charts(plan, [v], displays=displays)
+    assert contents, validation["c1"].original.reasons
+    return contents[0], _draw(contents[0], displays).figure.data
+
+
+def _r(y, g, v):
+    return [y, g, "혼인건수(건)", v]
+
+
+def test_recheck11_a_missing_row_of_another_region_does_not_break_the_line_of_this_region():
+    rows = [_r("2020", "서울", 100.0), _r("2021", "부산", None), _r("2022", "서울", 110.0), _r("2023", "서울", 120.0)]
+    c, data = _chart_and_figure(rows, ["서울", "부산"], "raw")
+    assert [(r[0], r[-1]) for r in c.rows] == [("2020", 100.0), ("2022", 110.0), ("2023", 120.0)]      # 부산 2021 이 서울 선의 빈 점이 되지 않는다
+    assert list(data[0].x) == ["2020", "2022", "2023"] and None not in list(data[0].y)
+    r = run({"op": "raw", "operands": [operand("혼인건수(건)", select={"행정구역별": ["서울", "부산"]})]}, [view(rows, COLS)])
+    assert [p["key"]["시점"] for p in r.value] == ["2020", "2022", "2023"]                              # 답변과 같다
+
+
+def test_recheck11_own_missing_row_still_breaks_only_its_own_region_line():
+    rows = [_r(y, "서울", v) for y, v in (("2020", 100.0), ("2021", 101.0), ("2022", 102.0))] + \
+           [_r("2020", "부산", 50.0), _r("2021", "부산", None), _r("2022", "부산", 52.0)]
+    c, data = _chart_and_figure(rows, ["서울", "부산"], "raw")
+    by = {t.name: list(t.y) for t in data}
+    assert None not in by["서울"] and by["부산"] == [50.0, None, 52.0]
+
+
+def test_recheck11_region_with_only_missing_rows_is_not_drawn_and_leading_trailing_gaps_are_dropped():
+    rows = [_r("2018", "서울", None), _r("2019", "서울", 100.0), _r("2020", "서울", 105.0), _r("2021", "서울", None), _r("2022", "서울", 110.0),
+            _r("2023", "서울", None), _r("2019", "부산", None), _r("2020", "부산", None), _r("2021", "부산", None)]
+    c, data = _chart_and_figure(rows, ["서울", "부산"], "raw")
+    assert [(r[0], r[-1] is None) for r in c.rows] == [("2019", False), ("2020", False), ("2021", True), ("2022", False)]
+    assert len(data) == 1                                      # 값이 하나도 없는 부산은 계열이 없다
+
+
+def test_recheck11_index_chart_keeps_the_year_whose_source_value_is_empty():
+    rows = [_r(y, "서울", v) for y, v in (("2019", 90.0), ("2020", 100.0), ("2021", 110.0), ("2022", None), ("2023", 130.0), ("2024", 140.0))]
+    c, data = _chart_and_figure(rows, ["서울"], "index", base="2020")
+    assert [(r[0], r[-1] is None) for r in c.rows] == [("2019", False), ("2020", False), ("2021", False), ("2022", True), ("2023", False), ("2024", False)]
+    assert list(data[0].x) == ["2019", "2020", "2021", "2022", "2023", "2024"] and data[0].y[3] is None
+
+
+def test_recheck11_per_period_sum_chart_keeps_a_period_when_every_input_is_empty_but_not_when_some_are():
+    rows = [_r(y, g, v) for y, g, v in (("2019", "서울", 90.0), ("2019", "부산", 40.0), ("2020", "서울", 100.0), ("2020", "부산", 50.0),
+                                         ("2021", "서울", None), ("2021", "부산", None), ("2022", "서울", 130.0), ("2022", "부산", None),
+                                         ("2023", "서울", 140.0), ("2023", "부산", 70.0))]
+    c, data = _chart_and_figure(rows, ["서울", "부산"], "aggregate", agg="sum")
+    got = {r[0]: r[-1] for r in c.rows}
+    # [CHANGED 11-17 외부 피드백] 이전: 2022 는 있는 값만 더해 130 — 다른 해의 서울+부산 합계와 견줄 수 없는 부분합이었다. 이제 빈 점
+    assert got == {"2019": 130.0, "2020": 150.0, "2021": None, "2022": None, "2023": 210.0} and len(c.rows) == 5      # 2021 · 2022 한 번씩
+    assert data[0].y[2] is None

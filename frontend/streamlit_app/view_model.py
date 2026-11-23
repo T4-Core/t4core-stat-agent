@@ -118,6 +118,7 @@ class Result:
     rewritten: str = ""
     timings: dict = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    chart_notices: list[str] = field(default_factory=list)   # [NEW 11-20 KOS-41] 차트 지정 요청의 최종 안내 (차트가 없어도 보인다)
 
 
 def _filters(resp):
@@ -206,7 +207,10 @@ def to_result(resp: dict) -> Result:
         out.charts.append(Chart(title=d.get("title") or d.get("chart_id", ""), unit=unit, period=years_text(want),
                                 figure=d["figure"], columns=tb.get("columns") or [], rows=tb.get("rows") or [],
                                 source=name, source_url=url, highlight=hi))
-    if not out.charts and res.get("chart"):
+    # [NEW 11-20 KOS-41] 차트 지정 요청을 충족하지 못해 표만(table_only) 나가거나 렌더링이 실패한 결과는 default 차트 스펙으로 대신 그리지 않는다
+    chartless = any(o.get("outcome") in ("table_only", "render_failed") for o in mods.get("request_outcomes") or [])
+    out.chart_notices = [n for n in map(_text, mods.get("chart_notices") or []) if n]
+    if not out.charts and res.get("chart") and not chartless:
         ch = res["chart"]
         name, url, unit = meta.get(ch.get("record_id"), ("", "", ch.get("unit") or ""))
         out.charts.append(Chart(title=ch.get("title", ""), unit=ch.get("unit") or unit, period=years_text(want), spec=ch,

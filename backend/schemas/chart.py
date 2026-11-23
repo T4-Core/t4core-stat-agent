@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.schemas.query import QueryBundle
+from backend.schemas.query import QueryBundle, RoleLink
 from backend.schemas.record import Record
 
 # ── 코드값 ───────────────────────────────────────────────────────
@@ -31,6 +31,62 @@ Role = Literal["x", "y", "y2", "series", "value", "label", "size", "region", "pa
 
 
 # ── 입력 ─────────────────────────────────────────────────────────
+# ── [NEW 11-20] 사용자의 차트 지정 요청 (KOS-41) ─────────────────────────────
+# 요청 해석은 모듈 2 가 하고 ChartRequest.request 로 전달한다. 모듈 3 출력(Module3Output)에는 싣지 않는다 —
+# 최종 확정 함수(agent/chart_notice.py)가 응답의 charts(요청 포함) · 3번의 validation · render_status 를 조합한다.
+StageReason = Literal["ambiguous_scope", "unsupported_type", "data_mismatch", "view_blocked", "no_candidate"]
+RequestOutcomeKind = Literal["honored", "substituted", "table_only", "render_failed", "not_rendered"]
+RequestReason = Literal[
+    "ambiguous_scope", "unsupported_type", "data_mismatch", "view_blocked", "no_candidate",   # 모듈 2 단계
+    "validation_fallback", "validation_failed",                                                # 모듈 3 단계
+    "render_error", "draw_disabled", "qa_stopped"]                                             # 렌더링 단계
+RenderKind = Literal["drawn", "failed", "skipped"]
+RenderReason = Literal["draw_disabled", "no_chart_content", "qa_stopped", "exception", "render_error"]
+
+# (outcome, 허용 reason). honored 는 reason 이 없다 (기능 문서 5.3)
+OUTCOME_REASONS: dict[str, tuple[str | None, ...]] = {
+    "honored": (None,),
+    "substituted": ("unsupported_type", "data_mismatch", "validation_fallback", "ambiguous_scope"),
+    "table_only": ("unsupported_type", "data_mismatch", "view_blocked", "validation_failed", "no_candidate", "ambiguous_scope"),
+    "render_failed": ("render_error",),
+    "not_rendered": ("draw_disabled", "qa_stopped"),
+}
+
+
+class RequestedName(BaseModel):
+    text: str = Field(..., description="요청 원문 표현 (예: 히스토그램, 원그래프)")
+    code: ChartType | None = Field(None, description="지원하는 차트 코드. 미지원 이름이면 None")
+    supported: bool = False
+
+
+class RequestStage(BaseModel):
+    """모듈 2 단계의 구조화된 중간 사유. 설명 문장(ChartRequest.reason)은 reason_node 가 덮어쓰므로 쓰지 않는다"""
+    reason: StageReason | None = None
+    selected: ChartType | None = Field(None, description="모듈 2 가 고른 차트 유형 (진단용. 최종 유형은 validation 이 정한다)")
+    applied: bool = Field(True, description="요청이 선택에 반영되었는가 (ambiguous_scope 이면 False)")
+
+
+class ChartRequestInfo(BaseModel):
+    preferred: list[RequestedName] = Field(default_factory=list, description="요청한 차트 (앞 이름이 우선)")
+    excluded: list[RequestedName] = Field(default_factory=list, description="사용자가 거부한 차트 ('막대 말고' 의 막대)")
+    scope: list[str] | Literal["all"] = Field("all", description="적용되는 chart_id 목록")
+    stage: RequestStage = Field(default_factory=RequestStage)
+
+
+class ChartRequestOutcome(BaseModel):
+    """차트마다 하나. 최종 확정 단계(agent/chart_notice.py)에서만 만든다"""
+    chart_id: str
+    outcome: RequestOutcomeKind
+    reason: RequestReason | None = None
+    final_chart: ChartType | None = None
+
+
+class RenderState(BaseModel):
+    state: RenderKind
+    reason: RenderReason | None = None
+    error: str | None = None
+
+
 class ChartRequest(BaseModel):
     """모듈 2 의 차트 계획 하나 (charts[] 의 원소)
 
@@ -48,12 +104,18 @@ class ChartRequest(BaseModel):
     view_ids: list[str] = Field(default_factory=list, description=(
         "이 차트가 쓸 View 의 Record.id (모듈 2 의 view_ids). 일반 차트는 1개, combo 는 여러 개일 수 있다 (개수 제한 없음). "
         "chart_type 이 null 이어도 그 하위 질문의 질문용 계산이 쓸 View 를 담는다. 비어 있으면 records 전체가 후보"))
+    # [NEW 11-20 KOS-41] 사용자가 이름으로 지정한 차트 요청. 요청이 없으면 None (빈 객체를 쓰지 않는다)
+    request: ChartRequestInfo | None = Field(None, description="질문에서 지정한 차트 요청 (모듈 2 가 해석). 최종 안내가 쓴다")
+    m2_warnings: list[str] = Field(default_factory=list, description=(
+        "모듈 2 의 사용자용 경고 (진단용). ChartPlan.warnings · plan_warnings 에 합치지 않는다 — 확정 전 문장이 답변에 남는다"))
 
 
 class Module3Request(BaseModel):
     records: list[Record] = Field(..., description="모듈 1 이 고른 View 들. 계산 근거는 Record.table.rows")
     query_bundle: QueryBundle
     charts: list[ChartRequest] = Field(default_factory=list)
+    # [NEW 11-20] split_roles 가 질문에서 뺀 역할 단위(분모·조건). 모듈 6 이 보조 결과를 가려내는 데 쓰므로 모듈 3 은 그대로 전달만 한다
+    role_links: list[RoleLink] = Field(default_factory=list)
 
 
 # ── ChartPlan (계산 계획) ────────────────────────────────────────
@@ -97,6 +159,8 @@ class Step(BaseModel):
     input: str | None = Field(None, description="앞 단계의 step_id (그 결과를 입력으로 쓴다)")
     denominator: Denominator | None = Field(None, description="share 전용")
     display_ref: str | None = Field(None, description="displays 의 키")
+    # [NEW 11-20] 이 단계가 속한 하위 질문. 이전: 플래너 내부 answer_sub 에만 있었다 → 모듈 6 이 결과의 소속을 알 수 없었다 (질문용 단계만 채운다)
+    sub_question_id: str | None = Field(None, description="질문용 단계가 속한 하위 질문 ID. 차트 단계와 예전 입력은 None")
     from_: str | None = Field(None, alias="from", description="기간 시작 시점")
     to: str | None = Field(None, description="기간 끝 시점")
     base: str | None = Field(None, description="기준 시점. 'prev' = 직전 시점")
@@ -127,6 +191,14 @@ class Plan(BaseModel):
     title: str | None = Field(None, description="차트 제목 (HCX 작성, planner 가 검사). 없으면 규칙 제목")
 
 
+class Withheld(BaseModel):
+    """[NEW 11-20] 계산을 보류한 범위. warnings(문자열)는 어느 하위 질문의 것인지 알 수 없어 답변의 주의사항이 질문 전체에 붙었다 (M6-2)"""
+    sub_question_id: str | None = Field(None, description="보류된 질문용 계산의 하위 질문 ID")
+    chart_id: str | None = Field(None, description="보류된 차트 계획 ID")
+    op: str | None = Field(None, description="보류된 연산")
+    text: str = Field(..., description="사용자에게 보여 줄 사유 (warnings 와 같은 문장)")
+
+
 class ChartPlan(BaseModel):
     plans: list[Plan] = Field(default_factory=list)
     answer_steps: list[Step] = Field(default_factory=list, description="질문용 계산. 차트가 없어도 만든다")
@@ -137,6 +209,7 @@ class ChartPlan(BaseModel):
     # [NEW 11-13] notes 는 개발자 · QA 용 기록이라 사용자에게 보여 주기에 부적절한 문구가 많다. 계산을 보류한 사유처럼
     # 사용자가 알아야 하는 것만 여기에 한 번 더 적는다. 모듈 6 이 주의사항(caveats)으로 답변까지 전달한다
     warnings: list[str] = Field(default_factory=list, description="사용자에게 알려야 하는 사유 (계산 보류 등). 모듈 6 의 plan_warnings 로 넘긴다")
+    withheld: list[Withheld] = Field(default_factory=list, description="[NEW 11-20] warnings 의 보류 사유에 범위(하위 질문·차트)를 붙인 것")
 
 
 # ── 표시 설정 ────────────────────────────────────────────────────
@@ -186,6 +259,7 @@ class CalcInput(BaseModel):
 
 class CalcResult(BaseModel):
     step_id: str
+    sub_question_id: str | None = Field(None, description="[NEW 11-20] 결과가 속한 하위 질문 ID (질문용 단계). 차트용 계산과 예전 입력은 None")
     op: Measure
     # [CHANGED 11-11] 이전: float | list | None — 정수 결과가 실수로 바뀌었다 (int 를 float 보다 앞에 두어야 int 가 유지된다)
     value: int | float | list[Any] | None = Field(None, description="원래 정밀도. 여러 값이면 list, 계산할 수 없으면 None")
@@ -194,6 +268,8 @@ class CalcResult(BaseModel):
     inputs: list[CalcInput] = Field(default_factory=list)
     record_ids: list[str] = Field(default_factory=list)
     scope_label: str | None = None
+    # [NEW 11-17 외부 피드백] aggregate 의 집계 방식. 모듈 6 이 answer_steps 없이 받아도 '평균' 이라 쓰고 평균의 자릿수를 정할 수 있게
+    agg: Literal["sum", "mean"] | None = Field(None, description="aggregate 전용: sum(합계) / mean(평균). 그 밖의 연산은 null")
     note: str | None = Field(None, description="계산하지 못한 이유 (기준값 0, 키 중복, truncated …)")
 
 

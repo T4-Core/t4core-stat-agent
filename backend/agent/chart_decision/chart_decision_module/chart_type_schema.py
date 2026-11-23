@@ -22,6 +22,9 @@ class ChartOut(BaseModel):
     measure: str | None = Field(None, description="raw · change · … · '범위 밖'. None = 정하지 못함")
     reason: str = ""
     warnings: list[str] = Field(default_factory=list, description="사용자용 경고")
+    # [NEW 11-20 KOS-41] 질문에서 지정한 차트 요청 (preferred · excluded · scope · stage). 없으면 None.
+    # 2번 모듈은 backend.schemas 에 의존하지 않으므로 dict 로 두고, 3번 어댑터(from_module2)가 ChartRequestInfo 로 검증한다
+    request: dict | None = Field(None, description="차트 지정 요청 (ChartRequestInfo 모양)")
 
 
 class OverlayOut(BaseModel):

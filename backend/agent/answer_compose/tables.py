@@ -96,13 +96,26 @@ def _cell(v: Any) -> str | None:
     return None if v is None else str(v)
 
 
-def _row_value(rec: Record, row: list, item_i: int | None, value_i: int) -> str | None:
+def _row_value(rec: Record, row: list, item_i: int | None, value_i: int, digits: dict[Any, int | None]) -> str | None:
     v = row[value_i]
     n = to_number(v)
     if n is None:
         return "-" if v is None or str(v).strip() in MISSING_TEXT else str(v)
     unit = unit_of(str(row[item_i]) if item_i is not None else None, rec.metadata.get("unit"))
-    return format_value(n, make_display(unit, digits=data_digits([n], unit))) or "-"
+    return format_value(n, make_display(unit, auto_digits=digits.get(row[item_i] if item_i is not None else None))) or "-"
+
+
+def _item_digits(rec: Record, rows: list[list], item_i: int | None, value_i: int) -> dict[Any, int | None]:
+    """[NEW 11-17] 항목마다 한 가지 자릿수: 그 항목의 값들 중 가장 긴 소수 자릿수 (최대 3).
+    이전에는 값마다 따로 정해 한 열에 0.778명 · 0.72명 · 0.7명 · 1명이 섞였다 (자체 검토 A-7)"""
+    values: dict[Any, list] = {}
+    for row in rows:
+        values.setdefault(row[item_i] if item_i is not None else None, []).append(to_number(row[value_i]))
+    out = {}
+    for item, vals in values.items():
+        unit = unit_of(str(item) if item is not None else None, rec.metadata.get("unit"))
+        out[item] = data_digits([v for v in vals if v is not None], unit)
+    return out
 
 
 def _title(rec: Record) -> str:
@@ -140,7 +153,8 @@ def build_view(f: Facts, rec: Record, no: int, max_rows: int) -> AnswerTable:
         keep = sorted(set(shown) | set(extra))
     item_i = cols.index(ITEM_COL) if ITEM_COL in cols else None
     value_i = cols.index(VALUE_COL) if VALUE_COL in cols else len(cols) - 1
-    shown = [[_row_value(rec, rows[k], item_i, value_i) if j == value_i else _cell(c) for j, c in enumerate(rows[k])]
+    digits = _item_digits(rec, [rows[k] for k in keep], item_i, value_i)
+    shown = [[_row_value(rec, rows[k], item_i, value_i, digits) if j == value_i else _cell(c) for j, c in enumerate(rows[k])]
              for k in keep]
     return AnswerTable(table_id=f"t_view_{no}", kind="view", title=_title(rec), columns=list(cols), rows=shown,
                        raw_rows=[list(rows[k]) for k in keep], record_ids=[rec.id],
@@ -156,6 +170,9 @@ def build_tables(f: Facts) -> list[AnswerTable]:
         tables.append(summary)
     tables += [t for r in f.req.calc_results if is_list(r) and (t := build_list(f, r, max_rows))]
 
+    if not f.req.calc_results and f.req.withheld:
+        return tables       # [NEW 11-20] 계산을 보류해서 결과가 하나도 없으면 근거 표도 없다 — 관계없는 표(자동차 등록대수 질문의 세대수 표)가 근거처럼 보인다 (M6-3).
+        #                     보류 사유 없이 결과만 없는 입력은 기존대로 받은 View 를 보여 준다
     by_id = {rec.id: rec for rec in f.req.records}
     ids = [rid for rid in used_record_ids(f) if rid in by_id] or list(by_id)      # 쓴 View 를 모르면 받은 View 전부
     tables += [build_view(f, by_id[rid], no, max_rows) for no, rid in enumerate(ids, 1)]

@@ -1,0 +1,30 @@
+/* Figma Color Palette 의 값을 그대로 옮긴 디자인 토큰입니다. */
+:root {
+  --primary-900: #3f6661;
+  --primary-800: #4e7a6e;
+  --primary-700: #5f8b85;
+  --primary-600: #6b998d;
+  --primary-500: #7ba39d;
+  --surface-300: #dce9e6;
+  --surface-200: #e7f0ed;
+  --surface-150: #edf2f1;
+  --surface-140: #eef2f1;
+  --surface-130: #eef3f1;
+  --surface-120: #eef4f3;
+  --surface-100: #f3f7f6;
+  --surface-50: #fafcfb;
+  --white: #ffffff;
+  --text-900: #1e2928;
+  --text-850: #1f2a27;
+  --text-700: #55625f;
+  --text-600: #6b7672;
+  --text-500: #8a9794;
+  --text-400: #9aa5a1;
+  --line-300: #e2e8e6;
+  --line-200: #e2eae8;
+  --line-100: #edf1f0;
+  --overlay: rgba(30, 41, 40, 0.32);
+  --shadow-composer: 0 8px 14px rgba(63, 102, 97, 0.07);
+  --shadow-panel: 0 14px 18px rgba(40, 70, 66, 0.14);
+  --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+}

@@ -11,23 +11,32 @@ from typing import Any, Callable
 
 from backend.agent.answer_compose.reasons import humanize
 from backend.agent.answer_compose.facts import Facts, has_value, is_list, key_text, points
+from backend.agent.answer_compose.placeholder import DIRECTIONAL
 from backend.agent.prompts import ANSWER_COMPOSE_SCHEMA, ANSWER_COMPOSE_SYS
 from backend.schemas.answer import Caveat
 from backend.schemas.chart import CalcResult
 from backend.agent.chart_calculate.planner import sub_question_ids
 
 MAX_TOKENS = 1200
-LIST_PREVIEW = 10        # 목록 결과에서 프롬프트에 자리표시자를 보여 줄 개수. 그 뒤는 표에만 있고 인용할 수 없다 (allowed_tokens)
+LIST_PREVIEW = 10        # 목록 결과에서 프롬프트에 자리표시자를 보여 줄 개수. 그 뒤는 표에만 있고 인용할 수 없다 (shown_tokens)
+
+
+def _dir_hint(token: str, way, r: CalcResult) -> str:
+    """[NEW 11-17] 증감 계산 값에 방향 자리표시자 ({a1.dir} · {a1.r0.dir}). 변화가 0 이면 주지 않는다 (남은 한계 3)"""
+    if r.op not in DIRECTIONAL or not isinstance(way, (int, float)) or not way:
+        return ""
+    return f", 방향 {{{token}.dir}} (미리보기: {'증가' if way > 0 else '감소'})"
 
 
 def _result_lines(f: Facts, r: CalcResult) -> list[str]:
     kind = {"min": " (최솟값)", "max": " (최댓값)"}.get(f.extreme_kind(r) or "", "") if r.op == "extreme" else ""   # [CHANGED 11-16] 이전: 방향을 모르면 None 글자가 프롬프트에 들어갔다 (검수 M6-04)
-    head = f"{r.step_id} | {f.label(r)}{kind}"
+    role = " | 참고 결과 (요청한 계산을 하지 못해 대신 보이는 값)" if f.role_of(r) == "대체" and has_value(r) else ""     # [NEW 11-20]
+    head = f"{r.step_id} | {f.label(r)}{kind}{role}"
     pts = points(r)
     if not has_value(r):
         return [f"{head} | 계산 불가" + (f" (사유: {humanize(r.note, r.inputs)})" if r.note else "")]
     if not is_list(r):
-        lines = [f"{head} | 값 {{{r.step_id}}} (미리보기: {f.fmt_result(r, pts[0]['value'])})"]
+        lines = [f"{head} | 값 {{{r.step_id}}} (미리보기: {f.fmt_result(r, pts[0]['value'])}){_dir_hint(r.step_id, f.direction(r), r)}"]
     elif len(pts) == 1:
         p = pts[0]
         lines = [f"{head} | 값 {{{r.step_id}}} (미리보기: {f.fmt_result(r, p['value'])}), 이름 {{{r.step_id}.key}} (미리보기: {key_text(p.get('key'))})"]
@@ -39,7 +48,7 @@ def _result_lines(f: Facts, r: CalcResult) -> list[str]:
                 lines.append(f"    {key_text(p.get('key'))}: 계산 불가 (자리표시자 없음)")
                 continue
             rank = f", 순위 {{{base}.rank}}" if p.get("rank") is not None else ""
-            lines.append(f"    {{{base}}} (미리보기: {f.fmt_result(r, p['value'])}), 이름 {{{base}.key}} (미리보기: {key_text(p.get('key'))}){rank}")
+            lines.append(f"    {{{base}}} (미리보기: {f.fmt_result(r, p['value'])}){_dir_hint(base, p['value'], r)}, 이름 {{{base}.key}} (미리보기: {key_text(p.get('key'))}){rank}")
         if len(pts) > LIST_PREVIEW:
             lines.append(f"    … 외 {len(pts) - LIST_PREVIEW}개는 아래 표에 있다 (자리표시자 없음)")
     if den := f.denominator(r):
@@ -58,7 +67,7 @@ def _result_lines(f: Facts, r: CalcResult) -> list[str]:
 
 
 _TOKEN = re.compile(r"\{([^{}]*)\}")
-_NOT_A_VALUE = (".key", ".rank", ".abs")
+_NOT_A_VALUE = (".key", ".rank", ".abs", ".dir")
 
 
 def shown_tokens(f: Facts) -> set[str]:
@@ -66,13 +75,6 @@ def shown_tokens(f: Facts) -> set[str]:
     그 표지가 들어 있을 때 엉뚱한 곳을 잘라 정상 답변이 모두 거절된다 (검수 M6-06). .abs 는 값을 뜻하는 것에만 허용"""
     shown = {t.strip() for r in f.req.calc_results for line in _result_lines(f, r) for t in _TOKEN.findall(line)
              if re.fullmatch(r"[\w\-]+(?:\.[\w\-]+)*", t.strip())}
-    return shown | {t + ".abs" for t in shown if not t.endswith(_NOT_A_VALUE)}
-
-
-def allowed_tokens(prompt: str) -> set[str]:
-    """모델에게 **실제로 보여 준** 자리표시자. [계산 결과] 구역에 적힌 {…} 와, 값을 뜻하는 것의 절댓값(.abs)
-    (.abs 는 시스템 프롬프트의 규칙으로 안내한다). 보이지 않은 번호({a1.r11})는 풀 수 있어도 허용하지 않는다"""
-    shown = {t.strip() for t in _TOKEN.findall(prompt.split("[계산 결과]", 1)[-1].split("[주의사항]", 1)[0])}
     return shown | {t + ".abs" for t in shown if not t.endswith(_NOT_A_VALUE)}
 
 
@@ -94,7 +96,9 @@ def initial_messages(f: Facts, caveats: list[Caveat]) -> list[dict[str, str]]:
 
 def retry_messages(messages: list[dict[str, str]], draft: str, problems: list[str]) -> list[dict[str, str]]:
     """첫 시도의 대화 + 초안 + 무엇이 틀렸는지 → 한 번 더 쓰게 한다"""
-    fix = "다음 문제를 고쳐서 처음부터 다시 작성하라:\n" + "\n".join(f"- {p}" for p in problems)
+    # [CHANGED 11-17] 이전: '다음 문제를 고쳐서 처음부터 다시 작성하라' 뒤에 문제만 나열 → 실제 HCX 가 답변 대신 문제 목록을 옮겨 적었다 (H8)
+    fix = ("아래는 앞 답변에서 시스템이 찾은 문제다. 문제를 고친 **사용자용 답변 문장만** 처음부터 다시 쓴다. "
+           "이 목록이나 규칙 설명을 답변에 옮겨 적지 않는다.\n" + "\n".join(f"- {p}" for p in problems))
     return [*messages[:2], {"role": "assistant", "content": json.dumps({"answer": draft}, ensure_ascii=False)},
             {"role": "user", "content": fix}]
 
