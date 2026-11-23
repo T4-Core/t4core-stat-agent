@@ -1,6 +1,6 @@
-// 캐릭터의 유일한 입구입니다. 지금은 Figma 이미지를 쓰고,
-// 캐릭터 담당자가 이 파일 내부를 R3F 로 교체합니다. <Character motion size /> 사용법만 유지해 주세요.
-import sloth from '../assets/figma/sloth.png';
+// 캐릭터의 유일한 입구입니다. 캐릭터 담당자의 3D HTML(public/character)을 표시합니다.
+// <Character motion size /> 사용법만 유지해 주세요.
+import { SlothFrame } from './SlothFrame';
 
 export type CharacterMotion = 'idle' | 'thinking' | 'success' | 'asking' | 'error';
 export type CharacterSize = 'S' | 'M' | 'L';
@@ -18,15 +18,5 @@ type Props = {
 };
 
 export function Character({ motion = 'idle', size = 'L', className }: Props) {
-  return (
-    <img
-      className={className}
-      src={sloth}
-      alt="노트북을 든 나무늘보 캐릭터"
-      data-motion={motion}
-      width={SIZES[size].width}
-      height={SIZES[size].height}
-      draggable={false}
-    />
-  );
+  return <SlothFrame className={className} motion={motion} {...SIZES[size]} />;
 }
