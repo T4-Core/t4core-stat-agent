@@ -1,0 +1,114 @@
+# ext-chart-request — 차트 지정 요청(KOS-41) 처리 평가 세트. core34 처럼 버전 고정(immutable), 문항 추가만 허용
+# 기대 outcome 은 렌더링 단계 값(render_failed · not_rendered)을 적지 않는다. 판정 시 render_status 로 바꾼다
+# 요청 해석 기대값은 docs/modules/기능_추가_차트_변경_요청_처리.md 의 사례와 tests/chart_request/ 규칙을 기준으로 했다. verified=false
+name: ext-chart-request
+version: '1.0'
+frozen: true
+questions:
+- id: CR01
+  group: 지원 요청 + 적합
+  question: 최근 5년 혼인건수 추이를 막대 그래프로 보여줘
+  sub_questions:
+  - key: trend
+    match: {item_any: [혼인건수]}
+    answerable_when:
+    - when: {view_has_rows: {item: 혼인건수, min_periods: 5}}
+      expect: answer
+    - {expect: hold, hold_reason: from_predicate}
+    m2: {acceptable_charts: [bar], measure: raw}
+    m3: {op: raw}
+  chart_request:
+    preferred: [{text: 막대, supported: true, code: bar}]
+    expected_outcome: {outcome: honored, final_chart: bar}
+    notice_required: false
+- id: CR02
+  group: 미지원 이름
+  question: 최근 5년 시도별 혼인건수를 히스토그램으로 보여줘
+  sub_questions:
+  - key: by_region
+    match: {item_any: [혼인건수]}
+    answerable_when:
+    - when: {view_has_rows: {item: 혼인건수, min_periods: 1}}
+      expect: answer
+    - {expect: hold, hold_reason: from_predicate}
+    m2: {acceptable_charts: [bar, line, heatmap, null], measure: raw}
+    m3: {op: raw}
+  chart_request:
+    preferred: [{text: 히스토그램, supported: false}]
+    expected_outcome: {outcome: substituted, reason: unsupported_type}
+    notice_required: true
+  notes: 대체 차트 유형은 데이터 모양에 따라 정해지므로 final_chart 는 적지 않는다
+- id: CR03
+  group: 데이터 부적합
+  question: 2024년 서울 인구를 인구 피라미드로 그려줘
+  sub_questions:
+  - key: pop
+    match: {item_any: [인구], region_any: [서울]}
+    answerable_when:
+    - when: {view_has_row: {item: 인구, period: '2024', region: 서울}}
+      expect: answer
+    - {expect: hold, hold_reason: from_predicate}
+    m2: {acceptable_charts: [null, bar], measure: raw}
+    m3: {op: raw}
+  chart_request:
+    preferred: [{text: 인구 피라미드, supported: true, code: pyramid}]
+    expected_outcome: {outcome: table_only, reason: data_mismatch}
+    notice_required: true
+  notes: 값 1개라 피라미드(연령 × 성별 2그룹)를 만들 수 없다. 표로 보여 주고 사유 안내
+- id: CR04
+  group: 제외 표현
+  question: 2024년 서울, 부산, 대구 인구를 막대 말고 원그래프로 보여줘
+  sub_questions:
+  - key: pop
+    match: {item_any: [인구]}
+    answerable_when:
+    - when: {operands_valid: {operands: [{region: 서울, period: '2024', item: 인구}, {region: 부산, period: '2024', item: 인구},
+                                         {region: 대구, period: '2024', item: 인구}]}}
+      expect: answer
+    - {expect: hold, hold_reason: from_predicate}
+    m2: {acceptable_charts: [pie], measure: raw}
+    m3: {op: raw}
+  chart_request:
+    preferred: [{text: 원그래프, supported: true, code: pie}]
+    excluded: [{text: 막대, supported: true, code: bar}]
+    expected_outcome: {outcome: honored, final_chart: pie}
+    notice_required: false
+  notes: 제외한 막대로 대체되면 실패
+- id: CR05
+  group: 하위 질문별 지정
+  question: 최근 5년 서울 혼인건수는 막대로, 부산 혼인건수는 꺾은선으로 보여줘
+  sub_questions:
+  - key: seoul
+    match: {item_any: [혼인건수], region_any: [서울]}
+    answerable_when:
+    - when: {view_has_rows: {item: 혼인건수, min_periods: 5}}
+      expect: answer
+    - {expect: hold, hold_reason: from_predicate}
+    m2: {acceptable_charts: [bar], measure: raw}
+    m3: {op: raw}
+  - key: busan
+    match: {item_any: [혼인건수], region_any: [부산]}
+    answerable_when:
+    - when: {view_has_rows: {item: 혼인건수, min_periods: 5}}
+      expect: answer
+    - {expect: hold, hold_reason: from_predicate}
+    m2: {acceptable_charts: [line], measure: raw}
+    m3: {op: raw}
+  chart_request:
+    preferred: [{text: 막대, supported: true, code: bar}, {text: 꺾은선, supported: true, code: line}]
+    expected_outcome: {outcome: honored}
+    notice_required: false
+  notes: 하위 질문이 하나로 합쳐지면 scope 가 ambiguous_scope 가 되어 substituted · table_only 가 나올 수 있다. 그 경우 안내가 있어야 한다
+- id: CR06
+  group: 요청 오인식 대조군
+  question: 2024년 운동지도자 수는?
+  sub_questions:
+  - key: raw
+    match: {item_any: [지도자]}
+    answerable_when:
+    - when: {view_has_row: {item: 지도자, period: '2024'}}
+      expect: answer
+    - {expect: hold, hold_reason: from_predicate}
+    m2: {acceptable_charts: [null, bar], measure: raw}
+    m3: {op: raw}
+  notes: chart_request 생략 = 요청 없음이 정답. '지도' 를 지도(map) 요청으로 읽으면 오인식
