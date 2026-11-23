@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>나무늘보 3D 로딩 모션</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; color: #253e34; background: #f6f8f5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+    .card { width: min(560px, 100%); background: #fff; border: 1px solid #e2e9df; border-radius: 28px; padding: 22px 24px 18px; box-shadow: 0 12px 48px #2e4b3410; }
+    .stage { position: relative; width: 100%; aspect-ratio: 1 / 1.05; cursor: grab; }
+    .stage:active { cursor: grabbing; }
+    canvas { display: block; width: 100%; height: 100%; }
+    .status { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: #97a194; }
+    .status[hidden] { display: none; }
+    .label { margin: 4px 0 0; text-align: center; font-size: 17px; font-weight: 700; }
+    .dots { display: inline-flex; gap: 5px; margin-left: 7px; vertical-align: middle; }
+    .dots i { width: 5px; height: 5px; border-radius: 50%; background: #4f9279; animation: dot 1.8s ease-in-out infinite; }
+    .dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
+    @keyframes dot { 0%, 70%, 100% { opacity: .25; } 35% { opacity: 1; } }
+    .hint { margin: 6px 0 16px; text-align: center; font-size: 11px; color: #97a194; }
+    .controls { border-top: 1px solid #edf0e9; padding-top: 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    button, select { font: inherit; font-size: 11px; color: #5f735b; background: #f4f7f1; border: 1px solid #e4ebdf; border-radius: 8px; padding: 8px 11px; cursor: pointer; }
+    .speed { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #8a9685; }
+    @media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .65; } }
+  </style>
+  <script type="importmap">
+    { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <main class="card">
+    <div class="stage" id="stage" aria-hidden="true"><div class="status" id="status">캐릭터를 불러오는 중…</div></div>
+    <p class="label" role="status">통계표를 찾고 있어요<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></p>
+    <p class="hint">드래그하면 캐릭터를 돌려볼 수 있어요.</p>
+    <div class="controls">
+      <button type="button" id="pause" aria-pressed="false">Ⅱ 모션 멈추기</button>
+      <div class="speed"><label for="speed">재생 속도</label>
+        <select id="speed"><option value="0.65">더 느리게</option><option value="1" selected>기본</option><option value="1.4">조금 빠르게</option></select>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+    // gltf-transform으로 압축한 모델(원본 10.5MB → 약 0.3MB).
+    // 모양은 Draco로 압축되어 있어 아래 DRACOLoader의 해제 도구가 필요합니다.
+    const MODEL_URL = 'sloth-optimized.glb';   // 이 HTML과 같은 폴더
+    const DRACO_DECODER = 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/';
+    const DEBUG = new URLSearchParams(location.search).get('debug');
+
+    // ── 뼈대 위치(모델 원본 좌표, 정면 = +Z) ────────────────
+    // Meshy가 만든 GLB에는 뼈대가 없어서, 불러온 뒤 코드에서 뼈를 만들고
+    // 각 정점이 어느 뼈를 따라 움직일지(가중치)를 위치로 계산합니다.
+    // 다른 모델로 바꾸면 이 좌표를 다시 맞춰야 합니다.
+    const RIG = {
+      neck: new THREE.Vector3(0, -0.1, 0.02),
+      headStart: -0.13, headFull: 0.0,           // 이 높이 사이에서 머리 가중치가 0→1
+      arms: [-1, 1].map((s) => ({
+        s,
+        shoulder: new THREE.Vector3(s * 0.42, -0.3, 0.05),
+        elbow:    new THREE.Vector3(s * 0.62, -0.43, 0.1),
+        paw:      new THREE.Vector3(s * 0.78, -0.55, 0.18),
+        upperR: 0.17, foreR: 0.17, pawR: 0.12, fade: 0.05,  // 소매·손 두께(반지름)와 경계 부드러움
+      })),
+      legGuard: [-0.75, -0.7],                 // 이 높이 아래(다리·발)는 팔에서 제외
+    };
+
+    // ── 렌더러 · 장면 · 카메라 ─────────────────────────────
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    stage.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
+    camera.position.set(0.25, 1.95, 4.6);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.85, 0.15);
+    controls.enablePan = false;
+    controls.enableZoom = !!DEBUG;
+    controls.enableDamping = true;
+    if (!DEBUG) {
+      controls.minPolarAngle = 1.0; controls.maxPolarAngle = 1.65;
+      controls.minAzimuthAngle = -0.9; controls.maxAzimuthAngle = 0.9;
+    }
+    controls.update();
+
+    scene.add(new THREE.HemisphereLight('#ffffff', '#d5ddd3', 2.2));
+    const key = new THREE.DirectionalLight('#fff8ef', 1.6);
+    key.position.set(2, 4, 3.5);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    Object.assign(key.shadow.camera, { left: -1.5, right: 1.5, top: 2.2, bottom: -0.5 });
+    key.shadow.radius = 6;
+    key.shadow.bias = -0.0008;
+    scene.add(key);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.ShadowMaterial({ opacity: 0.12 }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // ── 가중치 계산 도우미 ─────────────────────────────────
+    const smooth = (a, b, x) => { const t = Math.min(Math.max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); };
+    const _ab = new THREE.Vector3(), _ap = new THREE.Vector3();
+    let segmentT = 0;                     // 마지막으로 계산한 선분 위 위치(0=a, 1=b)
+    function segment(p, a, b) {           // 점 p와 선분 ab 사이의 거리
+      _ab.subVectors(b, a); _ap.subVectors(p, a);
+      const t = Math.min(Math.max(_ap.dot(_ab) / _ab.lengthSq(), 0), 1);
+      segmentT = t;
+      return _ap.sub(_ab.multiplyScalar(t)).length();
+    }
+
+    // 뼈 번호: 0 몸, 1 머리, 2·3 왼팔(위·아래), 4·5 오른팔(위·아래)
+    function computeWeights(geometry) {
+      const pos = geometry.attributes.position;
+      const count = pos.count;
+      const skinIndex = new Uint16Array(count * 4);
+      const skinWeight = new Float32Array(count * 4);
+      const colors = DEBUG === 'weights' ? new Float32Array(count * 3) : null;
+      const p = new THREE.Vector3();
+      const pawTips = RIG.arms.map((a) => a.paw.clone().add(a.paw.clone().sub(a.elbow).setLength(0.06)));
+
+      for (let i = 0; i < count; i++) {
+        p.fromBufferAttribute(pos, i);
+        const head = smooth(RIG.headStart, RIG.headFull, p.y);
+        const legGuard = smooth(RIG.legGuard[0], RIG.legGuard[1], p.y);
+        const w = [0, head, 0, 0, 0, 0];
+        RIG.arms.forEach((a, k) => {
+          if (Math.sign(p.x) !== a.s && Math.abs(p.x) > 0.02) return;   // 반대쪽 팔은 무시
+          const dUpper = segment(p, a.shoulder, a.elbow);
+          const dFore = segment(p, a.elbow, pawTips[k]);
+          // 아래팔은 팔꿈치(두꺼운 소매) → 손(작은 발)으로 갈수록 가늘어지는 원뿔 모양
+          const foreR = THREE.MathUtils.lerp(a.foreR, a.pawR, smooth(0.45, 0.85, segmentT));
+          const upper = 1 - smooth(a.upperR, a.upperR + a.fade, dUpper);
+          const fore = 1 - smooth(foreR, foreR + a.fade * 0.6, dFore);
+          const total = Math.max(upper, fore) * legGuard * (1 - head);
+          if (total <= 0) return;
+          // 더 가까운 뼈를 확실히 따르고, 팔꿈치 경계에서만 살짝 섞습니다.
+          // (50:50으로 섞이면 팔꿈치를 펼 때 소매가 납작하게 찌그러집니다)
+          const foreShare = smooth(-0.025, 0.025, dUpper - dFore);
+          w[2 + k * 2] = total * (1 - foreShare);
+          w[3 + k * 2] = total * foreShare;
+        });
+        w[0] = Math.max(0, 1 - w.slice(1).reduce((x, y) => x + y, 0));
+        // 가장 큰 4개만 사용하고 합이 1이 되도록 정규화
+        const order = w.map((v, j) => [v, j]).sort((x, y) => y[0] - x[0]).slice(0, 4);
+        const sum = order.reduce((x, y) => x + y[0], 0) || 1;
+        order.forEach(([v, j], n) => { skinIndex[i * 4 + n] = j; skinWeight[i * 4 + n] = v / sum; });
+        if (colors) {                        // 디버그: 몸=흰색, 머리=초록, 왼팔=빨강/주황, 오른팔=파랑/하늘
+          const c = [[1, 1, 1], [0.2, 0.8, 0.3], [0.9, 0.1, 0.1], [1, 0.6, 0.1], [0.1, 0.2, 0.9], [0.2, 0.8, 1]];
+          for (let ch = 0; ch < 3; ch++) colors[i * 3 + ch] = w.reduce((acc, v, j) => acc + v * c[j][ch], 0) / sum;
+        }
+      }
+      geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
+      geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
+      if (colors) geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    }
+
+    function buildSkin(mesh) {
+      const geometry = mesh.geometry;
+      computeWeights(geometry);
+
+      // 뼈 만들기 (팔꿈치는 위팔의 자식)
+      const root = new THREE.Bone();
+      const headBone = new THREE.Bone(); headBone.position.copy(RIG.neck); root.add(headBone);
+      const bones = [root, headBone];
+      const armBones = RIG.arms.map((a) => {
+        const upper = new THREE.Bone(); upper.position.copy(a.shoulder); root.add(upper);
+        const fore = new THREE.Bone(); fore.position.subVectors(a.elbow, a.shoulder); upper.add(fore);
+        bones.push(upper, fore);
+        return { ...a, upper, fore };
+      });
+
+      const material = DEBUG === 'weights' ? new THREE.MeshBasicMaterial({ vertexColors: true }) : mesh.material;
+      const skinned = new THREE.SkinnedMesh(geometry, material);
+      skinned.add(root);
+      skinned.updateMatrixWorld(true);
+      skinned.bind(new THREE.Skeleton(bones));
+      skinned.castShadow = true;
+      skinned.receiveShadow = true;
+      skinned.frustumCulled = false;         // 팔을 들면 원래 경계 상자를 벗어나므로
+      return { skinned, root, headBone, armBones };
+    }
+
+    // ── 노트북(모델 좌표 기준, 무릎 위) ─────────────────────
+    function buildLaptop() {
+      const metal = new THREE.MeshStandardMaterial({ color: '#dfe1e5', roughness: 0.4, metalness: 0.12 });
+      const laptop = new THREE.Group();
+      laptop.position.set(0, -0.545, 0.63);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.022, 0.44), metal);
+      base.castShadow = base.receiveShadow = true;
+      laptop.add(base);
+      const kc = document.createElement('canvas');
+      kc.width = 520; kc.height = 200;
+      const kx = kc.getContext('2d');
+      kx.fillStyle = '#c9ccd1'; kx.fillRect(0, 0, 520, 200);
+      kx.fillStyle = '#55595f';
+      for (let r = 0; r < 5; r++) for (let i = 0; i < 13; i++) { kx.beginPath(); kx.roundRect(8 + i * 39, 8 + r * 38, 33, 32, 5); kx.fill(); }
+      const tex = new THREE.CanvasTexture(kc);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const keyboard = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.25), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }));
+      keyboard.rotation.x = -Math.PI / 2;
+      keyboard.position.set(0, 0.0115, 0.04);
+      laptop.add(keyboard);
+      const hinge = new THREE.Group();
+      hinge.position.set(0, 0.011, 0.215);
+      hinge.rotation.x = 0.24;
+      laptop.add(hinge);
+      const lid = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.022), metal);
+      lid.position.y = 0.25;
+      lid.castShadow = true;
+      hinge.add(lid);
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.42),
+        new THREE.MeshStandardMaterial({ color: '#eef6f2', emissive: '#d9efe6', emissiveIntensity: 0.5 }));
+      screen.position.set(0, 0.25, -0.012);
+      screen.rotation.y = Math.PI;
+      hinge.add(screen);
+      const leafShape = new THREE.Shape();
+      leafShape.moveTo(0, -0.065);
+      leafShape.quadraticCurveTo(0.06, 0, 0, 0.065);
+      leafShape.quadraticCurveTo(-0.06, 0, 0, -0.065);
+      const leaf = new THREE.Mesh(new THREE.ShapeGeometry(leafShape, 16), new THREE.MeshStandardMaterial({ color: '#a3dccb', roughness: 0.5 }));
+      leaf.position.set(0, 0.24, 0.012);
+      leaf.rotation.z = -0.7;
+      hinge.add(leaf);
+      return laptop;
+    }
+
+    // ── 모델 불러오기 ──────────────────────────────────────
+    const sloth = new THREE.Group();
+    sloth.rotation.y = DEBUG ? 0 : 0.3;      // 원본처럼 살짝 옆을 보도록
+    scene.add(sloth);
+    const statusNode = document.getElementById('status');
+    let rig = null;
+    try {
+      const draco = new DRACOLoader().setDecoderPath(DRACO_DECODER);
+      const gltf = await new GLTFLoader().setDRACOLoader(draco).loadAsync(MODEL_URL);
+      draco.dispose();                      // 해제가 끝나면 작업 스레드 정리
+      const source = gltf.scene.getObjectByProperty('isMesh', true);
+      source.geometry.computeBoundingBox();
+      rig = buildSkin(source);
+      const body = new THREE.Group();
+      body.position.y = -source.geometry.boundingBox.min.y;   // 발바닥을 바닥(y=0)에 맞춤
+      body.add(rig.skinned);
+      if (!DEBUG || DEBUG === 'laptop') body.add(buildLaptop());
+      sloth.add(body);
+      statusNode.hidden = true;
+    } catch (error) {
+      statusNode.textContent = '캐릭터를 불러오지 못했어요.';
+      console.error(error);
+    }
+
+    // ── 모션 ─────────────────────────────────────────────
+    // TAP_PERIOD: 한 손이 키를 한 번 누르는 간격(초). 두 손이 번갈아 치므로
+    // 실제로는 이 시간의 절반마다 한 번씩 톡 소리가 나는 리듬입니다. 클수록 느려집니다.
+    const TAP_PERIOD = 1.6;
+    const qType = new THREE.Quaternion();
+    const v1 = new THREE.Vector3(), v2 = new THREE.Vector3();
+
+    function pose(time) {
+      if (!rig) return;
+      const beat = time * 2 * Math.PI / TAP_PERIOD;
+
+      for (const arm of rig.armBones) {
+        // 손을 키보드 위에 두고, 두 손이 번갈아 천천히 톡톡
+        const wave = Math.sin(beat + (arm.s > 0 ? Math.PI : 0));
+        const tap = Math.max(0, wave) ** 1.5;
+        v2.set(arm.s * 0.2 + Math.sin(time * 0.9 + arm.s) * 0.02,   // 다른 키로 조금씩 이동
+               -0.47 + tap * 0.07, 0.56 - tap * 0.015);
+        v1.subVectors(arm.paw, arm.shoulder).normalize();
+        qType.setFromUnitVectors(v1, v2.sub(arm.shoulder).normalize());
+        arm.upper.quaternion.copy(qType);
+      }
+
+      // 고개: 타이핑 박자에 맞춰 천천히 끄덕이고, 아주 살짝 기울임
+      const h = rig.headBone.rotation;
+      h.x = 0.02 + 0.045 * Math.sin(beat * 2);
+      h.z = 0.04 * Math.sin(time * 2 * Math.PI / 6);
+      h.y = 0.03 * Math.sin(time * 2 * Math.PI / 8);
+      // 몸: 호흡
+      const breath = Math.sin(time * 2 * Math.PI / 3.6) * 0.006;
+      rig.root.scale.set(1 - breath * 0.5, 1 + breath, 1);
+    }
+
+    // ── 루프 · 컨트롤 ────────────────────────────────────
+    const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+    const pauseButton = document.getElementById('pause');
+    let speed = 1, paused = DEBUG === 'weights', time = 0, last = null;
+
+    function resize() {
+      const { width, height } = stage.getBoundingClientRect();
+      if (!width) return;
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(stage);
+    resize();
+
+    function frame(now) {
+      const moving = !paused && !motionQuery.matches && !document.hidden;
+      if (last != null && moving) time += Math.min((now - last) / 1000, 0.1) * speed;
+      last = now;
+      if (DEBUG !== 'weights' && DEBUG !== 'bind') pose(motionQuery.matches ? 3 : time);   // 동작 줄이기: 키보드 위 정지 포즈
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+
+    pauseButton.addEventListener('click', () => {
+      paused = !paused;
+      pauseButton.textContent = paused ? '▶ 모션 재생하기' : 'Ⅱ 모션 멈추기';
+      pauseButton.setAttribute('aria-pressed', String(paused));
+    });
+    document.getElementById('speed').addEventListener('change', (e) => { speed = Number(e.target.value); });
+    if (DEBUG) window.dbg = { THREE, scene, camera, controls, rig, RIG, pose, computeWeights,
+      setTime: (v) => { time = v; paused = true; } };
+  </script>
+</body>
+</html>
