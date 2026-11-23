@@ -8,6 +8,8 @@
   재작성 (HCX)                          rewrite.run_pipeline → rewrite_state
   지역 칸 바로잡기 · 대상 보충           fix_region_slots · lexicon.Lexicon.scan
   대상 원문 유지 (상위어 → 원문 표현)     restore_targets · lexicon.Lexicon.question_terms
+  근거 없는 값 지우기 (정규 어휘 사전)     vocab_prune · vocab.prune_slots  (settings.vocab_check)
+  사전에 없는 낱말의 벡터 후보             vocab_suggest_step · vocab_suggest.suggest_for_question  (settings.vocab_suggest)
   시점 규칙                             clarify.apply_time_rules
   동의어 조회 + 슬롯 접지                lexicon.Lexicon.resolve · grounding.ground_slots
   필수 슬롯 확인 · 되묻기 (또는 가정)    clarify.check · soft_fill
@@ -205,6 +207,36 @@ def restore_targets(raw, sub_slots, question, qterms, term_hits=()):
     return raw, subs, [(v, new) for v in bad]
 
 
+def vocab_prune(raw, sub_slots, question, idx, lex, s, selections=None):
+    """정규 어휘 사전으로 재작성 슬롯(본 슬롯 + 하위 슬롯)의 근거 없는 값 지우기 → (슬롯, 하위 슬롯, 본 슬롯 기록)
+    사전을 만들지 못하면(값 사전이 옛 모양 등) 그대로 둠. 되묻기에서 고른 값은 지우지 않음"""
+    from backend.rag.query_analyzer.vocab import get_vocab, prune_slots, question_hints
+    try:
+        vocab = get_vocab(idx, s)
+    except Exception as e:  # noqa: BLE001 (사전이 없어도 분석은 계속)
+        return raw, sub_slots, [{"value": "", "slot": "", "verdict": "skip", "why": f"사전 없음: {e}", "to": "",
+                                 "canon": []}]
+    protect = {str(v) for vs in (selections or {}).values() for v in (vs if isinstance(vs, (list, tuple)) else [vs])}
+    hints = question_hints(question)
+    kw = {"slot_names": tuple(s.vocab_slots), "mode": s.vocab_check, "protect": protect, "hints": hints}
+    new, log = prune_slots(raw, question, vocab, lex, alias_fill=s.vocab_alias_fill, **kw)
+    subs = [prune_slots(x, question, vocab, lex, alias_fill=False, **kw)[0] for x in sub_slots or []]
+    return new, subs, log
+
+
+def vocab_suggest_step(question, raw, state, idx, lex, s, chat_fn=None):
+    """벡터 후보 → (슬롯, 기록, 고른 결과, 건너뛴 사유, 메모). 사전·벡터 파일이 없거나 오류면 슬롯 그대로"""
+    from backend.rag.query_analyzer import vocab_suggest as vs
+    from backend.rag.query_analyzer.vocab import get_vocab
+    prev = state.get("vocab_choices") or {}
+    try:
+        vocab = get_vocab(idx, s)
+        new, recs, choices, skipped = vs.suggest_for_question(question, raw, vocab, lex, s, previous=prev, chat_fn=chat_fn)
+    except Exception as e:  # noqa: BLE001 (후보 단계 오류로 분석이 멈추지 않게)
+        return raw, [], prev, f"오류: {e.__class__.__name__}: {str(e)[:120]}", []
+    return new, vs.as_json(recs), vs.as_json(choices), skipped, vs.describe(recs)
+
+
 def refresh_rewritten(state, raw):
     """분석 단계가 슬롯을 고쳤으면 재작성 문장도 같은 슬롯으로 다시 (검색 문장·모듈 2·3 이 이 문장을 읽음)"""
     from backend.rag.query_analyzer.sentence import slots_to_sentence, threshold_text
@@ -272,7 +304,7 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
 
     base = {"question": question, "query_id": query_id, "bundle": state["bundle"], "notes": notes, "applied_rules": [],
             "slots": {}, "clarifications": [], "sub_queries": [], "decompose_reason": "", "search_text": "",
-            "view_bundle": None}
+            "view_bundle": None, "vocab_suggestions": []}
     if is_out_of_scope(state["bundle"]):
         tr.save()
         return {**base, "status": "out_of_scope", "state": state, "trace": tr.as_list()}
@@ -300,6 +332,30 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
                 if swapped:
                     state = refresh_rewritten({**state, "raw_slots": raw, "sub_slots": sub_slots}, raw)
                     notes.append(f"재작성 대상이 질문에 없어 원문 표현으로 바꿈: {swapped}")
+    if getattr(s, "vocab_check", "off") != "off":
+        with tr.step("근거 없는 값 지우기 (정규 어휘 사전: 표 항목·분류 코드)", mode=s.vocab_check, slots=s.vocab_slots) as st:
+            raw, sub_slots, vlog = vocab_prune(raw, state["sub_slots"], question, idx, lex, s, selections)
+            st.output = [r for r in vlog if r["verdict"] != "keep"]
+            from backend.rag.query_analyzer.vocab import changed, describe
+            if changed(vlog) and s.vocab_check == "drop":
+                state = refresh_rewritten({**state, "raw_slots": raw, "sub_slots": sub_slots}, raw)
+            if s.vocab_check == "drop":
+                notes += [f"[어휘] {m}" for m in describe(vlog)]
+            else:
+                notes += [f"[어휘·기록만] [{r['slot']}] '{r['value']}' ({r['verdict']}): {r['why']}"
+                          for r in vlog if r["verdict"] != "keep"]
+    suggestions = []
+    if getattr(s, "vocab_suggest", "off") != "off":
+        with tr.step("사전에 없는 낱말의 벡터 후보 (확정은 HCX·사람)", mode=s.vocab_suggest, embedder=s.vocab_suggest_embedder,
+                     k=s.vocab_suggest_k, min_score=s.vocab_suggest_min_score) as st:
+            raw2, suggestions, choices, skipped, msgs = vocab_suggest_step(question, raw, state, idx, lex, s, chat_fn)
+            st.output = {"skipped": skipped, "suggestions": suggestions}
+            notes += [f"[어휘 후보] {m}" for m in msgs]
+            state = {**state, "vocab_choices": choices}
+            base["vocab_suggestions"] = suggestions
+            if raw2 != raw:
+                raw = raw2
+                state = refresh_rewritten({**state, "raw_slots": raw}, raw)
     if state.get("thresholds"):
         notes.append("조건 기준: " + ", ".join(f"{t['말']} {t['표기']}" for t in state["thresholds"]))
     if not (raw.get("대상") or raw.get("지표")):

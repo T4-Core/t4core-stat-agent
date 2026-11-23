@@ -36,6 +36,18 @@ class Settings(BaseModel):
     question_terms_max_share: float = 0.15
     question_terms_max: int = 6
     role_units: bool = True
+    # 정규 어휘 사전 (query_analyzer/vocab.py) — 재작성 슬롯 값 중 표 항목·분류 코드·질문 원문 어디에도 근거 없는 값
+    vocab_check: str = "drop"                    # drop = 지움(지역·성별 값은 그 칸으로 옮김) / log = 기록만 / off
+    vocab_slots: list[str] = Field(default_factory=lambda: ["대상", "지표", "조건"])
+    vocab_alias_fill: bool = True                # 질문의 별칭('싱글맘') → 정규 이름('모+미혼자녀')을 조건에 더함
+    vocab_path: str = ""                         # 비우면 CSV_INDEX_DIR/vocab.json (없으면 CSV 값 사전으로 바로 만듦)
+    # 벡터 후보 (query_analyzer/vocab_suggest.py) — 질문 낱말이 사전에 없을 때 비슷한 표 이름 후보. 확정은 HCX(후보 안에서만)·사람
+    vocab_suggest: str = "log"                   # off / log = 후보만 기록 / hcx = HCX 가 후보 목록 안에서 같은 뜻만 고름
+    vocab_suggest_embedder: str = "hcx"          # hcx | arctic-ko | bge-m3-ko | ens-ko | hash (벡터 파일과 같은 임베더)
+    vocab_suggest_k: int = 5
+    vocab_suggest_min_score: float = 0.55        # 코사인 하한 — 임베더마다 다르니 log 로 보고 조정
+    vocab_suggest_max_terms: int = 3             # 질문 하나에서 후보를 찾을 낱말 수
+    vocab_suggest_learn: bool = True             # hcx 가 고른 짝 → 학습 사전 '승인 대기' (승인 전엔 쓰지 않음)
     # 서브쿼리
     split_when_no_common_table: bool = True
     split_policy: str = "always"                 # always / no_common_table
