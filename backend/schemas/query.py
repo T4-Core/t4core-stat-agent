@@ -146,6 +146,8 @@ class AnalysisState(BaseModel):
     hcx_error: str = ""
     thresholds: list[dict] = Field(default_factory=list, description="숫자 기준 조건 [{말, 값, 단위, 비교, op, 표기, 지역_고르기}] "
                                                                      "('가구원수가 99,000명 이상' — query_analyzer/roles.find_thresholds)")
+    vocab_choices: dict[str, dict] = Field(default_factory=dict, description="벡터 후보 중 HCX 가 고른 결과 {낱말: {choice, why, by}} "
+                                                                           "(되묻기 응답 때 HCX 를 다시 부르지 않게 — vocab_suggest.py)")
 
 
 class StepTraceModel(BaseModel):
@@ -170,6 +172,9 @@ class QueryAnalysis(BaseModel):
     decompose_reason: str = ""
     applied_rules: list[str] = []
     notes: list[str] = []
+    vocab_suggestions: list[dict] = Field(default_factory=list, description="사전에 없는 질문 낱말의 벡터 후보 "
+                                          "[{term, candidates[{name, slot, dim, score}], choice, by, applied, why}] — "
+                                          "사람이 고르면 /lexicon/learn (approve) 로 학습 사전에")
     state: AnalysisState
     trace: list[StepTraceModel] = []
 

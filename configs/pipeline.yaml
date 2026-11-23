@@ -28,6 +28,19 @@ question_terms_max_share: 0.15           #   전체 표의 이 비율 이하에�
 question_terms_max: 6
 role_units: true                         # 분모('…중 비율'·'천 명당')·조건('…가 N명 이상')을 검색 단위로 더함
 
+# ── 정규 어휘 사전 (근거 없는 재작성 값 지우기, docs/VOCAB_GROUNDING.md) ──
+vocab_check: drop                        # drop = 표 항목·분류 코드·질문 원문·용어 사전 어디에도 없는 값 지움 / log = 기록만 / off
+vocab_slots: [대상, 지표, 조건]
+vocab_alias_fill: true                   # 질문의 별칭('싱글맘') → 정규 이름('모+미혼자녀')을 조건에 더함
+vocab_path: ""                           # 비우면 CSV_INDEX_DIR/vocab.json (python -m backend.rag.query_analyzer.vocab build). 없으면 CSV 값 사전으로 만듦
+# 벡터 후보 — 질문 낱말이 사전에 없을 때 (벡터 파일: python -m backend.rag.query_analyzer.vocab build --embed hcx. 없으면 건너뜀)
+vocab_suggest: log                       # off / log = 후보만 기록 / hcx = HCX 가 후보 목록 안에서 같은 뜻만 고름 (조건·지표에 더함)
+vocab_suggest_embedder: hcx              # 벡터 파일을 만든 임베더와 같아야 함
+vocab_suggest_k: 5
+vocab_suggest_min_score: 0.55            # 코사인 하한 (임베더마다 다름 — log 로 보고 조정)
+vocab_suggest_max_terms: 3
+vocab_suggest_learn: true                # hcx 가 고른 짝 → 학습 사전 '승인 대기' (POST /api/v1/rag/lexicon/learn approve=true 로 승인)
+
 # ── 서브쿼리 ──
 split_when_no_common_table: true         # split_policy: no_common_table 일 때, 지표들을 함께 가진 표가 없으면 나눔
 split_policy: always                     # always = 지표마다 서브쿼리 / no_common_table = 함께 가진 표가 없을 때만
