@@ -1,0 +1,28 @@
+---
+type: Classification
+title: 연령(각세)별 (65개 코드)
+description: age 분류 · 코드 65개 · 표 2개가 씀. 코드 전체는 빌드의 codebooks.json (catalog.has_code 로 확인)
+tags: [age]
+generated: {by: 'process:okf-tables/1', at: '2026-11-23T11:43:13+09:00'}
+x-t4-classification:
+  id: age-0cdb81bd
+  name: 연령(각세)별
+  kind: age
+  n_codes: 65
+  n_child_codes: 0
+  examples: [계, 15세미만, 15세, 16세, 17세, 18세, 19세, 20세, 21세, 22세, 23세, 24세, 25세, 26세, 27세, 28세, 29세, 30세, 31세, 32세]
+  n_tables: 2
+---
+# 연령(각세)별
+
+코드 65개. 예: 계, 15세미만, 15세, 16세, 17세, 18세, 19세, 20세, 21세, 22세, 23세, 24세, 25세, 26세, 27세, 28세, 29세, 30세, 31세, 32세
+
+# 쓰는 표
+
+- [시도/성/연령별 혼인(발생기준)](/tables/101/DT_1B80023.md)
+- [시도/성/연령별 이혼(발생기준)](/tables/101/DT_1B80032.md)
+
+# 메모
+
+<!-- human:start -->
+<!-- human:end -->

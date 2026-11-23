@@ -1,0 +1,94 @@
+---
+type: Stat Table
+title: 시도/성/연령별 외국인
+description: 인구총조사 · Y 2000 · 분류 시도별, 연령별 · 항목 3개 (인구, 남자, 여자)
+resource: https://kosis.kr/statHtml/statHtml.do?orgId=101&tblId=DT_1INOO09
+tags: [인구총조사]
+generated: {by: 'process:okf-tables/1', at: '2026-11-23T11:43:10+09:00'}
+x-t4-table:
+  org_id: '101'
+  tbl_id: DT_1INOO09
+  survey: 인구총조사
+  periods:
+    Y: ['2000']
+  dims:
+  - level: 1
+    name: 시도별
+    kind: geo
+    n_codes: 17
+    total_code: '00'
+    codes:
+    - {code: '00', name: 전국, total: true}
+    - {code: '11', name: 서울특별시}
+    - {code: '21', name: 부산광역시}
+    - {code: '22', name: 대구광역시}
+    - {code: '23', name: 인천광역시}
+    - {code: '24', name: 광주광역시}
+    - {code: '25', name: 대전광역시}
+    - {code: '26', name: 울산광역시}
+    - {code: '31', name: 경기도}
+    - {code: '32', name: 강원도}
+    - {code: '33', name: 충청북도}
+    - {code: '34', name: 충청남도}
+    - {code: '35', name: 전라북도}
+    - {code: '36', name: 전라남도}
+    - {code: '37', name: 경상북도}
+    - {code: '38', name: 경상남도}
+    - {code: '39', name: 제주도}
+  - level: 2
+    name: 연령별
+    kind: age
+    n_codes: 19
+    total_code: '000'
+    codes:
+    - {code: '000', name: 계, total: true}
+    - {code: '520', name: 0세}
+    - {code: '040', name: 1 - 4세}
+    - {code: '050', name: 5 - 9세}
+    - {code: '070', name: 10 - 14세}
+    - {code: '100', name: 15 - 19세}
+    - {code: '120', name: 20 - 24세}
+    - {code: '130', name: 25 - 29세}
+    - {code: '150', name: 30 - 34세}
+    - {code: '160', name: 35 - 39세}
+    - {code: '180', name: 40 - 44세}
+    - {code: '190', name: 45 - 49세}
+    - {code: '210', name: 50 - 54세}
+    - {code: '230', name: 55 - 59세}
+    - {code: '260', name: 60 - 64세}
+    - {code: '280', name: 65 - 69세}
+    - {code: '310', name: 70 - 74세}
+    - {code: '320', name: 75세이상}
+    - {code: '990', name: 연령미상}
+  items:
+  - {id: T1, name: 인구, unit: 명}
+  - {id: T2, name: 남자, unit: 명}
+  - {id: T3, name: 여자, unit: 명}
+---
+# 시도/성/연령별 외국인
+
+- 조사: 인구총조사 · 작성: 국가데이터처 조사관리국 인구총조사과
+- 수록 기간: Y 2000
+- KOSIS: https://kosis.kr/statHtml/statHtml.do?orgId=101&tblId=DT_1INOO09
+
+# Schema
+
+## 분류
+
+| 단계 | 분류 | 종류 | 코드 수 | 합계 코드 | 코드 |
+|---|---|---|---|---|---|
+| 1 | 시도별 | geo | 17 | 00 | 00 전국, 11 서울특별시, 21 부산광역시, 22 대구광역시, 23 인천광역시, 24 광주광역시, 25 대전광역시, 26 울산광역시, 31 경기도, 32 강원도, 33 충청북도, 34 충청남도, 35 전라북도, 36 전라남도, 37 경상북도, 38 경상남도, 39 제주도 |
+| 2 | 연령별 | age | 19 | 000 | 000 계, 520 0세, 040 1 - 4세, 050 5 - 9세, 070 10 - 14세, 100 15 - 19세, 120 20 - 24세, 130 25 - 29세, 150 30 - 34세, 160 35 - 39세, 180 40 - 44세, 190 45 - 49세, 210 50 - 54세, 230 55 - 59세, 260 60 - 64세, 280 65 - 69세, 310 70 - 74세, 320 75세이상, 990 연령미상 |
+
+## 항목
+
+| ID | 이름 | 단위 | 성격 | 더할 수 있음 |
+|---|---|---|---|---|
+| T1 | 인구 | 명 |  |  |
+| T2 | 남자 | 명 |  |  |
+| T3 | 여자 | 명 |  |  |
+
+# 메모
+
+<!-- human:start -->
+<!-- human:end -->
