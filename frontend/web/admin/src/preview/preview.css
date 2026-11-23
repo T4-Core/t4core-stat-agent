@@ -1,0 +1,4 @@
+/* 미리보기에서만 적용됩니다. 비용이 추가로 나갈 수 있는 버튼과 동작하지 않는 중단 버튼을 숨깁니다. */
+.stop-button, .suggestions, .followup, .notice-button, .admin-entry { display: none !important; }
+.app-header a { cursor: default; }
+.adm-preview-idle { display: grid; width: 100%; height: 100%; place-items: center; color: var(--text-500); font-size: 28px; }
