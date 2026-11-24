@@ -100,6 +100,12 @@ def _fits(spec: SubQuestion, o: OutSub) -> bool:
 def match(q: Question, run: dict) -> tuple[list[SubResult], list[OutSub]]:
     outs = outputs(run)
     exps = q.sub_questions
+    if exps and all(s.match_index for s in exps):
+        # [NEW] v2 격리 입력: query_bundle.sub_questions 순서가 기대 하위 질문 순서와 같다 → 순번으로 대응
+        by_n = {i: o for i, o in enumerate(outs, 1)}
+        results = [_observe(s, "matched" if by_n.get(s.match_index) else "missing", by_n.get(s.match_index), run) for s in exps]
+        used = {s.match_index for s in exps}
+        return results, [o for i, o in by_n.items() if i not in used and (o.calcs or o.charts)]
     cand = {s.key: [o for o in outs if _fits(s, o)] for s in exps}
     if len(exps) == 1 and len(outs) == 1 and not cand[exps[0].key]:
         cand[exps[0].key] = outs                  # 하나 대 하나면 내용이 덜 맞아도 같은 질문으로 본다 (예: 항목 표기 차이)

@@ -38,25 +38,55 @@ def _key_eq(want: dict, got: dict) -> bool:
 
 
 AMBIGUOUS = {"ambiguous": True}
+MISSING = {"missing": True}          # [NEW] 기대 지역의 결과 점이 없음 (다른 지역 점만 있음)
+
+
+def _region_col(k: str) -> bool:
+    """결과 점 key 중 지역 차원 (성별 · 연령 같은 다른 나눔은 아니다 — C03 {시점, 성별} 점을 지역 누락으로 오판)"""
+    return any(w in str(k) for w in ("지역", "시도", "시군구", "행정구역"))
+DEGENERATE_AGG = {"mean", "sum", "max", "min"}
+
+
+def degenerate_aggregate(c: dict) -> bool:
+    """[NEW] 입력 행이 하나인 aggregate(mean · sum · max · min)는 값이 그 행 원값과 같다 (v2 R18: '평균 매출액' 1행에 mean)"""
+    agg = c.get("agg") or (c.get("params") or {}).get("agg")
+    return c.get("op") == "aggregate" and agg in DEGENERATE_AGG and len(c.get("inputs") or []) == 1
+
+
+def _unit_fits(c: dict, vs: ValueSpec) -> bool:
+    u = normalize(1.0, c.get("unit")).unit
+    if vs.unit in ("ratio", "pp") or u in ("ratio", "pp"):
+        return u == vs.unit
+    return True
 
 
 def find_value(calcs: list[dict], vs: ValueSpec, op: str | None, regions: list[str] | None = None) -> tuple[dict | None, dict | None]:
     """기대값에 대응하는 결과 점. key 가 부분 일치하는 점이 여럿이면(share 를 전국 포함 모든 지역에 계산 — 11-23 live 실행 Q28)
     기대 지역으로 좁힌다. 그래도 여럿이고 값이 다르면 (None, AMBIGUOUS) → 수동"""
     pool = [c for c in calcs if has_value(c) and (op is None or c.get("op") == op)] or [c for c in calcs if has_value(c)]
+    if op is None:
+        # [NEW] 연산을 하나로 정하지 않은 하위 질문(v2 C06: raw + share): 정규형 단위가 같은 결과에서만 찾는다 (20명 ↔ 16.7% 비교 방지)
+        pool = [c for c in pool if _unit_fits(c, vs)]
     hits = []
     for c in pool:
         pts = points(c)
+        scalar = not isinstance(c.get("value"), list)
         for p in pts:
             if vs.key is None and len(pts) > 1:
                 continue
-            if vs.key is None or _key_eq(vs.key, p.get("key") or {}):
+            # [CHANGED] 이전: 단일 값(scalar) 결과도 key 를 요구해 '결과 key {}' 로 실패했다 (v2 R06 share). scalar 는 key 가 없다
+            if vs.key is None or scalar or _key_eq(vs.key, p.get("key") or {}):
                 hits.append((c, p))
     if len(hits) <= 1:
         return hits[0] if hits else (None, None)
-    want = {region_key(r) for r in (([vs.binding.region] if vs.binding and vs.binding.region else []) or regions or [])}
+    # [CHANGED] 이전: [vs.binding.region] — v2 binding 은 지역 목록이다
+    want = {region_key(r) for r in ((vs.binding.regions() if vs.binding else []) or regions or [])}
     if want:
         narrowed = [(c, p) for c, p in hits if any(region_key(v) in want for k, v in (p.get("key") or {}).items() if k != "시점")]
+        if not narrowed and all(any(_region_col(k) for k in (p.get("key") or {})) for _, p in hits):
+            # [CHANGED] 이전: narrowed or hits — 기대 지역 점이 없으면 다른 지역 점들로 되돌아가 '모호(수동)' 가 되고 누락이 통과했다
+            # (v2 slots C15: M3 가 '나시' 를 빼고 계산). 결과 점에 지역 차원이 있는데 기대 지역이 없으면 누락이다
+            return None, MISSING
         hits = narrowed or hits
     if len(hits) == 1 or len({p.get("value") for _, p in hits}) == 1:
         return hits[0]
@@ -102,7 +132,15 @@ def check(spec: SubQuestion, exp: SubExpect, res: SubResult, run: dict) -> list[
     if op:
         ops = [c.get("op") for c in valued]
         ok = op in ops or bool(spec.match.op_any and set(ops) & set(spec.match.op_any))
+        degenerate = [c for c in valued if degenerate_aggregate(c)]
+        if not ok and op == "raw" and degenerate and all(c.get("op") == "raw" or degenerate_aggregate(c) for c in valued):
+            # [CHANGED] 이전: 단일 입력 aggregate 도 기대 raw 와 다르면 1단계 실패. 결과는 원값과 같으므로 판정은 통과,
+            # 계획 품질(이미 집계된 행에 다시 집계)은 지표로만 남긴다
+            ok = True
         out.append(Finding("operation", "stage1", "M3", ok, f"연산 {ops} / 기대 {op}", spec.key))
+        if degenerate:
+            out.append(Finding("degenerate_aggregate", "metric", "M3", False,
+                               f"입력 1행 집계 {[(c.get('step_id'), c.get('agg')) for c in degenerate]}", spec.key))
     if spec.m3.operands or spec.m3.denominator:
         target = next((c for c in valued if c.get("op") == op), valued[0])
         coords, resolved = operand_coords(target, records, steps)
@@ -121,10 +159,13 @@ def check(spec: SubQuestion, exp: SubExpect, res: SubResult, run: dict) -> list[
         if p is AMBIGUOUS:
             out.append(Finding("execution", "stage1", "M3", None, f"기대값 {vs.key} 에 맞는 결과 점이 여럿 (지역으로 좁힐 수 없음)", spec.key))
             continue
-        if p is None:
-            same_op = [x for x in valued if x.get("op") == op] or valued
+        if p is None or p is MISSING:
+            same_op = [x for x in valued if x.get("op") == op] or ([x for x in valued if _unit_fits(x, vs)] if op is None else valued)
             pts = [pt for x in same_op for pt in points(x)]
-            if vs.key and len(pts) == 1:
+            if op is None and not pts:
+                # v2 다중 연산 하위 질문: 이 claim 의 단위로 낸 결과가 없다 (C06 원값 20명을 계산하지 않고 구성비만 냄) → 완전성 문제
+                out.append(Finding("execution_point", "stage2", "M3", False, f"기대 단위 {vs.unit} 의 결과 없음", spec.key))
+            elif vs.key and len(pts) == 1:
                 # 값이 하나인 결과(extreme 등)의 key 가 기대와 다르다 = 다른 대상을 답으로 냄 (기준선 3회차 Q33: 1980년)
                 out.append(Finding("execution", "stage1", "M3", False, f"결과 key {pts[0].get('key')} / 기대 {vs.key}", spec.key))
             elif vs.key and pts:
