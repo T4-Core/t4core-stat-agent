@@ -20,7 +20,8 @@
 .chart-tab.on { border-color: var(--primary-500); background: var(--surface-120); color: var(--primary-900); }
 .chart-tab.on span { border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
 .chart-heading { margin-top: 15px; color: var(--text-900); font-size: 14.5px; font-weight: 600; }
-.chart-unit { margin: 3px 0 5px; color: var(--text-500); font-size: 12px; font-weight: 500; }
+/* 아래 여백으로 그래프와 화살표 줄을 함께 내립니다. (화살표 줄 위쪽 = 화면 기준 623) */
+.chart-unit { margin: 3px 0 9.95px; color: var(--text-500); font-size: 12px; font-weight: 500; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 14px; }
 .pager button { width: 30px; height: 30px; }
 .pager-dots { display: inline-flex; align-items: center; gap: 4px; }
