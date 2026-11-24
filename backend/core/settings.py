@@ -65,6 +65,8 @@ class Settings(BaseModel):
     view_main_with_subs: bool = False
     view_first_only_when_same: bool = False      # View 2개의 겹치는 교차점 값이 모두 같고 2순위에만 있는 교차점이 없으면 1순위만
     view_stitch: bool = False                    # 검색 결과의 stitch(같은 통계의 다른 연도 표)로 View 를 더 만들어 함께 넘김
+    view_records_per_unit: int = 0               # >0 = 검색 단위마다 답변으로 넘길 Record 를 이만큼 채움 (View 실패·요청 지표 없는 표는
+                                                 #   건너뛰고 다음 후보로) + 자동 선택이어도 고르지 않은 무리의 Record 를 뒤에 함께 (0 = 기존)
     conflict_indicator_core: bool = True         # 지표가 '표 이름에만 있음' 이면 핵심어('혼인건수' → '혼인')로 항목을 다시 확인
     conflict_rel_tol: float = 0.0
     conflict_abs_tol: float = 1e-9
