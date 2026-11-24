@@ -5,6 +5,7 @@ import active from '../assets/figma/step-active.svg';
 import check from '../assets/figma/step-check.svg';
 import pending from '../assets/figma/step-pending.svg';
 import { Character } from '../character';
+import { ThinkingBubble } from '../character/ThinkingBubble';
 import { Frame, QueryPill } from '../components/Layout';
 import { startRun, stopRun } from '../store/agent';
 import { routeForRun, useRun } from '../store/history';
@@ -45,6 +46,7 @@ export function GeneratingPage() {
     <Frame variant="generating">
       <QueryPill className="generating-pill" question={run.question} />
       <Character className="generating-sloth" size="L" motion="thinking" />
+      <ThinkingBubble className="generating-bubble" step={step} />
       <h1 className="generating-title">{TITLES[step]}</h1>
       <ol className="progress-card">
         {STEPS.map((label, index) => {
