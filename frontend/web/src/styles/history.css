@@ -43,7 +43,9 @@
 .preview-actions a { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 110px; height: 44px; border: 1px solid var(--line-200); border-radius: 12px; background: #fff; color: var(--primary-900); font-size: 14px; font-weight: 600; }
 .preview-actions a.primary { width: 229px; border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
 .preview-actions button { width: 46px; height: 44px; }
-.empty-sloth { position: absolute; left: 554px; top: 158px; width: 331px; height: 367px; object-fit: contain; }
-.empty-title { position: absolute; left: 0; top: 525px; width: 1440px; color: var(--text-900); font-size: 22px; font-weight: 600; text-align: center; }
-.empty-sub { position: absolute; left: 0; top: 562.6px; width: 1440px; color: var(--text-700); font-size: 15px; font-weight: 500; text-align: center; }
-.empty-button { position: absolute; left: 627.7px; top: 609.3px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 162.7px; height: 44px; border-radius: 12px; background: var(--primary-500); color: #fff; font-size: 14px; font-weight: 600; }
+/* 나무늘보는 너비 331 → 341(10 크게)로 비율 유지해 키웁니다. 가운데를 기준으로 커져서 가로 정가운데는 그대로입니다. */
+.empty-sloth { position: absolute; left: 554px; top: 163px; width: 331px; height: 367px; object-fit: contain; transform: scale(1.0302); }
+/* 제목·부제목·버튼은 모두 화면 정가운데(720) 기준입니다. */
+.empty-title { position: absolute; left: 0; top: 540px; width: 1440px; color: var(--text-900); font-size: 22px; font-weight: 600; text-align: center; }
+.empty-sub { position: absolute; left: 0; top: 583px; width: 1440px; color: var(--text-700); font-size: 15px; font-weight: 500; text-align: center; }
+.empty-button { position: absolute; left: 638.5px; top: 630px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 163px; height: 46px; border-radius: 12px; background: var(--primary-500); color: #fff; font-size: 15px; font-weight: 600; }
