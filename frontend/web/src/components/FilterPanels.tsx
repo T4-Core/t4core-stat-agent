@@ -1,7 +1,8 @@
 // Main 화면의 지역·시점·대상 선택 드롭다운입니다.
 import { useMemo, useState } from 'react';
 import search from '../assets/figma/search.svg';
-import { SEOUL_MAIN, SEOUL_MORE, SIDO, TARGET_GROUPS, YEARS } from '../data/examples';
+import { DISTRICT_FIRST_COUNT, DISTRICTS } from '../data/districts';
+import { SIDO, TARGET_GROUPS, YEARS } from '../data/examples';
 import type { Filters, TimeMode } from '../data/types';
 
 type PanelProps = {
@@ -32,25 +33,41 @@ export function RegionPanel({ filters, onCancel, onApply }: PanelProps) {
   // (이미 적용한 지역이 있으면 그 지역이 칠해진 채로 열림)
   const [regions, setRegions] = useState(filters.regions);
   const [touched, setTouched] = useState(filters.regions.length > 0);
+  // district 값: '전체' | 시군구('수원시', '종로구') | 시+구('수원시 장안구')
   const [district, setDistrict] = useState(filters.district);
   const [expanded, setExpanded] = useState(false);
+  // 구 목록을 보고 있는 시. 이미 '수원시 장안구'를 적용했다면 수원시의 구 목록으로 바로 열립니다.
+  const [openCity, setOpenCity] = useState<string | null>(filters.district.includes(' ') ? filters.district.split(' ')[0] : null);
   const picked = regions.length > 0;
   const effective = picked ? regions : touched ? [] : DEFAULT_REGIONS;
   const first = effective[0] ?? '';
-  const districts = first === '서울' && effective.length === 1 ? (expanded ? [...SEOUL_MAIN, ...SEOUL_MORE] : SEOUL_MAIN) : ['전체'];
+  // 시도를 하나만 골랐을 때만 시군구를 보여줍니다. (여러 곳·전국·세종은 '전체'만)
+  const nodes = effective.length === 1 ? DISTRICTS[first] ?? [] : [];
+  const city = openCity ? nodes.find((node) => node.name === openCity) : undefined;
+  const hidden = Math.max(0, nodes.length - DISTRICT_FIRST_COUNT);
+  const shown = expanded ? nodes : nodes.slice(0, DISTRICT_FIRST_COUNT);
 
-  // 지역을 누르면 시군구는 '전체'로 돌아갑니다.
+  // 지역을 누르면 시군구는 '전체'로 돌아가고, 펼침·구 목록도 닫습니다.
   const toggle = (name: string) => {
     setTouched(true);
     setDistrict('전체');
+    setExpanded(false);
+    setOpenCity(null);
     setRegions((current) => (current.includes(name) ? current.filter((item) => item !== name) : [...current, name]));
   };
-  // 기본값 상태에서 구를 바로 누르면 서울도 함께 고른 것으로 칩니다.
-  const pickDistrict = (name: string) => {
+  // 기본값 상태에서 시군구를 바로 누르면 서울도 함께 고른 것으로 칩니다.
+  const pickDistrict = (value: string) => {
     if (!picked) setRegions(DEFAULT_REGIONS);
     setTouched(true);
-    setDistrict(name);
+    setDistrict(value);
   };
+  // 시군구를 누를 때: 구가 있는 시면 그 시를 고르고 구 목록으로 바꿉니다.
+  const pickNode = (name: string, hasChildren: boolean) => {
+    pickDistrict(name);
+    if (hasChildren) setOpenCity(name);
+  };
+  // 시군구 버튼이 칠해지는 조건: 그 시군구 자체 또는 그 아래 구를 고른 경우
+  const nodeOn = (name: string) => picked && (district === name || district.startsWith(`${name} `));
   const label = effective.length > 1 ? `${first} 외 ${effective.length - 1}` : first ? `${first} ${district}` : '없음';
 
   return (
@@ -64,16 +81,34 @@ export function RegionPanel({ filters, onCancel, onApply }: PanelProps) {
           <button type="button" key={name} className={regions.includes(name) ? 'opt selected' : 'opt'} aria-pressed={regions.includes(name)} onClick={() => toggle(name)}>{name}</button>
         ))}
       </div>
-      <div className="panel-label">{first || '지역'} · 시군구 (선택)</div>
-      <div className={expanded ? 'option-grid six scroll' : 'option-grid six'}>
-        {districts.map((name) => (
-          // 지역을 모두 뺀 상태에서는 시군구를 누를 수 없습니다.
-          <button type="button" key={name} className={picked && district === name ? 'opt soft' : 'opt'} aria-pressed={picked && district === name} disabled={!first} onClick={() => pickDistrict(name)}>{name}</button>
-        ))}
-        {first === '서울' && effective.length === 1 && !expanded && (
-          <button type="button" className="opt" onClick={() => setExpanded(true)}>더보기 +15</button>
-        )}
-      </div>
+      {city?.children ? (
+        // 구 목록: 시를 고른 뒤 그 시의 구를 고릅니다.
+        <>
+          <div className="panel-label">{first} · {city.name} · 구 (선택)</div>
+          <div className="option-grid six">
+            <button type="button" className={picked && district === city.name ? 'opt soft' : 'opt'} aria-pressed={picked && district === city.name} onClick={() => pickDistrict(city.name)}>전체</button>
+            {city.children.map((gu) => {
+              const value = `${city.name} ${gu}`;
+              return <button type="button" key={gu} className={picked && district === value ? 'opt soft' : 'opt'} aria-pressed={picked && district === value} onClick={() => pickDistrict(value)}>{gu}</button>;
+            })}
+            <button type="button" className="opt" onClick={() => setOpenCity(null)}>← 시군구로</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="panel-label">{first || '지역'} · 시군구 (선택)</div>
+          <div className={expanded ? 'option-grid six scroll' : 'option-grid six'}>
+            {/* 지역을 모두 뺀 상태에서는 시군구를 누를 수 없습니다. */}
+            <button type="button" className={picked && district === '전체' ? 'opt soft' : 'opt'} aria-pressed={picked && district === '전체'} disabled={!first} onClick={() => pickDistrict('전체')}>전체</button>
+            {shown.map((node) => (
+              <button type="button" key={node.name} className={nodeOn(node.name) ? 'opt soft' : 'opt'} aria-pressed={nodeOn(node.name)} onClick={() => pickNode(node.name, Boolean(node.children))}>{node.name}{node.children ? ' ›' : ''}</button>
+            ))}
+            {hidden > 0 && !expanded && (
+              <button type="button" className="opt" onClick={() => setExpanded(true)}>더보기 +{hidden}</button>
+            )}
+          </div>
+        </>
+      )}
       <PanelFooter label={label} canApply={effective.length > 0} onCancel={onCancel} onApply={() => onApply({ regions: effective, district })} />
     </section>
   );
