@@ -126,7 +126,7 @@ export function MainPage() {
 
   return (
     <Frame variant="main">
-      <Character className="main-sloth" size="M" motion="idle" />
+      <Character className="main-sloth" size="M" motion="wave" />
       <div className="main-bubble">
         <img className="bubble-shape" src={bubble} alt="" />
         <p>안녕하세요!<br />무엇을 도와드릴까요?</p>

@@ -1,6 +1,7 @@
 /* 1. Main 화면과 드롭다운 */
 /* 위치는 Figma 카드 기준 값 + 카드 여백 18px. 지역·시점·대상을 골라도 움직이지 않습니다. */
-.main-sloth { position: absolute; left: 609px; top: 88px; width: 224px; height: 209px; object-fit: fill; z-index: 1; }
+/* 나무늘보는 M 크기(224×241)를 90%로 줄여 시안 크기에 맞춥니다. */
+.main-sloth { position: absolute; left: 613px; top: 98px; transform: scale(0.9); z-index: 1; }
 .main-bubble { position: absolute; left: 803px; top: 176px; width: 152px; height: 86px; z-index: 1; }
 .bubble-shape { position: absolute; left: 0; top: 0; width: 152.6px; height: 70.4px; }
 .main-bubble p { position: absolute; left: 0; top: 18.2px; width: 152px; color: #394650; font-size: 11px; line-height: 18.1px; text-align: center; }
