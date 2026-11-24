@@ -21,3 +21,13 @@ def _no_hidden_internal_errors(request, caplog):
         return
     hidden = [r.getMessage() for r in caplog.records if "내부 오류로 계산하지 못함" in r.getMessage()]
     assert not hidden, f"계산 중 예기치 못한 예외가 사유 뒤에 숨었다: {hidden}"
+
+
+# [NEW 11-23] OKF 지식 카탈로그: 내 PC 의 실제 빌드(storage/okf_build/CURRENT)가 테스트에 섞이지 않게 비어 있는 폴더로.
+# 빌드를 쓰는 테스트(test_okf*.py)는 자기 빌드를 만들어 config.OKF_BUILD_DIR 을 다시 바꾼다
+@pytest.fixture(autouse=True)
+def _isolated_okf(tmp_path_factory, monkeypatch):
+    from backend.core import config
+    d = tmp_path_factory.mktemp("okf_none")
+    monkeypatch.setattr(config, "OKF_DIR", d / "okf")
+    monkeypatch.setattr(config, "OKF_BUILD_DIR", d / "okf_build")

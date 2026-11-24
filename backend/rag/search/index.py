@@ -7,6 +7,7 @@
   BM25Retriever     rank_bm25 Okapi. 문서 토큰은 색인 토큰 → 디스크 캐시 → 새로 계산 순
   DenseRetriever    임베더로 코퍼스 전체를 벡터화(디스크 캐시) 후 코사인. 문서 묶음(view)이 여럿이면 표마다 최댓값
   dense_doc_views   dense 에 넣을 문서: rule(표 설명문) · def · slot · tmpl · tslot (dense 카드) · kos14 (팀 카드)
+                    · okf (표 설명문 + OKF 개념 별칭 줄 — search/okf_terms.py)
   HcxEmbedder       CLOVA Studio 임베딩 v2 (bge-m3)
   HashEmbedder      글자 2-gram 해시 벡터 (네트워크 없이 구조 확인용)
 """
@@ -251,7 +252,7 @@ class DenseRetriever:
         return [(int(i), float(sims[i])) for i in np.argsort(-sims)[:k]]
 
 
-DOC_VIEWS = ("rule", "def", "slot", "tmpl", "tslot", "kos14", "vals")
+DOC_VIEWS = ("rule", "def", "slot", "tmpl", "tslot", "kos14", "vals", "okf")
 _CARD_FIELD = {"def": "def_text", "slot": "slot_text", "tmpl": "tmpl_text", "tslot": "tslot_text"}
 
 
@@ -300,6 +301,13 @@ def dense_doc_views(corpus, spec="rule", cards=None, kos14=None, log=None, facet
             out["vals"] = [value_chunks(facets[d.id], vocab) if d.id in facets else [d.text] for d in docs]
             if log:
                 log(f"[search] dense 문서 vals: 조각 {sum(len(x) for x in out['vals'])}개 (표 {len(docs)})")
+            continue
+        if v == "okf":  # 표 설명문 + OKF 개념 별칭 줄 (별칭 없는 표는 설명문 그대로 → 임베딩 캐시를 다시 씀)
+            from backend.rag.search.okf_terms import alias_line, table_aliases
+            al = table_aliases()
+            out["okf"] = [d.text + ("\n" + alias_line(al["by_tbl"][d.id]) if d.id in al["by_tbl"] else "") for d in docs]
+            if log:
+                log(f"[search] dense 문서 okf: 별칭이 붙은 표 {al['n_tables']}/{len(docs)} (빌드 {al['build'] or '없음'})")
             continue
         if v == "kos14":
             if not kos14:

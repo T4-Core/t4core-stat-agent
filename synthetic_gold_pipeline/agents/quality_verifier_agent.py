@@ -26,7 +26,10 @@ SYSTEM_PROMPT = """당신은 국가통계 평가셋 검수자입니다. 아래 �
 - statistical_validity: 잘못된 통계적 비교나 인과관계 해석이 있는가 (있으면 false)
 - multi_hop_necessity: 모든 필수 근거 View 가 질문에 의미 있게 기여하는가 (무관한 두 질문을 이어 붙인 형태면 false).
   같은 표의 두 시점 비교·같은 표의 두 분류 비교도 두 View 가 모두 필요하면 true
-- paraphrase_equivalence: question_paraphrased 가 question_original 과 같은 의미·조건인가
+- paraphrase_equivalence: question_paraphrased 가 question_original 과 같은 의미·조건인가.
+  facts.distinguish_from 의 형제 표와 가르는 말(only_in_this)을 P 가 모두 잃어 형제 표도 똑같이 답이 되면 false
+  (예: '당해연도 혼인 비율' 을 '결혼 비율' 로만 쓰면 '누적 혼인 비율' 도 답 — false). 표 이름의 성별 '(남)'·모집단 '(15세이상)' 이
+  P 에서 빠져도 false
 - natural_question: 통계를 찾는 실제 사용자가 물을 법한 질문인가. 서로 관련 없는 지표를 억지로 나누거나 비교하면
   (예: 혼인 건수 ÷ 외국인 입국자, 비율 ÷ 평균), 조건이 너무 많아 한 번에 읽히지 않으면 false
 - rejection_reasons: 문제가 있으면 구체적 이유

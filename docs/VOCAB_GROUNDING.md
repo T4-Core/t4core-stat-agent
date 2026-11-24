@@ -26,6 +26,8 @@ python -m backend.rag.query_analyzer.vocab find 모+미혼자녀 가구원수
 python -m backend.rag.query_analyzer.vocab check "2020년 세종 싱글맘 가정 식구" 대상=한부모가구 지표=가구원수
 ```
 
+**OKF 지식 카탈로그 빌드(`storage/okf_build/CURRENT`)가 있으면 사전과 별칭을 그 빌드에서 읽는다.** 별칭은 개념 파일의 승인된 별칭이다([OKF_FORMAT.md](OKF_FORMAT.md)). `okf_use: false` 면 아래 방식으로 돌아간다.
+
 파일이 없으면 분석할 때 CSV 값 사전으로 바로 만든다(`settings.csv_scope`). 표가 1,092개쯤 되면 시간이 걸리므로 `build` 로 파일을 만들어 두는 것을 권한다.
 
 사전 한 줄: `{name, norm, slot, dim, kind, unit, role, additive, is_total, codes, n_tables, tables}`.
