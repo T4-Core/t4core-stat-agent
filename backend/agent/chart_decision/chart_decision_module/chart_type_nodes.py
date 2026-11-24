@@ -7,6 +7,7 @@ import copy
 from pathlib import Path
 
 from .chart_type_chart_picker import attach_requirements, pick_chart
+from .chart_type_frames import chart_measure
 from .chart_type_loader import load_json, slim_query_bundle, slim_view_input
 from .chart_type_matcher import match_units
 from .chart_type_measure import decide_measure
@@ -245,8 +246,12 @@ def chart_select_node(state):
     for m in ms:
         block, exclude, why = blocks[m["chart_id"]]
         info = _request_info(m, qb)
+        # [NEW 11-24] 차이 계산의 결과가 1개면 차트는 비교한 값들(raw)을 그린다. 답변 계산은 모듈 3 이 질문으로 정한다
+        measure, swap = chart_measure(m, qb)
+        if swap:
+            errors.append({"node": "chart_select", "chart_id": m["chart_id"], "level": "info", "reason": swap})
         base = {"chart_id": m["chart_id"], "sub_question_ids": [m["sub_question_id"]],
-                "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"], "request": info}
+                "view_ids": [m["filtered_view"]["record"]["id"]], "measure": measure, "request": info, "measure_note": swap}
         if block:                                                   # View 가 질문에 맞지 않음 → 차트 없음 (표만)
             record_selection(info, None, block=block)               # [NEW] 차단돼도 요청과 사유(view_blocked)를 남긴다
             charts.append({**base, "chart_type": None, "fallback_charts": [], "source": "rule", "blocked": True,
@@ -255,7 +260,7 @@ def chart_select_node(state):
                            "reason": f"차트 없음(표만): {block}"})
             continue
         codes, excl = requested_codes(info)
-        r = pick_chart(m["measure"], m["profile"], use_llm=False, exclude=exclude, exclude_why=why,
+        r = pick_chart(measure, m["profile"], use_llm=False, exclude=exclude, exclude_why=why,
                        requested=codes, excluded=excl)
         record_selection(info, r)
         charts.append({**base, "chart_type": r["chart_type"], "fallback_charts": r["fallback_charts"],
@@ -298,6 +303,8 @@ def reason_node(state):
         c = dict(c)
         ms = [by_sq[s] for s in c["sub_question_ids"]]
         c["reason"] = make_reason([m["sub_filter"] for m in ms], qb, [m["sub_question"] for m in ms])
+        if c.get("measure_note"):                                   # 차트 measure 를 raw 로 바꾼 사유 (원래 계산 이름이 남는다)
+            c["reason"] = f"{c['reason']} · {c['measure_note']}"
         c["warnings"] = chart_warnings(state.get("errors"), [m["chart_id"] for m in ms])
         charts.append(c)
         plan_charts.append({k: c[k] for k in CHART_KEYS})

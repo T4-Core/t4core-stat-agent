@@ -77,7 +77,8 @@ class DecideResponse(BaseModel):
 def chart_decide(body: DecideRequest):
     """모듈 2(`backend/agent/chart_decision`)를 실행하고, 결과를 모듈 3 입력(`ChartRequest`)으로 바꿔 돌려준다.
 
-    - 바꾸는 것(임시 어댑터): `fallback_charts` 목록 → `fallback_chart` 첫 값, `measure` None → raw, `'범위 밖'` → 차트 없음,
+    - 바꾸는 것(임시 어댑터): `fallback_charts` 목록 → 그대로 `fallback_charts` + 첫 값을 `fallback_chart`
+      (모듈 3 은 통과할 때까지 순서대로 시도), `measure` None → raw, `'범위 밖'` → 차트 없음,
       하위 질문이 없을 때의 `sub_question_ids` `'main'` → `'{query_id}-1'`.
       바꾼 사실은 `reason` 에 남는다. 원래 값은 `chart_plan` 에 그대로 있다.
     - 모듈 2 의 `view_ids` 는 차트마다 그대로 전달된다 (세트 = 질문 · 차트 유형 · View). `records` 에 없는 View 가 있으면 `errors` 에 경고.

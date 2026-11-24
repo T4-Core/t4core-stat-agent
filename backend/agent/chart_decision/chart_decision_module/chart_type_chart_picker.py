@@ -3,20 +3,19 @@
 measure 후보를 우선순위 순서대로 보며 requirements를 못 지키는 차트를 지운다.
 (노트북 chart_type_decision.ipynb에서 옮김 — 로직은 노트북과 같다)
 """
+from .chart_type_frames import check_frame
 from .chart_type_preference import shape_score
 from .chart_type_rules import (
-    CHART_REQUIREMENTS, MEASURE_TO_CHARTS, OUT_OF_SCOPE, REQ_CHECKS, REQUEST_ONLY_CHARTS,
+    CHART_REQUIREMENTS, MEASURE_TO_CHARTS, OUT_OF_SCOPE, REQUEST_ONLY_CHARTS,
 )
 
 
-def check_chart(chart, profile):
-    """차트 하나의 requirements를 모두 검사. 반환: (통과 여부, 못 지킨 조건 설명 목록)"""
-    fails = []
-    for req in CHART_REQUIREMENTS[chart]:
-        ok, desc = REQ_CHECKS[req](profile)
-        if not ok:
-            fails.append(f"{req}: {desc}")
-    return not fails, fails
+def check_chart(chart, profile, measure=None):
+    """차트 하나를 빈 좌표에 꽂아 본다 (chart_type_frames). 반환: (통과 여부, 못 맞춘 이유 목록)
+    [CHANGED 11-24] 이전: CHART_REQUIREMENTS 를 profile 로 추정 판정 (REQ_CHECKS) — 최대 개수 · 합계 행처럼 계산 뒤에야 알 수 있는 조건까지
+    계산 전 표로 막았다. 이제 표 구조와 최소 개수만 보고, requirements(최대 개수 포함)는 모듈 3 이 계산 뒤 판정한다"""
+    ok, fails, _ = check_frame(chart, profile, measure)
+    return ok, fails
 
 def pick_chart_llm(measure, profile, log):
     """규칙 실패(후보가 모두 소거) 시 LLM 호출 자리 (B안). 지금은 호출하지 않고 None을 돌려준다."""
@@ -52,7 +51,7 @@ def pick_chart(measure, profile, use_llm=True, exclude=(), exclude_why=None, req
         elif rq not in CHART_REQUIREMENTS:                       # [NEW] 지원하지 않는 코드 (KeyError 방지)
             why = "지원하지 않는 차트"
         else:
-            ok, fails = check_chart(rq, profile)
+            ok, fails = check_chart(rq, profile, measure)
             why = None if ok else " / ".join(fails)
         if k == 0:
             request = {"chart": rq, "ok": why is None, "why": why}
@@ -80,13 +79,12 @@ def pick_chart(measure, profile, use_llm=True, exclude=(), exclude_why=None, req
         if chart in REQUEST_ONLY_CHARTS:                  # 지도 등: 요청할 때만
             log.append({"후보": chart, "결과": "소거", "이유": "요청할 때만 고르는 차트"})
             continue
-        ok, fails = check_chart(chart, profile)
+        ok, fails, need = check_frame(chart, profile, measure)
         if ok:
             score, basis = shape_score(chart, profile, measure)
             survivors.append((score, i, chart))
             log.append({"후보": chart, "결과": "남음",
-                        "이유": ", ".join(REQ_CHECKS[r](profile)[1] for r in CHART_REQUIREMENTS[chart])
-                              + f" · 점수 {score}" + (f" ({basis})" if basis else "")})
+                        "이유": f"좌표 맞음: {need} · 점수 {score}" + (f" ({basis})" if basis else "")})
         else:
             log.append({"후보": chart, "결과": "소거", "이유": " / ".join(fails)})
     ranked = [c for _, _, c in sorted(survivors, key=lambda t: (-t[0], t[1]))]

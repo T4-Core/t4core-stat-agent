@@ -46,7 +46,7 @@ def test_line_matches_spec_c1():
         "original": {"chart_type": "line", "passed": True,
                      "checked": ["data_present", "required_roles", "time_axis_required", "min_points_3"],
                      "failed": [], "reasons": []},
-        "fallback": None, "final_chart_type": "line", "content_built": True}
+        "fallback": None, "final_chart_type": "line", "content_built": True, "fallbacks": []}
 
 
 def test_pie_falls_back_to_bar_like_spec_c4():
@@ -58,6 +58,33 @@ def test_pie_falls_back_to_bar_like_spec_c4():
     assert content.chart_type == "bar" and content.encoding == {"x": "행정구역별", "y": "값"}
     assert content.options == {"orientation": "vertical"} and content.axis["y"].min == 0
     assert content.title == "2025 인구수 행정구역별 비교"
+
+
+def test_fallbacks_are_tried_in_order_until_one_passes():
+    """[NEW 11-24] 대체 후보를 통과할 때까지 앞에서부터 시도한다. 시도한 것은 fallbacks 에 모두 남는다"""
+    p = plan("pie", "donut", select={}, steps=[{"step_id": "s1", "op": "raw", "operands": operand("인구수(명)", {})}])
+    p.fallback_charts = ["donut", "bar"]
+    content, v = build_chart(p, [regions(17)])
+    assert [c.chart_type for c in v.fallbacks] == ["donut", "bar"]
+    assert [c.passed for c in v.fallbacks] == [False, True]
+    assert v.fallback.chart_type == "bar" and (v.final_chart_type, v.content_built) == ("bar", True)
+    assert content.chart_type == "bar"
+
+
+def test_fallbacks_stop_at_first_pass():
+    p = plan("pie", "bar", select={}, steps=[{"step_id": "s1", "op": "raw", "operands": operand("인구수(명)", {})}])
+    p.fallback_charts = ["bar", "donut"]
+    _, v = build_chart(p, [regions(17)])
+    assert [c.chart_type for c in v.fallbacks] == ["bar"]
+
+
+def test_single_value_guard_also_applies_to_fallbacks():
+    """[NEW 11-24] 원래 차트의 min_categories_2 는 대체 차트에도 건다 (1조각 원그래프 · 막대 1개를 만들지 않는다)"""
+    p = plan("bar", "pie", select={}, steps=[{"step_id": "s1", "op": "raw", "operands": operand("인구수(명)", {})}])
+    p.fallback_charts = ["pie", "donut"]
+    content, v = build_chart(p, [regions(1)], ["max_categories_20", "min_categories_2"])
+    assert content is None and [c.chart_type for c in v.fallbacks] == ["pie", "donut"]
+    assert all("min_categories_2" in c.failed for c in v.fallbacks)
 
 
 def test_both_fail_builds_nothing():

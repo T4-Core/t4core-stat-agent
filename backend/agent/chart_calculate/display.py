@@ -35,12 +35,18 @@ def unit_of(item: str | None, fallback: str | None = None) -> str | None:
 
     괄호가 없으면 fallback(View metadata.unit)을 쓰되, 단위가 하나일 때만 쓴다.
     metadata.unit 은 '명 건' 처럼 여러 단위가 붙어 올 수 있어 기준이 못 된다 (명세 4장).
+    [NEW 11-24] 단위가 여러 개면 항목 이름(끝의 '수' 를 뗀 것)이 그 단위로 끝나는 것이 정확히 하나일 때만 그 단위를 쓴다.
+      '가구 명' + '일반가구수' → 가구 ('일반가구' 가 '가구' 로 끝남) · '일반가구원수' → 없음 ('일반가구원').
+      이전: 항상 없음 → 다른 표의 분모와 단위를 맞춰 볼 수 없어 비중을 계산하지 못했다 ('가구 / ?', 골든셋 SG-05ddfdd48569)
     """
     if unit := unit_tail(item):       # [CHANGED 11-18] 이전: 끝 괄호를 모두 단위로 읽음 ('인구(1세이상)' → '1세이상')
         return unit
-    if fallback and len(fallback.split()) == 1:
-        return fallback.strip()
-    return None
+    units = (fallback or "").split()
+    if len(units) == 1:
+        return units[0]
+    stem = re.sub(r"수$", "", re.sub(r"\s+|\(.*?\)", "", item or ""))
+    hits = [u for u in dict.fromkeys(units) if stem.endswith(u)] if stem else []
+    return hits[0] if len(hits) == 1 else None
 
 
 # [NEW 11-13] 비율(%)끼리의 증감·차이는 %p 다 (15.2% → 17.8% 는 2.6%p 증가). growth_rate · cagr 는 상대 변화율이라 % 그대로

@@ -65,7 +65,10 @@
           }
         ],
         "output": null,
-        "title": "2021~2025년 혼인건수 연도별 추이"
+        "title": "2021~2025년 혼인건수 연도별 추이",
+        "fallback_charts": [
+          "bar"
+        ]
       },
       {
         "chart_id": "c2",
@@ -130,7 +133,10 @@
           }
         ],
         "output": null,
-        "title": "2021~2025년 출생아수 연도별 추이"
+        "title": "2021~2025년 출생아수 연도별 추이",
+        "fallback_charts": [
+          "bar"
+        ]
       }
     ],
     "answer_steps": [
@@ -581,7 +587,8 @@
       },
       "fallback": null,
       "final_chart_type": "line",
-      "content_built": true
+      "content_built": true,
+      "fallbacks": []
     },
     "c2": {
       "original": {
@@ -598,7 +605,8 @@
       },
       "fallback": null,
       "final_chart_type": "line",
-      "content_built": true
+      "content_built": true,
+      "fallbacks": []
     }
   }
 }

@@ -58,11 +58,13 @@ def test_charts_are_converted(plan, views, bundle):
     assert c1.fallback_chart == "bar"          # fallback_charts[0]. 안 바꾸면 조용히 사라진다
 
 
-def test_extra_fallbacks_are_recorded_not_lost_silently():
+def test_all_fallbacks_are_passed_to_module3():
+    """[CHANGED 11-24] 이전: 첫 후보만 fallback_chart 로 넘기고 나머지는 reason 에 '쓰지 않음' 으로 남겼다 → 이제 모두 넘긴다"""
     c = to_chart_request({"chart_id": "c1", "chart_type": "pie", "measure": "share",
                           "fallback_charts": ["bar", "donut"], "reason": "구성비"})
     assert c.fallback_chart == "bar"
-    assert "donut" in c.reason
+    assert c.fallback_charts == ["bar", "donut"]
+    assert c.reason == "구성비"
 
 
 def test_measure_none_becomes_raw_and_says_so():

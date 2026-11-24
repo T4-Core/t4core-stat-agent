@@ -9,7 +9,10 @@ from backend.schemas.chart import Display
 @pytest.mark.parametrize("item, fallback, want", [
     ("혼인건수(건)", None, "건"), ("조혼인율(천명당)", None, "천명당"), ("총인구수", "명", "명"),
     ("총인구수", "명 건", None),            # metadata.unit 에 단위가 여러 개면 믿지 않는다
-    ("인구(추계)수(명)", None, "명"), (None, None, None)])
+    ("인구(추계)수(명)", None, "명"), (None, None, None),
+    # [NEW 11-24] 단위가 여러 개면 항목 이름 끝이 단위와 맞는 것이 하나일 때만 (골든셋 SG-05ddfdd48569 '가구 / ?')
+    ("일반가구수", "가구 명", "가구"), ("혼인건수", "명 건", "건"),
+    ("일반가구원수", "가구 명", None), ("출생아수", "명 건", None), (None, "가구 명", None)])
 def test_unit_of(item, fallback, want):
     assert unit_of(item, fallback) == want
 

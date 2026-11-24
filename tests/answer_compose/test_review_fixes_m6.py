@@ -152,6 +152,21 @@ def test_unit_already_in_the_value_is_not_repeated():
     assert fill("{a1.in1}건건", f).text == "240,326건건"                                         # 같은 글자가 두 번 이어져도 한 번만 걷어 낸다
 
 
+def test_unit_after_large_number_word_is_not_repeated():
+    """[NEW 11-24] 천명 단위 값은 '934만 명' 으로 표시된다. HCX 가 '{a1}명' 이라고 써서 '934만 명명' 이 됐다 (골든셋)"""
+    from backend.agent.answer_compose import placeholder as ph
+
+    def run(template, value):
+        return ph._fill_text(template, lambda m: value)
+    assert run("인구는 {a1}명입니다.", "934만 명") == "인구는 934만 명입니다."
+    assert run("인구는 {a1}만 명입니다.", "934만 명") == "인구는 934만 명입니다."
+    assert run("인구는 {a1}만명입니다.", "934만 명") == "인구는 934만 명입니다."
+    assert run("인구는 {a1}입니다.", "934만 명") == "인구는 934만 명입니다."
+    assert run("{a1}이 늘었다", "1.2억 원") == "1.2억 원이 늘었다"
+    assert run("{a1}원이 늘었다", "1.2억 원") == "1.2억 원이 늘었다"
+    assert run("{a1}명", "6,092,672명") == "6,092,672명"             # 기존 동작 그대로
+
+
 def test_unit_duplicate_does_not_break_the_check():
     f = Facts(request())
     text = "혼인건수는 {a1.in0}에서 {a1.in1}으로 {a1.abs}% 증가했습니다."

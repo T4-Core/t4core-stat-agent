@@ -29,7 +29,9 @@ UP_WORDS = ("증가", "상승", "늘었", "늘어", "올랐", "올라", "확대"
 DOWN_WORDS = ("감소", "하락", "줄었", "줄어", "내렸", "내려", "축소", "떨어")
 _VALUE_PART = re.compile(r"(?:abs|r\d+(?:\.abs)?)?")                # 결과 값을 뜻하는 자리표시자 (입력값 in · 이름 key · 순위 rank 는 아니다)
 _LABEL_THEN_PERCENT = re.compile(r"\{[^{}]*\.(?:key|rank|dir)\}\s*%")      # '{a1.in0.key}%' — 시점 이름을 수치처럼 씀
-_VALUE_WITH_UNIT = re.compile(r"^-?[\d,]+(?:\.\d+)?\s?([^\d\s,.\-]{1,3})$")    # '6,092,672명' · '24.8%' · '2021년' → 단위 부분
+# '6,092,672명' · '24.8%' · '2021년' · '934만 명' → (큰 수 단위, 단위)
+# [CHANGED 11-24] 이전: 숫자 바로 뒤의 단위만 읽었다 → '934만 명' 은 단위를 못 읽어 '{a1}명' 이 '934만 명명' 이 됐다 (골든셋)
+_VALUE_WITH_UNIT = re.compile(r"^-?[\d,]+(?:\.\d+)?(?:\s?([만억조]))?\s?([^\d\s,.\-]{1,3})$")
 _NEUTRAL = re.compile(r"(?:증가|감소|상승|하락|증감)(?:율|폭)")   # '증가율은 -2.4%' 처럼 방향을 말하지 않는 낱말
 
 
@@ -125,7 +127,9 @@ def _fill_text(template: str, replace) -> str:
         pos = m.end()
         if u := _VALUE_WITH_UNIT.match(got):
             # [CHANGED 11-16] 이전: 같은 단위만 지웠다 → '{a1}%' 가 '2.6%p%', '{a1}포인트' 가 '2.6%p포인트' 가 됐다 (검수 M6-05)
-            echo = next((e for e in _ECHOES.get(u.group(1), (u.group(1),)) if template.startswith(e, pos)), None)
+            scale, unit = u.groups()
+            echoes = ((f"{scale} {unit}", f"{scale}{unit}") if scale else ()) + _ECHOES.get(unit, (unit,))   # '{a1}만 명' 도 한 번만
+            echo = next((e for e in echoes if template.startswith(e, pos)), None)
             if echo:
                 pos += len(echo)
         if _NUMERIC.match(got) and (a := _APPROX_AFTER.match(template, pos)):     # 숫자 값 뒤의 '정도' · '가량' 도

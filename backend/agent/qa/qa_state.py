@@ -15,7 +15,7 @@ import operator
 from typing import Annotated, Any, TypedDict
 
 from .qa_check import ERROR, INFO, WARNING, Issue
-from .qa_policy import RULES, SEMANTIC_KINDS, skip_message, stop_message
+from .qa_policy import EXPECTED_STOP_KINDS, RULES, SEMANTIC_KINDS, skip_message, stop_message
 
 
 def merge(a: dict | None, b: dict | None) -> dict:
@@ -127,7 +127,8 @@ def summarize(issues, retries, dropped, skipped, checked, stopped_at, stop_note:
         for i in issues:                    # 멈춘 지점의 오류는 '중단' 으로 표시
             if i.point == stopped_at and i.severity == ERROR and i.action in (None, "skip", "info"):
                 i.action = "stop"
-        status = "stopped"
+        expected = any(i.point == stopped_at and i.kind in EXPECTED_STOP_KINDS for i in issues)
+        status = "ok" if expected else "stopped"
     elif dropped or skipped:
         status = "partial"
     elif retries or semantic or any(i.severity == ERROR for i in issues):

@@ -14,7 +14,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
-from .qa_check import ERROR, WARNING, Issue, check, drop_items, path_str
+from .qa_check import ERROR, INFO, WARNING, Issue, check, drop_items, path_str
 from .qa_policy import MAX_RETRY, NO_DATA_MESSAGE, RETRY_NOTES, RULES, chart_dropped_message, no_indicator_message
 from .qa_schemas import draw_result_raw
 from .qa_semantic import meaning_issues, unanswerable
@@ -198,7 +198,7 @@ def check_input(state: QAState) -> dict:
         return {**upd, "routes": {"A0": "fail"}, "stopped_at": "A0"}
     if names := unanswerable(val, state.get("analysis_notes")):
         msg = no_indicator_message(names)
-        _add(upd, issues=mark([Issue("A0", "viewset.units", "indicator_not_found", ERROR, msg, ", ".join(names))], "stop"))
+        _add(upd, issues=[Issue("A0", "viewset.units", "indicator_not_found", INFO, msg, ", ".join(names), action="stop")])
         return {**upd, "routes": {"A0": "fail"}, "stopped_at": "A0", "stop_note": msg}
     return {**upd, "viewset": val}
 

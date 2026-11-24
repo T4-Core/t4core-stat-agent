@@ -985,7 +985,7 @@ class _Planner:
             item = str(items[0])
         if bracket := unit_of(item):
             return bracket, "item"
-        if table := unit_of(None, rec.metadata.get("unit") if rec else None):
+        if table := unit_of(item, rec.metadata.get("unit") if rec else None):     # [CHANGED 11-24] 이전: item 없이 → 단위가 여러 개인 표는 항상 없음
             return table, "table"
         return None, None
 
@@ -1172,7 +1172,8 @@ class _Planner:
             self.note(tag, f"HCX 제목 '{d.title}' 버림 ({why}) → 규칙 제목")
         return Plan(chart_id=chart.chart_id, sub_question_ids=chart.sub_question_ids, record_id=record_id,
                     chart_type=chart.chart_type, fallback_chart=chart.fallback_chart, measure=op, select=select,
-                    steps=steps, output=output, title=title)
+                    steps=steps, output=output, title=title,
+                    fallback_charts=chart.fallback_charts or ([chart.fallback_chart] if chart.fallback_chart else []))
 
     # ── 질문용 ───────────────────────────────────────────────────
     def answer(self, n: int, d: AnswerDecision, charts: list[ChartRequest]) -> list[Step]:
