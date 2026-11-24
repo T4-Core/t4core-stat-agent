@@ -52,6 +52,8 @@ COMPUTED_MEASURES = {"change", "growth_rate", "cagr", "index", "share", "diff", 
 RATIO_OPS = {"share", "ratio", "growth_rate", "cagr", "index"}   # 질문의 '비율 · 비중' 에 답할 수 있는 연산
 NOT_THRESHOLD_UNITS = {"세", "살", "대", "년", "월", "일"}         # '65세 이상' 처럼 분류 · 기간을 뜻하는 단위는 숫자 조건이 아니다
 NO_DATA_MESSAGE = "요청한 지표를 찾지 못했습니다."
+# 중단했지만 정상 동작인 종류: 사전과 고른 표 어디에도 없는 지표를 안내하고 끝낸 경우 → qa.status = ok (stopped_at 은 남긴다)
+EXPECTED_STOP_KINDS = {"indicator_not_found"}
 
 # 스키마에 없는 키 중 이미 아는 것 → 경고 대신 info (경로의 목록 번호는 [] 로 쓴다). 처음 보는 키는 계속 경고
 KNOWN_EXTRAS: dict[str, set[str]] = {

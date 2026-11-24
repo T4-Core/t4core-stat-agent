@@ -108,6 +108,10 @@ class ChartRequest(BaseModel):
     request: ChartRequestInfo | None = Field(None, description="질문에서 지정한 차트 요청 (모듈 2 가 해석). 최종 안내가 쓴다")
     m2_warnings: list[str] = Field(default_factory=list, description=(
         "모듈 2 의 사용자용 경고 (진단용). ChartPlan.warnings · plan_warnings 에 합치지 않는다 — 확정 전 문장이 답변에 남는다"))
+    # [NEW 11-24] 대체 후보 전체. 이전: fallback_chart 하나만 받아 모듈 2 의 나머지 후보를 버렸다
+    fallback_charts: list[ChartType] = Field(default_factory=list, description=(
+        "대체 차트 후보 전체 (모듈 2 의 fallback_charts). 원래 차트가 검증에 실패하면 앞에서부터 통과할 때까지 시도한다. "
+        "fallback_chart 는 첫 후보 (예전 입력 호환)"))
 
 
 class Module3Request(BaseModel):
@@ -189,6 +193,8 @@ class Plan(BaseModel):
     output: list[PlanOutput] | None = Field(None, description="갈래가 하나면 생략 → 마지막 단계를 쓴다")
     # [NEW 명세 외] 질문의 말로 쓴 차트 제목 (HCX). 비어 있으면 content.py 가 규칙으로 만든다
     title: str | None = Field(None, description="차트 제목 (HCX 작성, planner 가 검사). 없으면 규칙 제목")
+    # [NEW 11-24] ChartRequest.fallback_charts 를 그대로 옮긴 것 (비어 있으면 fallback_chart 하나만 시도)
+    fallback_charts: list[ChartType] = Field(default_factory=list, description="대체 차트 후보 전체 (앞에서부터 시도)")
 
 
 class Withheld(BaseModel):
@@ -284,9 +290,11 @@ class CheckResult(BaseModel):
 
 class ChartValidation(BaseModel):
     original: CheckResult
-    fallback: CheckResult | None = Field(None, description="대체 차트를 시도하지 않았으면 None")
+    # [CHANGED 11-24] 이전: 하나뿐인 대체 차트의 검증. 이제 마지막으로 시도한 대체 차트 (통과했으면 그 차트)
+    fallback: CheckResult | None = Field(None, description="마지막으로 시도한 대체 차트 (통과했으면 그 차트). 시도하지 않았으면 None")
     final_chart_type: ChartType | None = None
     content_built: bool = False
+    fallbacks: list[CheckResult] = Field(default_factory=list, description="[NEW 11-24] 시도한 대체 차트의 검증 전부 (시도 순서)")
 
 
 # ── 전체 출력 ────────────────────────────────────────────────────
