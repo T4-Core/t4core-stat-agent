@@ -246,21 +246,42 @@ def save_vocab(vocab, path):
 
 
 def load_vocab(path, alias_path=ALIAS_PATH):
+    """사전 파일 읽기. 옆에 aliases.json 이 있으면(OKF 빌드) 별칭은 그것 — 개념 파일의 승인된 별칭 (vocab_aliases.csv 대신)"""
     d = json.loads(Path(path).read_text(encoding="utf-8"))
-    return Vocab(d.get("entries") or [], load_aliases(alias_path), d.get("source") or str(path), d.get("n_tables") or 0)
+    okf = Path(path).with_name("aliases.json")
+    aliases = json.loads(okf.read_text(encoding="utf-8")) if okf.exists() else load_aliases(alias_path)
+    return Vocab(d.get("entries") or [], aliases, d.get("source") or str(path), d.get("n_tables") or 0)
 
 
-def vocab_path(settings=None):
+def okf_vocab_path(settings=None):
+    """OKF 지식 카탈로그의 지금 빌드(okf_build/CURRENT)의 vocab.json — 없거나 okf_use=false 면 None"""
+    if settings is not None and not getattr(settings, "okf_use", True):
+        return None
+    try:
+        from backend.rag.okf.build import build_root, current
+    except ImportError:
+        return None
+    root = build_root(settings)
+    h = current(root)
+    p = root / h / VOCAB_FILE if h else None
+    return p if p is not None and p.exists() else None
+
+
+def vocab_path(settings=None, okf=True):
+    """쓸 사전 파일: settings.vocab_path → OKF 빌드 → CSV_INDEX_DIR/vocab.json"""
     from backend.rag.csv_index.store import index_dir
     p = getattr(settings, "vocab_path", "") if settings is not None else ""
-    return Path(p) if p else index_dir() / VOCAB_FILE
+    if p:
+        return Path(p)
+    o = okf_vocab_path(settings) if okf else None
+    return o or index_dir() / VOCAB_FILE
 
 
 _CACHE, _LOCK = {}, threading.Lock()
 
 
 def get_vocab(idx=None, settings=None):
-    """파일이 있으면 파일(수정 시각이 바뀌면 다시 읽음), 없으면 CSV 값 사전으로 만듦 (settings.csv_scope)"""
+    """OKF 빌드 → 파일(수정 시각이 바뀌면 다시 읽음) → 없으면 CSV 값 사전으로 만듦 (settings.csv_scope)"""
     p = vocab_path(settings)
     scope = getattr(settings, "csv_scope", "selected")
     key = ("file", str(p), p.stat().st_mtime) if p.exists() else ("idx", id(idx), scope)
@@ -401,7 +422,7 @@ def main(argv=None):
             except FileNotFoundError as e:
                 print(f"CSV 값 사전 없음 → 프로필만: {e}")
         v = build_vocab(prof, idx, a.scope)
-        p = save_vocab(v, a.out or vocab_path(s))
+        p = save_vocab(v, a.out or vocab_path(s, okf=False))  # OKF 빌드 폴더는 python -m backend.rag.okf build 만 씀
         by = {}
         for e in v.entries:
             by[e["slot"]] = by.get(e["slot"], 0) + 1

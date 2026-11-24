@@ -46,6 +46,10 @@ SYSTEM_PROMPT = """당신은 국가통계 질의응답 평가셋을 만드는 �
 8. facts.question_intent 의 계산 의미(무엇을 무엇과 비교·집계하는지, 답이 비율인지 개수인지 합계인지)를 두 질문 모두 그대로 지킨다.
    예: '…보다 많은 지역의 개수' 를 '차이는 얼마' 로 바꾸지 않는다. 질문은 명령문('구하라')이 아니라 물음으로 쓴다.
 9. 분류 값이 '계·합계·총계'인 조건은 질문에 쓰지 않는다 ('계 세대', '합계 연령' 같은 표현 금지).
+   표 이름에 든 성별 '(남)·(여)' 과 모집단 '(15세이상)' 은 condition_labels 에 들어 있으며, 두 질문 모두에 쓴다
+   ('15세 이상 인구 천 명당', '남자 귀화자'). 빠지면 전체를 묻는 질문이 되어 정답이 달라진다.
+11. facts.distinguish_from 에 이름이 거의 같은 형제 표가 있으면, question_paraphrased 도 그 형제 표와 가르는 말
+    (only_in_this — 예: '당해연도' ↔ '누적')을 일상어로라도 남긴다 ('그해 결혼한 비율'). 다 빠지면 형제 표도 답이 된다.
 10. answer_template 은 질문에 바로 답하는 자연스러운 한국어 문장 1~2개로 쓴다 ('…은 {FINAL}입니다.').
     수식('{FINAL} = {V1} - {V2}')으로 쓰지 않는다. 자리표시자 값에는 단위가 이미 붙어 있으므로 뒤에 단위를 또 쓰지 않는다.
 JSON 하나만 출력한다."""
@@ -102,8 +106,67 @@ def label_present(lab: str, qn: str) -> bool:
     return len(parts) > 1 and all(any(v in qn for v in LABEL_SYNONYMS.get(p, [p, re.sub(r"기업$", "", p)])) for p in parts)
 
 
+_TITLE_SEX = re.compile(r"\((남|여|남자|여자)\)")
+_TITLE_AGE = re.compile(r"\(\s*(\d+)\s*세\s*이상\s*\)")
+
+
+def table_qualifiers(title: str) -> list[str]:
+    """표 이름에만 들어 있는 조건 — 성별로 나뉜 표 '(남)' · 좁은 모집단 '(15세이상)'.
+    분류(dim)가 아니라 표 자체가 조건이라 condition_labels 의 분류 검사로는 잡히지 않음.
+    빠지면 질문은 전체를 묻는데 정답은 남자만 · 15세 이상만이 되어, 맞는 표를 고른 검색이 오답으로 셈 (gold_audit.py)"""
+    out = []
+    m = _TITLE_SEX.search(title or "")
+    if m:
+        out.append("남자" if m.group(1).startswith("남") else "여자")
+    m = _TITLE_AGE.search(title or "")
+    if m:
+        out.append(f"{m.group(1)}세이상")
+    return out
+
+
+_TOK_SPLIT = re.compile(r"[\s/·,()\[\]\-–—_~]+")
+_TITLE_NOISE = {"현황", "기타", "월간", "연간", "추이", "주요", "총괄", "통계", "조사", "자료", "행정구역", "시도", "시군구", "읍면동", "전국"}
+
+
+def _title_tokens(title: str, dim_names) -> set[str]:
+    """표 이름의 주제 낱말 (성별 괄호 · 분류 이름 · 숫자 · 흔한 말 뺌) — 형제 표를 가르는 말 찾기용"""
+    t = _TITLE_SEX.sub("", str(title or ""))
+    dims = {re.sub(r"별$", "", re.sub(r"\(.*?\)", "", d)) for d in dim_names}
+    toks = {re.sub(r"별$", "", x) for x in _TOK_SPLIT.split(t) if x}
+    return {x for x in toks if len(x) >= 2 and not re.match(r"\d", x) and x not in dims and x not in _TITLE_NOISE}
+
+
+def sibling_hints(index: MetadataIndex, table_ids, max_n: int = 4) -> list[dict]:
+    """같은 조사에서 이름이 거의 같은 형제 표와, 정답 표에만 있는 말 → [{this_table, sibling_table, only_in_this}]
+    question_paraphrased 가 only_in_this 를 모두 잃으면 형제 표도 답이 되어 정답 표시가 틀린다
+    ('당해연도 혼인 비율' ↔ '누적 혼인 비율' 에서 P 가 '결혼 비율' 이라고만 씀). 생성기·검수기에 보여 줌"""
+    tables = getattr(index, "tables", None) or {}
+    out = []
+    for tid in table_ids:
+        tm = tables.get(tid)
+        if tm is None:
+            continue
+        a = _title_tokens(tm.table_title, [d.obj_nm for d in tm.dimension_definitions])
+        if not a:
+            continue
+        cands = []
+        for oid, om in tables.items():
+            if oid == tid or oid in table_ids or om.survey_name != tm.survey_name:
+                continue
+            b = _title_tokens(om.table_title, [d.obj_nm for d in om.dimension_definitions])
+            if not b or a == b:
+                continue
+            diff = a - b
+            ov = len(a & b) / min(len(a), len(b))
+            if ov >= 0.5 and 1 <= len(diff) <= 3:
+                cands.append((-ov, om.table_title, sorted(diff)))
+        out += [{"this_table": tm.table_title, "sibling_table": t, "only_in_this": d} for _, t, d in sorted(cands)[:max_n]]
+    return out
+
+
 def condition_labels(v, o) -> list[str]:
-    """질문에 반드시 들어가야 하는 비총계 고정 조건 (시나리오·성별 등). 지역 레벨은 별도 검사."""
+    """질문에 반드시 들어가야 하는 비총계 고정 조건 (시나리오·성별 등) + 표 이름의 조건 (table_qualifiers).
+    지역 레벨은 별도 검사."""
     out = []
     sel = {lv: c for lv, c in o.coordinates.items()}
     for lv, cs in v.source_coordinates.dim_filters.items():
@@ -116,6 +179,9 @@ def condition_labels(v, o) -> list[str]:
         plain = re.sub(r"\s+", "", d.obj_nm) in ("성별", "성", "시나리오별", "시나리오", "연령별", "국적별")
         dim_word = dim_label(d.obj_nm)
         out.append(c.name if plain or not dim_word else f"{dim_word} {c.name}")
+    for q in table_qualifiers(getattr(v, "table_title", "") or ""):
+        if not any(label_present(q, re.sub(r"\s+", "", x)) for x in out):
+            out.append(q)
     return out
 
 
@@ -295,7 +361,8 @@ def build_fact_bundle(cluster: SampledCluster, plan: OperationPlan, calc: Calcul
                       "entities": entities, "thresholds": thresholds, "k": k, "direction": direction,
                       "count_members_placeholder": "MEMBERS" if count_members else None,
                       "available_placeholders": sorted(values), "region_dimension": list(dict.fromkeys(
-                          x for x in reg_levels.values() if x))},
+                          x for x in reg_levels.values() if x)),
+                      "distinguish_from": sibling_hints(index, cluster.table_ids)},
         "values": values,
     }
 

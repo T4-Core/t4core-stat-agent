@@ -95,6 +95,36 @@ def domain_terms(question, lex):
     return list(dict.fromkeys(out))
 
 
+# table_terms 에서 근거로 치지 않는 말 — 보여 주는 방식 요청 · 어디에나 붙는 일반어
+SCOPE_STOP = {"그려줘", "그려", "보여줘", "보여", "알려줘", "알려", "그래프", "원그래프", "막대그래프", "꺾은선그래프", "차트",
+              "도표", "표로", "시각화", "통계", "자료", "데이터", "현황", "조사", "결과", "수치", "정보", "궁금해", "싶어"}
+# 용어의 뜻·예측·의견을 묻는 말 — 이런 질문은 표 이름 근거로 '범위 밖' 을 뒤집지 않음 ('합계출산율이 무슨 뜻이야?')
+ONE_JOSA = re.compile(r"(?:에서의|에서는|에서|에게|에는|으로는|으로|로는|까지|부터|보다|처럼|마다|이나|과의|와의|의|에|은|는|이|가|을|를|"
+                      r"도|과|와|만|로)$")
+NOT_STAT_ASK = re.compile(r"뜻|의미|정의|뭐야|뭔가요|무엇인가|무슨 말|왜 |전망|예측|어떻게 생각")
+
+
+def table_terms(question, lex, min_len=3):
+    """'범위 밖' 판정을 뒤집을 두 번째 근거 — 질문 낱말이 수집된 표 이름·열 이름 안에 있음 → [낱말]
+    domain_terms 는 항목·분류 값만 봐서 조사 결과 표의 '만족도'(열 이름 '만족도별')·조사 이름을 못 찾음
+    ('○○실태조사의 한국 생활 전반적 만족도' 가 HCX 에서 '범위 밖'(의견 요청)으로 판정되던 문제).
+    용어의 뜻·예측을 묻는 질문은 뒤집지 않음 (NOT_STAT_ASK). 3자 이상 낱말만, 조사를 뗀 뒤 표 이름·열 이름이 그 낱말을 포함"""
+    if NOT_STAT_ASK.search(question or ""):
+        return []
+    from backend.rag.query_analyzer.lexicon import _strip_josa
+    out = []
+    for w in str(question or "").split():
+        one = ONE_JOSA.sub("", w) if len(ONE_JOSA.sub("", w)) >= 2 else w   # 조사 하나만 ('만족도를' → '만족도')
+        for k in dict.fromkeys(norm(x) for x in (one, _strip_josa(w))):    # 다 떼면 '도' 까지 떼어 '만족' 이 됨
+            if len(k) < min_len or k in SCOPE_STOP or _numeric(k) or k in out:
+                continue
+            rows = lex.idx.contains(k, slots=("표", "열"), scope=lex.scope, min_len=min_len, limit=200)
+            if any(k in str(r.get("norm") or "") for r in rows):
+                out.append(k)
+                break
+    return out
+
+
 AXIS_WORDS = (("읍면동", "읍면동"), ("시군구", "시군구"), ("시도", "시도"), ("지역별", "지역"), ("행정구역", "행정구역"))
 
 
@@ -296,9 +326,13 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
                 notes.append(f"재작성 단계 오류 → 코드 추출 값으로 진행: {state['hcx_error']}")
         if soft and is_out_of_scope(state["bundle"]):  # '범위 밖' 이라도 통계 용어가 있으면 검색
             terms = domain_terms(question, lex)
+            words = [] if terms else table_terms(question, lex)
             if terms:
                 state = rule_state(question, today, "범위 밖 판정을 뒤집음")
                 notes.append(f"재작성 모듈은 '범위 밖' 이라 했지만 질문에 통계 용어 {terms[:5]} 가 있어 검색함")
+            elif words:
+                state = rule_state(question, today, "범위 밖 판정을 뒤집음 (표 이름·열 이름)")
+                notes.append(f"재작성 모듈은 '범위 밖' 이라 했지만 질문 낱말 {words[:5]} 이(가) 수집된 표 이름·열 이름에 있어 검색함")
         if not state.get("hcx_ok", True):
             notes.append(f"HCX 슬롯 추출 실패 → 코드 추출 값만 사용: {state.get('hcx_error')}")
         st.output = {"rewritten": state["bundle"].get("rewritten"), "raw_slots": state["raw_slots"],

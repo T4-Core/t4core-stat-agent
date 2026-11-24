@@ -2,6 +2,9 @@
 HCX(HyperCLOVA X) 클라이언트 — 대화와 CLOVA 임베딩 v2(bge-m3)
 
   chat(messages, schema=None, ...)   대화. schema 를 주면 구조화 출력(JSON)
+  chat(..., thinking="low")          HCX-007 추론(low·medium·high). 추론은 구조화 출력과 함께 못 써서(HCX 문서) schema 를
+                                     요청에 넣지 않고 응답 글에서 JSON 을 뽑음. maxCompletionTokens 는 추론 토큰을 포함 →
+                                     effort 별 기본값(5120·10240·20480). 오래 걸려 시간 제한 180초·시간 초과 재시도 1회
   embed_one / embed_many             임베딩 (캐시: config.EMBED_CACHE, 같은 문장은 한 번만 호출)
 
 429·5xx·네트워크 끊김은 점점 길게 기다리며 재시도하고, 400 등 요청 오류는 바로 올린다.
@@ -76,7 +79,9 @@ def _post(path, body, timeout=60):
     return data.get("result") or {}
 
 
-def with_retry(fn, tries=8):
+def with_retry(fn, tries=8, timeout_tries=None):
+    """timeout_tries: 시간 초과·끊김만 따로 이 횟수까지 (추론 호출 — 같은 긴 요청을 8번 되풀이하지 않게)"""
+    t_left = timeout_tries
     for i in range(tries):
         try:
             return fn()
@@ -87,8 +92,10 @@ def with_retry(fn, tries=8):
         except HcxKeyMissing:
             raise
         except Exception:  # noqa: BLE001  (RemoteDisconnected, Timeout 등)
-            if i == tries - 1:
+            if i == tries - 1 or (t_left is not None and t_left <= 1):
                 raise
+            if t_left is not None:
+                t_left -= 1
             time.sleep(min(60, 2 * 2 ** i) + random.random())
 
 
@@ -97,29 +104,55 @@ def _chat_path(model):
     return f"/{app_type}/v3/chat-completions/{model}"
 
 
-def chat(messages, schema=None, temperature=0.0, max_tokens=1500, model=None):
-    """HCX v3 대화. HCX-007 의 구조화 출력은 추론(thinking)과 함께 쓸 수 없어 effort=none 으로 호출"""
+THINK_TOKENS = {"low": 5120, "medium": 10240, "high": 20480}  # HCX 문서의 effort 별 기본 maxCompletionTokens
+
+
+def chat(messages, schema=None, temperature=0.0, max_tokens=1500, model=None, thinking=None, timeout=None,
+         with_thinking=False):
+    """HCX v3 대화. 기본은 추론 없이(effort none) — 구조화 출력(schema)은 추론과 함께 쓸 수 없음 (HCX 문서)
+    thinking: 'low'|'medium'|'high' 이면 HCX-007 추론을 켬. schema 는 요청에 넣지 않고 응답 글의 JSON 을 파싱
+      (스키마를 따르게 하려면 프롬프트에 형식을 적을 것). max_tokens 는 추론 토큰 포함 → 작으면 effort 기본값으로 올림
+    with_thinking: schema 와 함께 쓰면 결과 dict 에 '_thinking' (추론 글) · '_finish' 를 붙임 (진단용 — 사용자에게 보이지 말 것)"""
     model = model or CHAT_MODEL
+    think = str(thinking or "").lower() if thinking and str(thinking).lower() != "none" else None
+    if think and think not in THINK_TOKENS:
+        raise ValueError(f"thinking 은 low·medium·high 중 하나: {thinking}")
+    if think and not model.upper().startswith("HCX-007"):
+        think = None                                   # 추론 모델이 아님 → 일반 호출
+    if think:
+        max_tokens = max(int(max_tokens or 0), THINK_TOKENS[think])
     body = {"messages": messages, "temperature": temperature, "topP": 0.8,
             "maxCompletionTokens": max_tokens, "repetitionPenalty": 1.1}
     if model.upper().startswith("HCX-007"):
-        body["thinking"] = {"effort": "none"}
-    if schema:
+        body["thinking"] = {"effort": think or "none"}
+    if schema and not think:
         body["responseFormat"] = {"type": "json", "schema": schema}
     path = _chat_path(model)
+    to = timeout or (180 if think else 60)
     try:
-        res = with_retry(lambda: _post(path, body))
+        res = with_retry(lambda: _post(path, body, timeout=to), timeout_tries=2 if think else None)
     except HcxError as e:
         if not schema or e.http != 400:
             raise
         body.pop("responseFormat")                     # 구조화 출력 미지원 모델 → 일반 응답 + JSON 파싱
-        res = with_retry(lambda: _post(path, body))
-    txt = ((res.get("message") or {}).get("content")) or ""
+        res = with_retry(lambda: _post(path, body, timeout=to))
+    msg = res.get("message") or {}
+    txt = msg.get("content") or ""
     if not schema:
         return txt
-    m = re.search(r"\{.*\}", txt, re.S)
+    out = parse_json(txt)
+    if with_thinking and isinstance(out, dict):
+        out["_thinking"] = msg.get("thinkingContent") or ""
+        out["_finish"] = res.get("finishReason") or ""
+    return out
+
+
+def parse_json(txt):
+    """응답 글 → dict. 코드 울타리(```json)·앞뒤 설명을 견딤. 못 읽으면 {'_raw': 글}"""
+    t = re.sub(r"```(?:json)?", "", txt or "")
+    m = re.search(r"\{.*\}", t, re.S)
     try:
-        return json.loads(m.group(0) if m else txt)
+        return json.loads(m.group(0) if m else t)
     except json.JSONDecodeError:
         return {"_raw": txt}
 

@@ -30,8 +30,12 @@ DEFAULTS = {
     # '+' 로 여러 개 = 표마다 최댓값. 끝에 '+rw' = 재작성 문장(검색 문장)으로도 dense 를 한 번 더 (rw_dense 채널)
     # ',' 로 나누면 묶음마다 dense 채널을 따로 (RRF 로 합침 — 점수 크기가 다른 묶음을 공정하게). 둘째 채널부터 가중치 q_dense_<묶음>
     # (없으면 dense_extra_weight). vals = 표의 항목·분류 값 조각 (표 하나 = 여러 글, 표마다 최댓값)
+    # okf = 표 설명문 + OKF 개념 별칭 줄 (okf_terms.py — 별칭 없는 표는 rule 과 같은 글)
     "dense_docs": "rule", "dense_cards": None, "kos14_cards": None, "dense_extra_weight": 1.0,
     "rrf_k": 20, "depth": 200,
+    # OKF 지식 카탈로그 (storage/okf_build/CURRENT): 개념의 승인된 별칭을 그 개념이 묶인 표의 값 표현으로 (값 채널)
+    # 질문에 '싱글맘' → '모+미혼자녀' 코드가 있는 표. 빌드가 없으면 아무것도 안 함. 비교: compare --okf on off
+    "okf": {"enabled": True, "value_weight": 0.9},
     # 본 질의: 원문(q_*) + 재작성 문장(rw_*). 하위 질의: 그 단위 문장(q_*) + 원문은 약하게(ctx_*)
     # dense 를 어휘 채널보다 크게: 일상어 질문(concept)은 단어가 표와 겹치지 않아 임베딩이 주 신호
     "weights": {"q_value": 1.6, "q_title": 1.4, "q_lex": 1.0, "q_ngram": 0.8, "q_dense": 1.6,
@@ -54,7 +58,9 @@ DEFAULTS = {
              "cond_miss": 0.8, "cond_floor": 0.64, "cond_df": 8},
     # LLM 재정렬: 끼워 넣는 형제·같은 개념 표는 상위 top_n 의 '뒤' 에 붙임 (앞 순위를 밀어내지 않음).
     # 하위 단위는 그 단위 문장으로, 원래 질문은 맥락으로만. skip_roles 의 단위(분모)는 규칙이 고른 순서를 그대로 둠
-    "llm_rerank": {"enabled": False, "top_n": 12, "add_siblings": 4, "skip_roles": ["분모"]},
+    "llm_rerank": {"enabled": False, "top_n": 12, "add_siblings": 4, "skip_roles": ["분모"],
+                   "okf": False, "keep_if_unsure": False,  # okf: 카드에 표 정의·개념 (llm_rerank.py) · 불확실하면 원래 순서
+                   "traits": False, "thinking": None, "think_tokens": None},  # 구분 줄 (traits.py) · HCX-007 추론 low|medium|high
     # (선택) 교차 인코더 재정렬 — ce_rerank.py. 상위 top_n 을 [질문, 표 글] 쌍으로 다시 채점해 순위 융합(blend)
     "ce_rerank": {"enabled": False, "model": "bge-reranker-ko", "top_n": 20, "mode": "blend", "k": 5, "weight": 1.0,
                   "base_weight": 1.0, "doc": "struct+def", "max_length": 512, "batch": 16, "skip_roles": ["분모"]},
@@ -133,7 +139,17 @@ class TableSearch:
             groups_in = [(group_name(g), [(v, texts[v]) for v in g]) for g in groups]
             for g in groups_in[1:]:  # 둘째 채널부터: 가중치가 없으면 dense_extra_weight
                 self.s["weights"].setdefault(f"q_dense_{g[0]}", float(self.s.get("dense_extra_weight", 1.0)))
-        self.ch = Channels(corpus, self.facets, embedder, log, groups_in)
+        self.okf = {"enabled": bool(self.s["okf"].get("enabled", True)), "build": None, "n_alias": 0, "n_tables": 0}
+        aliases = None
+        if self.okf["enabled"]:
+            from backend.rag.search.okf_terms import table_aliases
+            al = table_aliases()
+            aliases = al["by_tbl"] or None
+            self.okf.update(build=al["build"], n_alias=al["n_alias"], n_tables=al["n_tables"])
+        self.ch = Channels(corpus, self.facets, embedder, log, groups_in, aliases,
+                           float(self.s["okf"].get("value_weight", 0.9)))
+        if log and self.okf["build"]:
+            log(f"[search] OKF 빌드 {self.okf['build']} · 별칭 {self.okf['n_alias']}개 → 표 {self.okf['n_tables']}개")
         from backend.rag.search.siblings import SiblingResolver
         sb = self.s["siblings"]
         self.sib = SiblingResolver(self.facets, sb.get("margin", 0.75), sb.get("max_outside", 3))
@@ -170,7 +186,7 @@ class TableSearch:
         return {"name": self.name, "corpus": self.corpus.signature(), "n_docs": len(self.docs), "settings": self.s,
                 "facet_sources": dict(Counter(f.source for f in self.facets.values())),
                 "dense": self.ch.dense is not None,
-                "dense_docs": [g for g, _ in self.ch.denses] or None, "dense_rw": self.dense_rw}
+                "dense_docs": [g for g, _ in self.ch.denses] or None, "dense_rw": self.dense_rw, "okf": self.okf}
 
     def _ce_cards(self, ce):
         """교차 인코더 표 글에 붙일 dense 카드 (doc 이 struct+def 일 때만, 한 번 읽음. 없으면 빈 사전)"""
@@ -482,9 +498,20 @@ class TableSearch:
         if use_llm and hits:  # (선택) LLM 재정렬 — 상위 top_n 을 표 구조 요약으로 다시 줄 세움
             from backend.rag.search.llm_rerank import rerank
             target, context = (question, None) if main_like else (query, question)
-            hits, llm_note = rerank(target, qv, hits, self.facets, len(hits) if n_add else lr.get("top_n", 12),
-                                    self.chat_fn, sib=self.sib, concept_of=self.concept_of, context=context, role=role)
-            if sb.get("enabled", True):  # 무리 안의 선택은 좌표 규칙이 마지막으로 (LLM 은 무리 사이 순서)
+            n_rr = len(hits) if n_add else lr.get("top_n", 12)
+            okf_notes = None
+            if lr.get("okf"):
+                from backend.rag.search.okf_terms import rerank_notes
+                okf_notes = rerank_notes([h["tbl_id"] for h in hits[:n_rr]], question, query)
+            hits, llm_note = rerank(target, qv, hits, self.facets, n_rr, self.chat_fn, sib=self.sib,
+                                    concept_of=self.concept_of, context=context, role=role, okf_notes=okf_notes,
+                                    keep_if_unsure=bool(lr.get("keep_if_unsure")), traits=bool(lr.get("traits")),
+                                    traits_own_defs=not lr.get("okf"), thinking=lr.get("thinking"),
+                                    think_tokens=lr.get("think_tokens"))
+            from backend.rag.search.llm_rerank import UNSURE
+            kept = bool(llm_note) and llm_note.endswith(UNSURE)
+            # 불확실 → 원래 순서 그대로 (형제 규칙을 다시 돌리면 top_n 뒤에 끼운 형제가 정답 자리를 차지 — 11/24 keep 버그)
+            if sb.get("enabled", True) and not kept:  # 무리 안의 선택은 좌표 규칙이 마지막으로 (LLM 은 무리 사이 순서)
                 by = {h["tbl_id"]: h for h in hits}
                 again, more = self.sib.resolve([h["tbl_id"] for h in hits], qv, sex_text, filters, len(hits), set())
                 hits = [dict(by[t], rank=r) for r, t in enumerate(again, 1)]
@@ -574,7 +601,8 @@ def get_search(dense=None, settings=None, log=None, llm_rerank=None) -> TableSea
     st = load_settings(settings)
     dense = dense or st.get("dense", "hcx")
     corpus = table_corpus()
-    key = (dense, corpus.signature(), repr(settings), llm_rerank)
+    from backend.rag.search.okf_terms import current_build
+    key = (dense, corpus.signature(), repr(settings), llm_rerank, current_build())  # OKF 빌드가 바뀌면 새 검색기
     with _cache_lock:
         if key not in _cache:
             docs = st.get("dense_docs") or "rule"

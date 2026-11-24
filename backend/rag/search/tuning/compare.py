@@ -19,6 +19,10 @@
   python -m backend.rag.search.tuning.compare --golden <셋> --dense hcx arctic-ko bge-m3-ko ens-ko   # 임베딩 모델 비교
       (첫 dense 가 기준 → report.md 'dense 비교' 에 질문별 득실 · 부호 검정 p. 로컬 모델은 search/embedders.py)
   python -m backend.rag.search.tuning.compare --golden <합성 셋> --alt <alt_positives.jsonl> --split heldout
+  python -m backend.rag.search.tuning.compare --from-run <실행> --audit <gold_audit.jsonl> --okf on --llm-variants base okf okf-keep
+      (LLM 재정렬: 표 구조 카드만 · + 표 정의·OKF 개념 · + 근거 없으면 원래 순서 — '방법 비교' 절에 search·search+llm 대비 득실)
+  python -m backend.rag.search.tuning.compare --from-run hard_okf2 --audit <gold_audit.jsonl>
+      (정답 표시 검토 반영 지표를 따로 — gold_audit.py. --from-run 은 그 실행의 날짜(--today)도 이어받아 질의 분석 캐시를 그대로 씀)
   python -m backend.rag.search.tuning.compare --from-run docs_hard --dense bge-m3-ko --dense-docs "rule,def" --ce
       (교차 인코더 재정렬 'search+ce' 를 'search' 와 나란히 — '방법 비교' 절에 질문별 득실·부호 검정)
   python -m backend.rag.search.tuning.compare --list-runs                       # 이전 실행 (골든셋·alt 경로가 기록돼 있음)
@@ -355,6 +359,23 @@ def evaluate_one(pipe, row, units, top_k, pool):
             res[f"groups@{k}_alt"] = int(all((set(v) | set(alt.get(g, [])) | set(alt.get("ALL", []))) & top
                                                  for g, v in row["groups"].items()))
         res["alt_tables"] = " ".join(sorted(acc2 - acceptable))
+    # 검토 반영 기준 (gold_audit.py): 완화 정답 + 검토가 제안한 대체 정답 · 정답 표시가 틀린 변형은 뺌 (지표 None)
+    aud = row.get("audit")
+    if aud is not None:
+        res["audit_flags"] = " ".join(aud.get("flags") or [])
+        res["audit_excluded"] = int(bool(aud.get("exclude")))
+        if not aud.get("exclude"):
+            extra = set(aud.get("alt") or [])
+            acc3 = acceptable | {t for v in (alt or {}).values() for t in v} | extra
+            pos3 = next((i for i, t in enumerate(ranking, 1) if t in acc3), None)
+            res["rank_aud"] = pos3
+            res["mrr_aud"] = round(1 / pos3, 4) if pos3 else 0.0
+            for k in KS:
+                res[f"hit@{k}_aud"] = int(bool(pos3 and pos3 <= k))
+            for k in (5, 10):
+                top = set(ranking[:k])
+                res[f"groups@{k}_aud"] = int(all((set(v) | set((alt or {}).get(g, [])) | set((alt or {}).get("ALL", [])) | extra)
+                                                 & top for g, v in row["groups"].items()))
     return res
 
 
@@ -366,6 +387,7 @@ def _mean(xs):
 METRICS = ["hit@1", "hit@3", "hit@5", "hit@10", "groups@5", "groups@10", "mrr", "pool@k", "pool_groups@k",
            "gold_unmet_any", "sibling_confusion", "near_confusion", "in_corpus", "dense@10", "dense@50", "rwdense@10"]
 ALT_METRICS = ["hit@1_alt", "hit@3_alt", "hit@5_alt", "hit@10_alt", "groups@5_alt", "groups@10_alt", "mrr_alt"]
+AUD_METRICS = ["hit@1_aud", "hit@3_aud", "hit@5_aud", "hit@10_aud", "groups@5_aud", "groups@10_aud", "mrr_aud"]
 
 
 def aggregate(recs):
@@ -373,15 +395,38 @@ def aggregate(recs):
     if any(r.get("mrr_alt") is not None for r in recs):
         out.update({m: _mean([r.get(m) for r in recs]) for m in ALT_METRICS})
         out["with_alt"] = _mean([int(bool(r.get("alt_tables"))) for r in recs])
+    if any(r.get("audit_excluded") is not None for r in recs):
+        out.update({m: _mean([r.get(m) for r in recs]) for m in AUD_METRICS})
+        out["n_aud"] = sum(1 for r in recs if r.get("mrr_aud") is not None)
     return out
 
 
+LLM_VARIANTS = {"base": {"okf": False, "keep_if_unsure": False}, "okf": {"okf": True, "keep_if_unsure": False},
+                "okf-keep": {"okf": True, "keep_if_unsure": True}}
+LLM_TOKENS = ("base", "okf", "traits", "keep", "think")
+
+
+def llm_variant(v, thinking="low") -> dict:
+    """재정렬 변형 이름 → llm_rerank 설정. 조각을 '+' 나 '-' 로 이음: base · okf · traits · keep · think
+    예: 'okf-keep' · 'traits+keep' · 'okf+traits+keep+think' (think = HCX-007 추론, 수준은 --llm-thinking)"""
+    toks = [t for t in re.split(r"[+\-]", str(v)) if t]
+    bad = [t for t in toks if t not in LLM_TOKENS]
+    if not toks or bad:
+        raise ValueError(f"재정렬 변형 '{v}' — 조각은 {', '.join(LLM_TOKENS)}")
+    return {"okf": "okf" in toks, "keep_if_unsure": "keep" in toks, "traits": "traits" in toks,
+            "thinking": thinking if "think" in toks else None}
+
+
 def run(rows, analysis, denses, llm, top_k, pool, log=print, tuned=None, docs=("rule",), cards=None, kos14=None, ce=None,
-        arms=None, raw_analysis=None):
+        arms=None, raw_analysis=None, okf=None, llm_variants=None, llm_thinking="low"):
     """tuned: 폴더 — dense(·문서)마다 <폴더>/search.tuned.<dense>[.<docs>].yaml 의 가중치로 (없으면 기본 가중치, 이름에 * 없음)
     docs: dense 문서 구성 목록 (index.parse_docs). 두 개 이상이거나 rule 이 아니면 구성 이름이 '<dense>|<docs>'
     ce: 교차 인코더 재정렬 설정(dict) — 주면 방법 'search+ce' 를 함께 (ce_rerank.py)
-    arms: ARMS 이름 목록 — 구성마다 arm 을 붙여 나란히 (이름 '<dense>|<docs>|<arm>'). raw_analysis = 검증 전 단위 (arm off)"""
+    arms: ARMS 이름 목록 — 구성마다 arm 을 붙여 나란히 (이름 '<dense>|<docs>|<arm>'). raw_analysis = 검증 전 단위 (arm off)
+    okf: ['on', 'off'] — OKF 개념 별칭(값 채널)을 켜고 끈 구성을 나란히 (이름 '<dense>|okf-on'). 질의 분석은 같은 것을 씀
+    llm_variants: ['base', 'okf', 'okf-keep'] — llm 일 때 재정렬 방법을 나란히 (방법 이름 search+llm · search+llm+okf …)
+      base = 표 구조 카드만 (기존) · okf = 카드에 표 정의·OKF 개념 · okf-keep = okf + LLM 이 근거 없다 하면 원래 순서
+      조각을 이어 씀 (llm_variant): traits = 구분 줄 · think = HCX-007 추론 (수준 llm_thinking)"""
     from backend.rag.search.tuning.tune import load_tuned, tuned_path
     per, info = [], {}
     docs = list(docs or ["rule"])
@@ -390,44 +435,53 @@ def run(rows, analysis, denses, llm, top_k, pool, log=print, tuned=None, docs=("
         for dd in (docs if dense0 != "none" else docs[:1]):
             st = load_tuned(dense0, tuned, dd) if tuned else None
             base = f"{dense0}|{dd}" if label_docs and dense0 != "none" else dense0
-            dense = f"{base}*" if st else base               # * = 그 모델(·문서)에 맞춘 가중치
+            dense_base = f"{base}*" if st else base          # * = 그 모델(·문서)에 맞춘 가중치
             if tuned:
                 log(f"  {base}: " + (f"맞춘 가중치 {tuned_path(dense0, tuned, dd).name}" if st else "맞춘 가중치 없음 → 기본 가중치"))
-            settings = dict(st or {})
-            if dd != "rule":
-                settings.update({"dense_docs": dd, "dense_cards": cards, "kos14_cards": kos14})
-            methods = [("search", False, None)] + ([("search+ce", False, ce)] if ce else []) \
-                + ([("search+llm", True, None)] if llm else [])
-            for m, use_llm, ce_cfg in methods:
-                st_m = dict(settings)
-                if ce_cfg:
-                    st_m["ce_rerank"] = {**ce_cfg, "enabled": True}
-                try:
-                    pipe0 = get_search_for(dense0, use_llm, st_m or None)
-                except Exception as e:  # noqa: BLE001  (구성 하나가 비교 전체를 막지 않게)
-                    name = f"{m}[{dense}]"
-                    info[name] = {"error": f"{e.__class__.__name__}: {str(e)[:300]}"}
-                    log(f"  ✗ {name}: {info[name]['error']}")
-                    continue
-                for arm in (arms or [None]):
-                    label = f"{dense}|{arm}" if arm else dense
-                    name = f"{m}[{label}]"
-                    t0 = time.time()
-                    pipe, units_of_row = pipe0, analysis
-                    if arm:
-                        feas, prune = arm_settings(arm)
-                        pipe = with_feas(pipe0, feas)
-                        units_of_row = analysis if prune else (raw_analysis or analysis)
-                    for row in rows:
-                        res = evaluate_one(pipe, row, units_of_row[row["qid"]], top_k, pool)
-                        per.append({"method": m, "dense": label, "config": name, **{k: row[k] for k in (
-                            "qid", "record_id", "variant", "hop_type", "reasoning_type", "subtype", "survey", "difficulty")},
-                            "split": row.get("split") or (row["difficulty"] if row["difficulty"] in ("dev", "test", "train") else ""),
-                            "question": row["question"], "gold": " ".join(row["gold"]), **res})
-                    info[name] = {"n_docs": len(pipe.docs), "corpus": pipe.corpus.signature()[:120],
-                                  "seconds": round(time.time() - t0, 1), "dense_docs": dd, **({"tuned": st} if st else {}),
-                                  **({"arm": arm, "feas": arm_settings(arm)[0], "prune_units": arm_settings(arm)[1]} if arm else {})}
-                    log(f"  {name}: 문서 {len(pipe.docs)} · {info[name]['seconds']}초")
+            settings0 = dict(st or {})
+            for ov in (okf or [None]):
+                settings = dict(settings0)
+                if ov:
+                    settings["okf"] = {"enabled": ov == "on"}
+                dense = f"{dense_base}|okf-{ov}" if ov else dense_base
+                if dd != "rule":
+                    settings.update({"dense_docs": dd, "dense_cards": cards, "kos14_cards": kos14})
+                methods = [("search", False, None, None)] + ([("search+ce", False, ce, None)] if ce else []) \
+                    + ([("search+llm" + ("" if v == "base" else f"+{v}"), True, None, llm_variant(v, llm_thinking))
+                        for v in (llm_variants or ["base"])] if llm else [])
+                for m, use_llm, ce_cfg, llm_cfg in methods:
+                    st_m = dict(settings)
+                    if ce_cfg:
+                        st_m["ce_rerank"] = {**ce_cfg, "enabled": True}
+                    if llm_cfg:
+                        st_m["llm_rerank"] = {**(st_m.get("llm_rerank") or {}), **llm_cfg}
+                    try:
+                        pipe0 = get_search_for(dense0, use_llm, st_m or None)
+                    except Exception as e:  # noqa: BLE001  (구성 하나가 비교 전체를 막지 않게)
+                        name = f"{m}[{dense}]"
+                        info[name] = {"error": f"{e.__class__.__name__}: {str(e)[:300]}"}
+                        log(f"  ✗ {name}: {info[name]['error']}")
+                        continue
+                    for arm in (arms or [None]):
+                        label = f"{dense}|{arm}" if arm else dense
+                        name = f"{m}[{label}]"
+                        t0 = time.time()
+                        pipe, units_of_row = pipe0, analysis
+                        if arm:
+                            feas, prune = arm_settings(arm)
+                            pipe = with_feas(pipe0, feas)
+                            units_of_row = analysis if prune else (raw_analysis or analysis)
+                        for row in rows:
+                            res = evaluate_one(pipe, row, units_of_row[row["qid"]], top_k, pool)
+                            per.append({"method": m, "dense": label, "config": name, **{k: row[k] for k in (
+                                "qid", "record_id", "variant", "hop_type", "reasoning_type", "subtype", "survey", "difficulty")},
+                                "split": row.get("split") or (row["difficulty"] if row["difficulty"] in ("dev", "test", "train") else ""),
+                                "question": row["question"], "gold": " ".join(row["gold"]), **res})
+                        info[name] = {"n_docs": len(pipe.docs), "corpus": pipe.corpus.signature()[:120],
+                                      "seconds": round(time.time() - t0, 1), "dense_docs": dd, **({"tuned": st} if st else {}),
+                                      "okf": getattr(pipe, "okf", None),
+                                      **({"arm": arm, "feas": arm_settings(arm)[0], "prune_units": arm_settings(arm)[1]} if arm else {})}
+                        log(f"  {name}: 문서 {len(pipe.docs)} · {info[name]['seconds']}초")
     return per, info
 
 
@@ -485,23 +539,26 @@ def sign_test(a_only, b_only):
 
 
 def method_vs_base(per, metrics=("hit@1", "hit@3", "hit@5", "groups@5", "groups@10", "mrr")):
-    """같은 dense 구성에서 방법(search+ce · search+llm)을 'search' 와 견줌 → 질문별 득실 · 부호 검정"""
+    """같은 dense 구성에서 방법(search+ce · search+llm)을 'search' 와 견줌 → 질문별 득실 · 부호 검정
+    search+llm+… (OKF 변형)은 'search' 와 'search+llm' 둘 다와 견줌 (OKF 정보가 더한 몫만 보이게)"""
     idx = defaultdict(dict)
     for r in per:
         idx[(r["dense"], r["qid"])][r["method"]] = r
-    methods = [m for m in dict.fromkeys(r["method"] for r in per) if m != "search"]
+    all_m = list(dict.fromkeys(r["method"] for r in per))
+    pairs_of = [("search", m) for m in all_m if m != "search"] + \
+        [("search+llm", m) for m in all_m if m.startswith("search+llm+") and "search+llm" in all_m]
     out = []
     for dense in dict.fromkeys(r["dense"] for r in per):
-        for m in methods:
-            pairs = [(d["search"], d[m]) for (dd, _), d in idx.items() if dd == dense and "search" in d and m in d]
+        for b, m in pairs_of:
+            pairs = [(d[b], d[m]) for (dd, _), d in idx.items() if dd == dense and b in d and m in d]
             if not pairs:
                 continue
             for metric in metrics:
                 if metric == "mrr":
                     a = sum(float(x["mrr"]) for x, _ in pairs) / len(pairs)
-                    b = sum(float(y["mrr"]) for _, y in pairs) / len(pairs)
-                    out.append({"dense": dense, "method": m, "metric": "mrr", "base_value": a, "value": b, "delta": b - a,
-                                "base_only": None, "only": None, "p": None})
+                    bm = sum(float(y["mrr"]) for _, y in pairs) / len(pairs)
+                    out.append({"dense": dense, "base": b, "method": m, "metric": "mrr", "base_value": a, "value": bm,
+                                "delta": bm - a, "base_only": None, "only": None, "p": None})
                     continue
                 vx = [x.get(metric) for x, _ in pairs]
                 vy = [y.get(metric) for _, y in pairs]
@@ -509,7 +566,7 @@ def method_vs_base(per, metrics=("hit@1", "hit@3", "hit@5", "groups@5", "groups@
                     continue
                 bo = sum(1 for x, y in zip(vx, vy) if x and not y)
                 mo = sum(1 for x, y in zip(vx, vy) if y and not x)
-                out.append({"dense": dense, "method": m, "metric": metric, "base_value": sum(vx) / len(vx),
+                out.append({"dense": dense, "base": b, "method": m, "metric": metric, "base_value": sum(vx) / len(vx),
                             "value": sum(vy) / len(vy), "delta": (sum(vy) - sum(vx)) / len(vx), "base_only": bo, "only": mo,
                             "p": sign_test(bo, mo)})
     return out
@@ -582,6 +639,23 @@ def report_md(meta, table, fails, wins, per):
                 L.append(f"| {_cell(t['config'])} | {_cell(t['value'])} | {t['n']} | {_fmt(t.get('with_alt'))} | "
                          + " | ".join(f"{_fmt(t[m])} → {_fmt(t[m + '_alt'])}" for m in ("hit@1", "hit@5", "hit@10", "groups@5", "mrr"))
                          + " |")
+    if any("mrr_aud" in t for t in table):  # 검토 반영 (gold_audit.py)
+        first = next(iter(dict.fromkeys(r["config"] for r in per)), None)
+        fl = Counter(c for r in per if r["config"] == first for c in str(r.get("audit_flags") or "").split())
+        nx = sum(1 for r in per if r["config"] == first and r.get("audit_excluded"))
+        L += ["", "## 검토 반영 (gold_audit.py — 정답 표시 검토)", "",
+              f"- 검토 파일: `{meta.get('audit')}` · 걸린 검사 (기준 구성): "
+              + (" · ".join(f"{k} {v}" for k, v in sorted(fl.items())) or "없음") + f" · 평가에서 뺀 변형 {nx}",
+              ("- 검토 반영 = 완화 정답 + 검토가 제안한 대체 정답(SEX 기본 · P_DRIFT 는 human accept 만), "
+               "UNIVERSE 같은 정답 표시 오류는 뺌. 엄격·완화 지표는 위와 같음 (바꾸지 않음)"), "",
+              "| 구성 | 값 | n → 검토 n | hit@1 완화 → 검토 | hit@5 완화 → 검토 | hit@10 완화 → 검토 | mrr 완화 → 검토 |",
+              "|---|---|---|---|---|---|---|"]
+        for t in table:
+            if t["group"] in ("ALL", "variant", "split") and "mrr_aud" in t:
+                L.append(f"| {_cell(t['config'])} | {_cell(t['value'])} | {t['n']} → {t['n_aud']} | "
+                         + " | ".join(f"{_fmt(t.get(m + '_alt', t.get(m)))} → {_fmt(t[m + '_aud'])}"
+                                      for m in ("hit@1", "hit@5", "hit@10", "mrr"))
+                         + " |")
     cols = ["n", "hit@1", "hit@3", "hit@5", "hit@10", "groups@5", "groups@10", "mrr", "dense@10", "dense@50", "rwdense@10",
             "pool@k", "gold_unmet_any", "sibling_confusion", "near_confusion", "in_corpus"]
     for group in ("ALL", "variant", "hop_type", "reasoning_type", "split"):
@@ -607,10 +681,12 @@ def report_md(meta, table, fails, wins, per):
                      f"{d['delta']:+.3f} | {_fmt(d['base_only'])} | {_fmt(d['dense_only'])} | {_fmt(d['p'])} |")
     mv = method_vs_base(per)
     if mv:
-        L += ["", "## 방법 비교 (기준 = search, 같은 dense 구성·같은 질문)", "",
-              "| dense | 방법 | 지표 | search | 방법 | 차이 | search만 | 방법만 | p |", "|---|---|---|---|---|---|---|---|---|"]
+        L += ["", "## 방법 비교 (같은 dense 구성·같은 질문 — 기준은 search, OKF 변형은 search+llm 과도 견줌)", "",
+              "| dense | 기준 | 방법 | 지표 | 기준 값 | 방법 값 | 차이 | 기준만 | 방법만 | p |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
         for d in mv:
-            L.append(f"| {_cell(d['dense'])} | {d['method']} | {d['metric']} | {_fmt(d['base_value'])} | {_fmt(d['value'])} | "
+            L.append(f"| {_cell(d['dense'])} | {d.get('base', 'search')} | {d['method']} | {d['metric']} | {_fmt(d['base_value'])} | "
+                     f"{_fmt(d['value'])} | "
                      f"{d['delta']:+.3f} | {d['base_only'] if d['base_only'] is not None else '-'} | "
                      f"{d['only'] if d['only'] is not None else '-'} | {_fmt(d['p']) if d['p'] is not None else '-'} |")
     if wins:  # search 와 다른 방법을 같이 돌렸을 때 (--llm · --ce)
@@ -681,7 +757,8 @@ def list_runs():
     return out
 
 
-NUM_TEXT = {"question", "gold", "top1", "top1_nm", "top5", "fail", "gold_unmet", "alt_tables", "qid", "record_id", "variant",
+NUM_TEXT = {"question", "gold", "top1", "top1_nm", "top5", "fail", "gold_unmet", "alt_tables", "audit_flags", "qid", "record_id",
+            "variant",
             "hop_type", "reasoning_type", "subtype", "survey", "difficulty", "split", "method", "dense", "config"}
 
 
@@ -717,6 +794,21 @@ def rebuild_report(run_dir):
     return out
 
 
+def missed_qids(run_dir, method=None):
+    """이전 실행 per_query.csv → (기준 방법이 1위를 놓쳤지만 10위 안인 qid 집합, 기준 방법)"""
+    per = load_per_query(Path(run_dir) / "per_query.csv")
+    methods = list(dict.fromkeys(r["method"] for r in per))
+    m = method or ("search+llm" if "search+llm" in methods else "search")
+    out = set()
+    for r in per:
+        if r["method"] != m or r.get("audit_excluded") in (True, "True", 1, "1"):
+            continue
+        sfx = next((s for s in ("_aud", "_alt", "") if r.get(f"hit@1{s}") not in (None, "")), "")
+        if not float(r.get(f"hit@1{sfx}") or 0) and float(r.get(f"hit@10{sfx}") or 0):
+            out.add(r["qid"])
+    return out, m
+
+
 def find_run(key):
     """폴더 경로 또는 이름 일부 → 가장 최근 실행 폴더"""
     p = Path(key)
@@ -741,6 +833,16 @@ def main(argv=None):
     ap.add_argument("--list-runs", action="store_true", help="이전 compare 실행 목록 (폴더 · 골든셋 · alt · dense) 만 보여 주고 끝")
     ap.add_argument("--variants", nargs="*", default=["O", "P"])
     ap.add_argument("--llm", action="store_true", help="LLM 재정렬(HCX)을 붙인 구성도 함께 (search+llm)")
+    ap.add_argument("--llm-variants", nargs="*", default=None,
+                    help="LLM 재정렬 방법을 나란히. 조각을 + 로 이음: base(표 구조 카드) okf(+표 정의·OKF 개념) traits(+구분 줄)"
+                         " keep(근거 없으면 원래 순서) think(HCX-007 추론). 예: base okf traits okf+traits+keep traits+think."
+                         " 주면 --llm 을 켬. 재정렬 결과는 실행 폴더 llm_rerank_cache.jsonl 에 남고 --from-run 이 다시 씀")
+    ap.add_argument("--llm-thinking", default="low", choices=["low", "medium", "high"],
+                    help="변형에 think 가 있을 때 추론 수준 (느림: low 도 질의 단위마다 수십 초)")
+    ap.add_argument("--only-missed", default=None, metavar="실행",
+                    help="그 실행에서 기준 방법이 1위를 놓쳤지만 10위 안이던 질문만 (검토 반영 > 완화 > 엄격 순으로 판정)."
+                         " 추론처럼 비싼 변형을 먼저 재 볼 때 — 고를 수 있는 질문만 모았으므로 전체 지표로 읽지 말 것")
+    ap.add_argument("--only-missed-method", default=None, help="--only-missed 의 기준 방법 (기본: search+llm 있으면 그것, 없으면 search)")
     ap.add_argument("--dense", nargs="*", default=["hcx"], choices=dense_names())
     ap.add_argument("--dense-docs", nargs="*", default=["rule"],
                     help="dense 문서 구성: rule | def | slot | tmpl | tslot | kos14 ('+' 로 여러 개 = 최댓값, 끝에 +rw). 첫 구성이 기준")
@@ -762,6 +864,8 @@ def main(argv=None):
     ap.add_argument("--name", default="compare")
     ap.add_argument("--alt", default=None, help="대체 정답 파일 (alt_gold.py 의 alt_positives.jsonl) → 엄격/완화 지표")
     ap.add_argument("--alt-exact-only", action="store_true", help="반올림 일치(rounded)는 대체 정답으로 치지 않음")
+    ap.add_argument("--audit", default=None,
+                    help="정답 표시 검토 파일 (gold_audit.py 의 gold_audit.jsonl) → '검토 반영' 지표를 따로 (엄격·완화는 그대로)")
     ap.add_argument("--cache", default=None, help="다른 compare 폴더의 analysis_cache.jsonl — 같은 질의 분석을 다시 씀")
     ap.add_argument("--tuned", nargs="?", const="configs", default=None, metavar="폴더",
                     help="dense 마다 <폴더>/search.tuned.<dense>.yaml (tune 결과) 가중치로. 폴더 기본 configs. 이름 뒤 * = 맞춘 가중치")
@@ -770,6 +874,8 @@ def main(argv=None):
     ap.add_argument("--arms", nargs="*", default=None, choices=list(ARMS),
                     help="앞단 수정을 켜고 끈 구성을 나란히: off(수정 전) units cycle move geo cond all. 첫 arm 이 기준")
     ap.add_argument("--raw-units", action="store_true", help="캐시된 질의 분석에 하위 질문 검증을 다시 적용하지 않음")
+    ap.add_argument("--okf", nargs="*", default=None, choices=["on", "off"],
+                    help="OKF 개념 별칭(검색 값 채널)을 켠·끈 구성을 나란히 (같은 질의 분석) — search/okf_terms.py")
     a = ap.parse_args(argv)
     if a.rebuild_report:
         f = rebuild_report(find_run(a.rebuild_report))
@@ -786,18 +892,28 @@ def main(argv=None):
         a.golden = a.golden or cfg.get("golden")
         if a.alt is None and cfg.get("alt"):
             a.alt = cfg["alt"]
+        if a.audit is None and cfg.get("audit"):
+            a.audit = cfg["audit"]
+        if "--today" not in given and cfg.get("today"):
+            a.today = cfg["today"]       # 질의 분석 캐시 키에 날짜가 들어감 — 다른 날 다시 써도 HCX 를 다시 부르지 않게
         if "--variants" not in given and cfg.get("variants"):
             a.variants = cfg["variants"]
         if a.cache is None and (prev / "analysis_cache.jsonl").exists():
             a.cache = str(prev / "analysis_cache.jsonl")
-        print(f"[이전 실행] {prev.name} → golden {a.golden} · alt {a.alt or '-'} · 변형 {a.variants} · 캐시 {a.cache or '-'}",
-              flush=True)
+        print(f"[이전 실행] {prev.name} → golden {a.golden} · alt {a.alt or '-'} · 변형 {a.variants} · 캐시 {a.cache or '-'}"
+              f" · 날짜 {a.today}", flush=True)
     a.golden = a.golden or "synthetic_gold_pipeline/outputs/datasets/synthetic_gold_dataset.jsonl"
 
     from backend.core.config import RUNS_DIR
     out = Path(a.out) if a.out else Path(RUNS_DIR) / "search_compare" / f"{datetime.now():%Y%m%d_%H%M%S}_{a.name}"
     out.mkdir(parents=True, exist_ok=True)
-    rows = load_golden(a.golden, tuple(a.variants), limit=a.limit, split=a.split)
+    for v in a.llm_variants or []:
+        llm_variant(v)  # 잘못된 이름은 시작 전에
+    rows = load_golden(a.golden, tuple(a.variants), limit=None if a.only_missed else a.limit, split=a.split)
+    if a.only_missed:
+        keep_q, base_m = missed_qids(find_run(a.only_missed), a.only_missed_method)
+        rows = [r for r in rows if r["qid"] in keep_q][:a.limit] if a.limit else [r for r in rows if r["qid"] in keep_q]
+        print(f"[놓친 질문만] {find_run(a.only_missed).name} 의 {base_m} 기준 1위를 놓쳤지만 10위 안 → {len(rows)}문항", flush=True)
     print(f"[골든셋] {len(rows)}문항 ← {a.golden}", flush=True)
     if a.alt:  # 판정 안 된 레코드는 대체 정답 없음으로
         from backend.rag.search.tuning.alt_gold import load_alt
@@ -805,10 +921,30 @@ def main(argv=None):
         for r in rows:
             r["alt_groups"] = alt.get(r["record_id"], {})
         print(f"[대체 정답] {sum(bool(any(v.values())) for v in alt.values())}/{len(alt)} 레코드 ← {a.alt}", flush=True)
+    if a.audit:
+        from backend.rag.search.tuning.gold_audit import load_audit
+        aud = load_audit(a.audit)
+        for r in rows:
+            r["audit"] = aud.get((r["record_id"], r["variant"]), {"alt": [], "exclude": False, "flags": []})
+        nx = sum(1 for r in rows if r["audit"].get("exclude"))
+        npend = sum(1 for r in rows if r["audit"].get("pending"))
+        print(f"[정답 검토] 제안 대체 정답이 있는 변형 {sum(1 for r in rows if r['audit'].get('alt'))} · 뺀 변형 {nx}"
+              f" · 사람 검토를 기다리는 변형 {npend} ← {a.audit}", flush=True)
     cache = out / "analysis_cache.jsonl"
     if a.cache and Path(a.cache).resolve() != cache.resolve() and not cache.exists():
         import shutil
         shutil.copyfile(a.cache, cache)           # 다른 실행의 질의 분석을 그대로 (HCX 를 다시 부르지 않음)
+    if a.llm_variants:
+        a.llm = True
+    if a.llm:  # 재정렬 결과 파일 캐시 (이전 실행 것을 이어받아 HCX 를 다시 부르지 않게)
+        from backend.rag.search import llm_rerank as LR
+        rc = out / "llm_rerank_cache.jsonl"
+        if a.from_run and not rc.exists():
+            prev_rc = find_run(a.from_run) / "llm_rerank_cache.jsonl"
+            if prev_rc.exists():
+                import shutil
+                shutil.copyfile(prev_rc, rc)
+        LR.use_cache_file(rc)
     analysis = analyze_all(rows, a.analyze, a.today, cache)
     raw_analysis, n_pruned = analysis, 0
     if not a.raw_units:
@@ -822,12 +958,14 @@ def main(argv=None):
     ce = {"model": a.ce_model, "mode": a.ce_mode, "top_n": a.ce_top_n, "doc": a.ce_doc, "k": a.ce_k,
           "weight": a.ce_weight} if a.ce else None
     per, info = run(rows, analysis, a.dense, a.llm, a.top_k, a.pool, tuned=a.tuned, docs=a.dense_docs, cards=a.cards,
-                    kos14=a.kos14, ce=ce, arms=a.arms, raw_analysis=raw_analysis)
+                    kos14=a.kos14, ce=ce, arms=a.arms, raw_analysis=raw_analysis, okf=a.okf, llm_variants=a.llm_variants,
+                    llm_thinking=a.llm_thinking)
     table, fails, wins = summarize(per)
     meta = {"created": datetime.now().isoformat(timespec="seconds"), "golden": a.golden, "n_rows": len(rows),
             "variants": a.variants, "analyze": a.analyze, "today": a.today, "top_k": a.top_k, "pool": a.pool,
-            "dense": a.dense, "dense_docs": a.dense_docs, "ce": ce, "configs": info, "alt": a.alt,
-            "arms": a.arms, "prune_units": not a.raw_units, "n_pruned": n_pruned,
+            "dense": a.dense, "dense_docs": a.dense_docs, "ce": ce, "configs": info, "alt": a.alt, "audit": a.audit,
+            "llm_variants": a.llm_variants, "llm_thinking": a.llm_thinking, "only_missed": a.only_missed,
+            "arms": a.arms, "okf": a.okf, "prune_units": not a.raw_units, "n_pruned": n_pruned,
             "analysis_status": dict(Counter(u[0].get("status") for u in analysis.values()))}
     (out / "summary.json").write_text(json.dumps({"meta": meta, "table": table, "fails": fails, "wins": wins,
                                                   "dense_vs_base": dense_vs_base(per)},
@@ -843,7 +981,8 @@ def main(argv=None):
         if t["group"] in ("ALL", "variant"):
             print(f"  {t['config']:28s} {t['value']:4s} n={t['n']:3d} hit@1={_fmt(t['hit@1'])} hit@5={_fmt(t['hit@5'])} "
                   f"groups@5={_fmt(t['groups@5'])} mrr={_fmt(t['mrr'])} pool@{a.pool}={_fmt(t['pool@k'])}"
-                  + (f" | 완화 hit@5={_fmt(t['hit@5_alt'])} mrr={_fmt(t['mrr_alt'])}" if "mrr_alt" in t else ""))
+                  + (f" | 완화 hit@5={_fmt(t['hit@5_alt'])} mrr={_fmt(t['mrr_alt'])}" if "mrr_alt" in t else "")
+                  + (f" | 검토 n={t['n_aud']} hit@1={_fmt(t['hit@1_aud'])} mrr={_fmt(t['mrr_aud'])}" if "mrr_aud" in t else ""))
     print(f"보고서 → {out / 'report.md'}")
     return out
 

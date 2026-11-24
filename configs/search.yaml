@@ -2,7 +2,7 @@
 # 가중치는 `python -m backend.rag.search.tuning.tune` 이 dev 문항으로 맞춘 값을 configs/search.tuned.yaml 에 써 준다 (확인 후 여기로)
 #
 # dense: hcx                      # hcx | arctic-ko | bge-m3-ko | ens-ko | none | hash — BM25 와 함께 쓰는 임베딩 (로컬 모델: search/embedders.py)
-# dense_docs: rule              # dense 에 넣을 표 문서: rule(표 설명문) | def | slot | tmpl | tslot (dense 카드) | kos14 — '+' 로 여러 개(최댓값), 끝에 +rw
+# dense_docs: rule              # dense 에 넣을 표 문서: rule(표 설명문) | def | slot | tmpl | tslot (dense 카드) | kos14 | okf(설명문 + OKF 별칭 줄) — '+' 로 여러 개(최댓값), 끝에 +rw
 # dense_cards: null             # dense 카드 파일 (기본 storage/indices/dense_cards/cards.jsonl ← python -m backend.rag.ingestion.dense_cards build)
 # rrf_k: 20
 # weights: {q_dense: 1.6, q_value: 1.6, q_title: 1.4, q_lex: 1.0, q_ngram: 0.8, rw_lex: 0.7}
@@ -14,5 +14,6 @@
 # roles: {enabled: true, den_miss: 0.35, den_dim: 0.2, den_survey: 1.5}  # 분모 단위 ('인구' 뿐인 하위 질의)
 # stitch: {enabled: true, links: null}                                  # 기간 묶음 (period_groups.py, 연결: configs/period_links.csv) → 결과에 years_have·years_missing·stitch
 # concepts: {enabled: true, path: null, add: 3}                         # 개념 카탈로그 (concepts.py build → <CSV 값 사전>/concepts.json)
+# okf: {enabled: true, value_weight: 0.9}       # OKF 개념의 승인된 별칭 → 그 표의 값 표현 (search/okf_terms.py). 비교: compare --okf off on
 
 feas: {cond_miss: 1.0, move_miss: 1.0, move_derived: 1.0}
