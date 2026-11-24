@@ -25,7 +25,7 @@ export function NoticePage() {
   return (
     <Frame variant="generating">
       <QueryPill className="generating-pill" question={run.question} />
-      <Character className="generating-sloth" size="L" motion="error" />
+      <Character className="generating-sloth notice-sloth" size="L" motion="error" />
       <section className="notice" role={isError ? 'alert' : 'status'}>
         <h1>{isError ? '답변을 가져오지 못했어요' : '통계로 답하기 어려운 질문이에요'}</h1>
         <p>{run.message ?? '질문을 바꿔 다시 시도해 주세요.'}</p>
