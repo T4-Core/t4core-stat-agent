@@ -75,7 +75,8 @@
 .time-toggle { display: flex; width: 97px; height: 32px; padding: 3px 5px; border-radius: 9px; background: var(--surface-120); }
 .time-toggle button { width: 44.1px; height: 26px; border-radius: 7.2px; color: var(--text-500); font-size: 10.8px; font-weight: 500; }
 .time-toggle button.on { background: #fff; box-shadow: 0 0.9px 2.7px rgba(0, 0, 0, 0.08); }
-.year-grid { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(3, 1fr); gap: 7px; width: 394.56px; height: 123px; padding: 4px 0; }
+/* 연도 버튼 한 줄 높이를 고정해, 연도가 늘면 줄이 자연스럽게 추가됩니다. */
+.year-grid { display: grid; grid-template-columns: repeat(5, 1fr); grid-auto-rows: 33.7px; gap: 7px; width: 394.56px; padding: 4px 0; }
 .year { border: 0.9px solid var(--line-200); border-radius: 9px; background: #fff; color: var(--text-700); font-size: 11.7px; font-weight: 500; }
 .year.selected { border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
 .year.between { border-color: var(--primary-800); background: var(--surface-120); }
