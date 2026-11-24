@@ -172,7 +172,7 @@ export function ResultPage() {
             </div>
             <h3 className="chart-heading">{chart.heading}</h3>
             <p className="chart-unit">{unitLine(chart)}</p>
-            <StatChart chart={chart} width={424} height={272} />
+            <StatChart chart={chart} width={424} height={275} />
             <div className="pager result-pager">
               <button type="button" aria-label="이전 차트" disabled={chartIndex === 0} onClick={() => setChartIndex(chartIndex - 1)}><img src={prev} alt="" width={30} height={30} /></button>
               <span className="pager-dots" aria-hidden="true">{view.charts.map((item, index) => <i key={item.id} className={index === chartIndex ? 'on' : ''} />)}</span>

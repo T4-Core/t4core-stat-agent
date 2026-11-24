@@ -1,17 +1,17 @@
 /* 1. Main 화면과 드롭다운 */
-.main-sloth { position: absolute; left: 606px; top: 110px; width: 224px; height: 209px; object-fit: fill; z-index: 1; }
-.main-bubble { position: absolute; left: 796.8px; top: 156.7px; width: 152px; height: 86px; z-index: 1; }
+/* 위치는 Figma 카드 기준 값 + 카드 여백 18px. 지역·시점·대상을 골라도 움직이지 않습니다. */
+/* 나무늘보는 M 크기(224×241)를 90%로 줄여 시안 크기에 맞춥니다. */
+.main-sloth { position: absolute; left: 613px; top: 98px; transform: scale(0.9); z-index: 1; }
+.main-bubble { position: absolute; left: 803px; top: 176px; width: 152px; height: 86px; z-index: 1; }
 .bubble-shape { position: absolute; left: 0; top: 0; width: 152.6px; height: 70.4px; }
-.bubble-tail { position: absolute; left: 59px; top: 54.4px; width: 24.47px; height: 12.66px; }
 .main-bubble p { position: absolute; left: 0; top: 18.2px; width: 152px; color: #394650; font-size: 11px; line-height: 18.1px; text-align: center; }
 
-.main-content { --dx: 0px; --title-y: 319px; --sub-y: 364.6px; --composer-y: 403.2px; --list-y: 602px; position: absolute; inset: 0; pointer-events: none; }
+.main-content { position: absolute; inset: 0; pointer-events: none; }
 .main-content > * { pointer-events: auto; }
-.main-content.layout-recommend { --dx: 14px; --title-y: 307px; --sub-y: 352.6px; --composer-y: 390px; --list-y: 559px; }
-.main-title { position: absolute; left: calc(293px + var(--dx)); top: var(--title-y); width: 820px; color: var(--text-900); font-size: 25.11px; font-weight: 600; line-height: 37.8px; letter-spacing: -0.36px; text-align: center; }
-.main-sub { position: absolute; left: calc(293px + var(--dx)); top: var(--sub-y); width: 820px; color: var(--text-700); font-size: 13.5px; font-weight: 500; line-height: 20.25px; text-align: center; }
+.main-title { position: absolute; left: 310px; top: 319px; width: 820px; color: var(--text-900); font-size: 25.11px; font-weight: 600; line-height: 37.8px; letter-spacing: -0.36px; text-align: center; }
+.main-sub { position: absolute; left: 310px; top: 364.6px; width: 820px; color: var(--text-700); font-size: 13.5px; font-weight: 500; line-height: 20.25px; text-align: center; }
 
-.composer { position: absolute; left: calc(293px + var(--dx)); top: var(--composer-y); width: 820px; border: 1px solid var(--line-300); border-radius: 20px; background: #fff; box-shadow: var(--shadow-composer); z-index: 3; }
+.composer { position: absolute; left: 310px; top: 403.2px; width: 820px; border: 1px solid var(--line-300); border-radius: 20px; background: #fff; box-shadow: var(--shadow-composer); z-index: 3; }
 .composer-input { display: flex; align-items: center; gap: 17px; padding: 12px 13px 12px 24px; }
 .composer-input input { flex: 1; min-width: 0; height: 44px; border: 0; background: transparent; color: var(--text-850); font-size: 15px; outline: none; }
 .composer-input input::placeholder, .followup input::placeholder { color: var(--text-400); opacity: 1; }
@@ -26,7 +26,7 @@
 .chip-main { display: inline-flex; align-items: center; gap: 8px; color: var(--primary-800); font-size: 14px; font-weight: 500; }
 .chip-clear { width: 15px; color: var(--primary-800); font-size: 16px; line-height: 1; }
 
-.recent { position: absolute; left: calc(294px + var(--dx)); top: var(--list-y); width: 819px; display: var(--recent-display, block); }
+.recent { position: absolute; left: 310px; top: 601px; width: 819px; }
 .recent-head { display: flex; justify-content: space-between; height: 18px; margin-bottom: 18.15px; color: var(--text-500); font-size: 12px; font-weight: 600; line-height: 18px; letter-spacing: 0.2px; }
 .recent-head a { color: var(--primary-700); }
 .recent-row { display: flex; align-items: center; gap: 10px; width: 811px; height: 43.05px; padding: 0 8px 0 10px; border-bottom: 1px solid var(--line-300); color: var(--text-850); font-size: 14px; }
@@ -34,7 +34,7 @@
 .row-arrow { color: var(--text-600); font-size: 16px; }
 .row-arrow.large { font-size: 18px; }
 
-.recommend { position: absolute; left: calc(294px + var(--dx)); top: var(--list-y); width: 820px; display: flex; flex-direction: column; gap: 10px; }
+.recommend { position: absolute; left: 310px; top: 576px; width: 820px; display: flex; flex-direction: column; gap: 10px; }
 .recommend-head { display: flex; justify-content: space-between; color: var(--text-500); font-size: 12px; font-weight: 600; line-height: 18px; letter-spacing: 0.2px; }
 .recommend-head .medium { font-weight: 500; }
 .recommend-row { display: flex; align-items: center; gap: 14px; width: 820px; padding: 14px 17px; border: 1px solid var(--line-300); border-radius: 14px; background: #fff; text-align: left; }
@@ -55,7 +55,8 @@
 .panel-button { display: inline-flex; align-items: center; justify-content: center; height: 30.6px; padding: 0 12.5px; border: 0.9px solid var(--line-200); border-radius: 9px; background: #fff; color: var(--primary-900); font-size: 11.25px; font-weight: 600; }
 .panel-button.primary { border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
 
-.region-panel { left: 223.7px; top: 548.8px; width: 474.7px; min-height: 326.7px; padding: 17.4px; }
+/* 팝업 위치: Figma 카드 기준 값 + 카드 여백 18px */
+.region-panel { left: 249px; top: 542px; width: 474.7px; min-height: 326.7px; padding: 17.4px; }
 .region-panel .panel-head h4 { font-size: 11.907px; }
 .region-panel .panel-head span { font-size: 10.206px; }
 .region-panel .panel-head { margin-bottom: 11px; }
@@ -68,14 +69,14 @@
 .region-panel .panel-footer { margin-top: 15px; padding-top: 12px; font-size: 11.056px; }
 .region-panel .panel-button { height: 29.1px; font-size: 10.631px; }
 
-.time-panel { left: 384px; top: 555px; width: 432px; padding: 17.82px; gap: 7.2px; }
-.time-panel.range { left: 369px; top: 561px; }
+.time-panel { left: 420px; top: 542px; width: 432px; padding: 17.82px; gap: 7.2px; }
 .time-head { height: 32px; }
 .time-head h4 { font-size: 12.6px; line-height: 18.9px; }
 .time-toggle { display: flex; width: 97px; height: 32px; padding: 3px 5px; border-radius: 9px; background: var(--surface-120); }
 .time-toggle button { width: 44.1px; height: 26px; border-radius: 7.2px; color: var(--text-500); font-size: 10.8px; font-weight: 500; }
 .time-toggle button.on { background: #fff; box-shadow: 0 0.9px 2.7px rgba(0, 0, 0, 0.08); }
-.year-grid { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(3, 1fr); gap: 7px; width: 394.56px; height: 123px; padding: 4px 0; }
+/* 연도 버튼 한 줄 높이를 고정해, 연도가 늘면 줄이 자연스럽게 추가됩니다. */
+.year-grid { display: grid; grid-template-columns: repeat(5, 1fr); grid-auto-rows: 33.7px; gap: 7px; width: 394.56px; padding: 4px 0; }
 .year { border: 0.9px solid var(--line-200); border-radius: 9px; background: #fff; color: var(--text-700); font-size: 11.7px; font-weight: 500; }
 .year.selected { border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
 .year.between { border-color: var(--primary-800); background: var(--surface-120); }
@@ -83,7 +84,7 @@
 .time-selected { display: flex; align-items: center; gap: 10px; color: var(--text-700); font-size: 12.6px; }
 .time-selected b { font-size: 11.7px; font-weight: 500; }
 
-.target-panel { left: 559.5px; top: 545.1px; width: 444.6px; padding: 16.93px; gap: 6.84px; }
+.target-panel { left: 562px; top: 542px; width: 444.6px; padding: 16.93px; gap: 6.84px; }
 .target-panel .panel-head h4 { font-size: 11.97px; line-height: 17.955px; }
 .target-panel .panel-head span { font-size: 10.26px; }
 .target-search { display: flex; align-items: center; gap: 8.55px; height: 37.62px; padding: 0 13.5px; border: 0.855px solid var(--line-200); border-radius: 11.97px; }

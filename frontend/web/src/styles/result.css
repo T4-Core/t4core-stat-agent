@@ -20,7 +20,8 @@
 .chart-tab.on { border-color: var(--primary-500); background: var(--surface-120); color: var(--primary-900); }
 .chart-tab.on span { border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
 .chart-heading { margin-top: 15px; color: var(--text-900); font-size: 14.5px; font-weight: 600; }
-.chart-unit { margin: 3px 0 5px; color: var(--text-500); font-size: 12px; font-weight: 500; }
+/* 아래 여백으로 그래프와 화살표 줄을 함께 내립니다. (화살표 줄 위쪽 = 화면 기준 623) */
+.chart-unit { margin: 3px 0 9.95px; color: var(--text-500); font-size: 12px; font-weight: 500; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 14px; }
 .pager button { width: 30px; height: 30px; }
 .pager-dots { display: inline-flex; align-items: center; gap: 4px; }
@@ -135,8 +136,9 @@
 .view-item b { color: var(--text-900); font-size: 14px; font-weight: 600; }
 .view-item small { color: var(--text-500); font-size: 12px; font-weight: 500; }
 .view-side h3 { margin: 18px 0 8px; color: var(--text-500); font-size: 12px; font-weight: 600; }
-.condition { display: flex; align-items: center; gap: 22px; height: 57px; border-bottom: 1px solid var(--line-100); }
-.condition > span { width: 30px; color: var(--text-500); font-size: 12px; font-weight: 600; }
+/* 항목 이름 칸은 세 글자("비교축")도 한 줄에 들어가도록 38로 두고, 칸 사이 간격을 줄여 가운데 칸 너비를 맞춥니다. */
+.condition { display: flex; align-items: center; gap: 19.5px; height: 57px; border-bottom: 1px solid var(--line-100); }
+.condition > span { flex: none; width: 38px; color: var(--text-500); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .condition p { display: flex; flex: 1; flex-direction: column; gap: 3px; }
 .condition small { color: var(--text-500); font-size: 11.5px; font-weight: 500; }
 .condition b { color: var(--text-900); font-size: 13px; font-weight: 600; }

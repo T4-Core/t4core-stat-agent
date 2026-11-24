@@ -1,6 +1,9 @@
 /* 2. 답변 생성 중, 3. 통계표 선택 */
 .generating-pill { top: 47px; }
-.generating-sloth { position: absolute; left: 554px; top: 151px; width: 331px; height: 367px; object-fit: contain; z-index: 1; }
+/* 통계표 찾는(생성 중) 화면의 나무늘보. 생각 풍선(.generating-bubble)은 따로 위치를 잡아서 같이 움직이지 않습니다. */
+.generating-sloth { position: absolute; left: 554px; top: 143px; width: 331px; height: 367px; object-fit: contain; z-index: 1; }
+/* 오류 안내 화면은 같은 자리를 쓰되 원래 높이(151)를 유지합니다. */
+.notice-sloth { top: 151px; }
 .generating-title { position: absolute; left: 0; top: 490px; width: 1440px; color: var(--text-900); font-size: 22px; font-weight: 600; line-height: 33px; letter-spacing: -0.4px; text-align: center; }
 .progress-card { position: absolute; left: 501.5px; top: 554px; width: 437px; padding: 13.8px 25.8px; border: 1px solid var(--line-200); border-radius: 22px; background: #fff; }
 .progress-step { display: flex; align-items: center; gap: 12px; height: 42px; color: var(--text-700); font-size: 15px; }

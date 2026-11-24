@@ -1,10 +1,11 @@
 /* 5. History */
-.history-title { position: absolute; left: 75px; top: 105px; color: var(--text-900); font-size: 24px; font-weight: 600; }
-.history-sub { position: absolute; left: 75px; top: 140px; color: var(--text-700); font-size: 13.5px; font-weight: 500; }
-.history-search { position: absolute; left: 561px; top: 122.2px; display: flex; align-items: center; gap: 11px; width: 339px; height: 43px; padding: 0 16px; border: 1px solid var(--line-200); border-radius: 12px; background: #fff; }
+/* 제목·부제목은 아래 '전체' 버튼 왼쪽 끝(63)에 맞춥니다. */
+.history-title { position: absolute; left: 63px; top: 111px; color: var(--text-900); font-size: 24px; font-weight: 600; }
+.history-sub { position: absolute; left: 63px; top: 146px; color: var(--text-700); font-size: 13.5px; font-weight: 500; }
+.history-search { position: absolute; left: 561px; top: 128.2px; display: flex; align-items: center; gap: 11px; width: 339px; height: 43px; padding: 0 16px; border: 1px solid var(--line-200); border-radius: 12px; background: #fff; }
 .history-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text-850); font-size: 14px; font-weight: 500; outline: none; }
 .history-search input::placeholder { color: var(--text-500); opacity: 1; }
-.history-filters { position: absolute; left: 63px; top: 182px; display: flex; gap: 8px; z-index: 8; }
+.history-filters { position: absolute; left: 63px; top: 188px; display: flex; gap: 8px; z-index: 8; }
 .history-filters .chip { display: inline-flex; align-items: center; gap: 6px; height: 29px; padding: 0 12.5px; border: 1px solid var(--line-200); border-radius: 999px; background: #fff; color: var(--text-700); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
 .history-filters .chip.on { border-color: var(--primary-500); background: var(--primary-500); color: #fff; font-weight: 600; }
 .history-filters .chip.selected { border-color: var(--primary-600); background: var(--surface-200); color: var(--primary-900); }
@@ -12,7 +13,7 @@
 .filter-menu { position: absolute; left: 0; top: 34px; display: flex; flex-direction: column; min-width: 130px; max-height: 240px; padding: 6px; overflow-y: auto; border: 1px solid var(--line-200); border-radius: 12px; background: #fff; box-shadow: var(--shadow-panel); }
 .filter-menu button, .history-menu button { padding: 7px 10px; border-radius: 7px; color: var(--text-700); font-size: 12.5px; text-align: left; white-space: nowrap; }
 .filter-menu button:hover, .history-menu button:hover { background: var(--surface-120); }
-.history-list { position: absolute; left: 61px; top: 226px; width: 856px; height: 633px; padding-right: 15px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-300) transparent; }
+.history-list { position: absolute; left: 61px; top: 232px; width: 856px; height: 633px; padding-right: 15px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-300) transparent; }
 .history-list section { margin-bottom: 17.4px; }
 .history-list h2 { height: 21.7px; padding-left: 17.5px; color: var(--text-500); font-size: 12px; font-weight: 600; }
 .history-row { position: relative; display: flex; align-items: center; gap: 14px; width: 841px; height: 72px; margin-bottom: 6px; padding: 0 16px 0 18.5px; border: 1px solid transparent; border-radius: 14px; cursor: pointer; }
@@ -28,7 +29,8 @@
 .history-menu-wrap { position: relative; }
 .history-menu { position: absolute; right: 0; top: 24px; display: flex; padding: 5px; border: 1px solid var(--line-200); border-radius: 10px; background: #fff; box-shadow: var(--shadow-panel); z-index: 10; }
 .history-none { padding: 80px 0; color: var(--text-500); font-size: 14px; text-align: center; }
-.history-preview { position: absolute; left: 933px; top: 110px; width: 451px; height: 753px; padding: 23px 24px; border: 1px solid var(--line-200); border-radius: 22px; background: #fff; }
+/* 미리보기 패널: 위는 검색창 윗줄에 맞춥니다. */
+.history-preview { position: absolute; left: 933px; top: 128px; width: 451px; height: 741px; padding: 23px 24px; border: 1px solid var(--line-200); border-radius: 22px; background: #fff; }
 .preview-top { display: flex; justify-content: space-between; color: var(--text-500); font-size: 12px; font-weight: 600; }
 .history-preview h2 { margin-top: 12px; color: var(--text-900); font-size: 17px; font-weight: 600; }
 .preview-chips { display: flex; gap: 6px; margin-top: 15px; }
@@ -41,7 +43,9 @@
 .preview-actions a { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 110px; height: 44px; border: 1px solid var(--line-200); border-radius: 12px; background: #fff; color: var(--primary-900); font-size: 14px; font-weight: 600; }
 .preview-actions a.primary { width: 229px; border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
 .preview-actions button { width: 46px; height: 44px; }
-.empty-sloth { position: absolute; left: 554px; top: 152px; width: 331px; height: 367px; object-fit: contain; }
-.empty-title { position: absolute; left: 0; top: 519px; width: 1440px; color: var(--text-900); font-size: 22px; font-weight: 600; text-align: center; }
-.empty-sub { position: absolute; left: 0; top: 556.6px; width: 1440px; color: var(--text-700); font-size: 15px; font-weight: 500; text-align: center; }
-.empty-button { position: absolute; left: 627.7px; top: 603.3px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 162.7px; height: 44px; border-radius: 12px; background: var(--primary-500); color: #fff; font-size: 14px; font-weight: 600; }
+/* 나무늘보는 너비 331 → 341(10 크게)로 비율 유지해 키웁니다. 가운데를 기준으로 커져서 가로 정가운데는 그대로입니다. */
+.empty-sloth { position: absolute; left: 554px; top: 163px; width: 331px; height: 367px; object-fit: contain; transform: scale(1.0302); }
+/* 제목·부제목·버튼은 모두 화면 정가운데(720) 기준입니다. */
+.empty-title { position: absolute; left: 0; top: 540px; width: 1440px; color: var(--text-900); font-size: 22px; font-weight: 600; text-align: center; }
+.empty-sub { position: absolute; left: 0; top: 583px; width: 1440px; color: var(--text-700); font-size: 15px; font-weight: 500; text-align: center; }
+.empty-button { position: absolute; left: 638.5px; top: 630px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 163px; height: 46px; border-radius: 12px; background: var(--primary-500); color: #fff; font-size: 15px; font-weight: 600; }
