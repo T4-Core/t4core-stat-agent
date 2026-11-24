@@ -4,6 +4,8 @@
   검색 단위 = 본 질의(main) + 서브쿼리 각각 (서브쿼리가 있으면 skip_main 으로 본 질의를 건너뛸 수 있음)
   결과 = {query_id, original, filters, units: [{unit_id, query, search_query, filters, candidates, views, notes}]}
   카드 id = view::표key::주기::질문ID-순위::종류  (서브쿼리는 질문ID 자리에 서브 ID, 예: q1-2)
+  fill=True (설정 view_records_per_unit) = 상위 n_views 개를 '시도' 하는 대신 쓸 수 있는 View 가 n_views 개가 될 때까지
+    다음 후보로 넘어감. View 생성 실패는 건너뛰고, 요청 지표가 없는 표의 View 는 남기되(지표 없음 안내에 씀) 세지 않음
 """
 import time
 import uuid
@@ -28,9 +30,11 @@ def units_of(b, sub_ids=None):
     return units
 
 
-def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None, search_fn=None, skip_main=False):
+def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None, search_fn=None, skip_main=False, fill=False):
     """view_bundle 하나 → 단위별 결과 (카드는 units[].views[].record)
-    search_fn(query, top_k, filters=, question=, unit=) 를 바꿔 끼울 수 있음 (기본 backend.rag.search)"""
+    search_fn(query, top_k, filters=, question=, unit=) 를 바꿔 끼울 수 있음 (기본 backend.rag.search)
+    fill: 쓸 수 있는 View 가 n_views 개가 될 때까지 후보를 더 봄 (top_k 안에서)"""
+    from backend.rag.view.conflict import indicator_missing
     if search_fn is None:
         from backend.rag.search import search_fn as default
         search_fn = default()
@@ -47,8 +51,10 @@ def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None, sear
             notes = []
             sq = search_query(text, f)                     # 지역·시점 단어를 빼고 지표·대상 단어를 더함
             cands = search_fn(sq, top_k, filters=f, question=b.get("original"), unit=uid)
-            views = []
-            for c in cands[:n_views]:
+            views, good = [], 0
+            for c in (cands if fill else cands[:n_views]):
+                if fill and good >= n_views:
+                    break
                 t0 = time.time()
                 try:
                     rec, vnotes = build_view(c["tbl_id"], f, f"{label}-{c['rank']}", con)
@@ -57,6 +63,10 @@ def run_query(b, top_k=TOP_K, n_views=N_VIEWS, sub_ids=None, progress=None, sear
                     continue
                 rec["match"] = {"rank": c["rank"], "cover": c.get("cover"), "unmet": c.get("unmet") or []}
                 views.append({"record": rec, "notes": [n["text"] for n in vnotes], "rank": c["rank"], "tbl_id": c["tbl_id"]})
+                if fill and indicator_missing(rec):
+                    notes.append(f"{c['tbl_id']} 는 요청 지표가 없어 세지 않고 다음 후보로")
+                else:
+                    good += 1
                 if progress:
                     progress(f"  [{label}] #{c['rank']} {c['tbl_id']} → {len(rec['table']['rows'])}행 ({time.time() - t0:.1f}초)")
             done = {v["tbl_id"] for v in views}

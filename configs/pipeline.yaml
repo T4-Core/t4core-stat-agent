@@ -60,6 +60,10 @@ view_first_only_when_same: false         # true = View 2개(view_n_views: 2 권�
                                          #   교차점이 없으면 1순위만 넘김. 값이 다르면 둘 다 + 사용자 선택, 비교 불가면 둘 다
 view_stitch: false                       # true = 같은 통계의 다른 연도 표(configs/search.yaml stitch, period_groups.py)를
                                          #   그 표가 맡은 연도로 View 를 더 만들어 부모 Record 바로 뒤에 넘김 (비교·선택 대상 아님)
+view_records_per_unit: 3                 # 검색 단위(본 질의 · 서브쿼리 각각)마다 답변 모듈로 넘길 Record 수. 0 = 기존 동작
+                                         #   View 생성 실패·요청 지표 없는 표는 세지 않고 다음 후보로 채움 (view_top_k 안에서)
+                                         #   값이 다른 표들의 자동 선택(auto_select)이어도 고르지 않은 표의 Record 를 뒤에 함께 넘김
+                                         #   (record.match.selected = false). 사용자가 직접 고른 경우는 고른 무리만
 conflict_indicator_core: true            # 지표가 표 이름에만 있을 때(partial) 핵심어로 항목·분류 값을 다시 찾아 match 로
 conflict_rel_tol: 0.0                    # 같은 교차점 값이 '다르다' 의 기준: |a-b| > max(abs_tol, rel_tol*max(|a|,|b|))
 conflict_abs_tol: 1.0e-9                 #   (단위가 명·천명처럼 배수만 다르면 맞춰서 비교)
