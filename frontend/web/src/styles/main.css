@@ -34,7 +34,7 @@
 .row-arrow { color: var(--text-600); font-size: 16px; }
 .row-arrow.large { font-size: 18px; }
 
-.recommend { position: absolute; left: 310px; top: 601px; width: 820px; display: flex; flex-direction: column; gap: 10px; }
+.recommend { position: absolute; left: 310px; top: 576px; width: 820px; display: flex; flex-direction: column; gap: 10px; }
 .recommend-head { display: flex; justify-content: space-between; color: var(--text-500); font-size: 12px; font-weight: 600; line-height: 18px; letter-spacing: 0.2px; }
 .recommend-head .medium { font-weight: 500; }
 .recommend-row { display: flex; align-items: center; gap: 14px; width: 820px; padding: 14px 17px; border: 1px solid var(--line-300); border-radius: 14px; background: #fff; text-align: left; }
@@ -55,7 +55,8 @@
 .panel-button { display: inline-flex; align-items: center; justify-content: center; height: 30.6px; padding: 0 12.5px; border: 0.9px solid var(--line-200); border-radius: 9px; background: #fff; color: var(--primary-900); font-size: 11.25px; font-weight: 600; }
 .panel-button.primary { border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
 
-.region-panel { left: 223.7px; top: 548.8px; width: 474.7px; min-height: 326.7px; padding: 17.4px; }
+/* 팝업 위치: Figma 카드 기준 값 + 카드 여백 18px */
+.region-panel { left: 249px; top: 542px; width: 474.7px; min-height: 326.7px; padding: 17.4px; }
 .region-panel .panel-head h4 { font-size: 11.907px; }
 .region-panel .panel-head span { font-size: 10.206px; }
 .region-panel .panel-head { margin-bottom: 11px; }
@@ -68,8 +69,7 @@
 .region-panel .panel-footer { margin-top: 15px; padding-top: 12px; font-size: 11.056px; }
 .region-panel .panel-button { height: 29.1px; font-size: 10.631px; }
 
-.time-panel { left: 384px; top: 555px; width: 432px; padding: 17.82px; gap: 7.2px; }
-.time-panel.range { left: 369px; top: 561px; }
+.time-panel { left: 420px; top: 542px; width: 432px; padding: 17.82px; gap: 7.2px; }
 .time-head { height: 32px; }
 .time-head h4 { font-size: 12.6px; line-height: 18.9px; }
 .time-toggle { display: flex; width: 97px; height: 32px; padding: 3px 5px; border-radius: 9px; background: var(--surface-120); }
@@ -83,7 +83,7 @@
 .time-selected { display: flex; align-items: center; gap: 10px; color: var(--text-700); font-size: 12.6px; }
 .time-selected b { font-size: 11.7px; font-weight: 500; }
 
-.target-panel { left: 559.5px; top: 545.1px; width: 444.6px; padding: 16.93px; gap: 6.84px; }
+.target-panel { left: 562px; top: 542px; width: 444.6px; padding: 16.93px; gap: 6.84px; }
 .target-panel .panel-head h4 { font-size: 11.97px; line-height: 17.955px; }
 .target-panel .panel-head span { font-size: 10.26px; }
 .target-search { display: flex; align-items: center; gap: 8.55px; height: 37.62px; padding: 0 13.5px; border: 0.855px solid var(--line-200); border-radius: 11.97px; }
