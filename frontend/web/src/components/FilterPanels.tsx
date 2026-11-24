@@ -22,18 +22,36 @@ function PanelFooter({ label, canApply, onCancel, onApply }: { label: string; ca
   );
 }
 
+// 지역 팝업의 기본값 (시안: 처음 열면 '선택됨 서울 전체')
+const DEFAULT_REGIONS = ['서울'];
+
 export function RegionPanel({ filters, onCancel, onApply }: PanelProps) {
-  const [regions, setRegions] = useState(filters.regions.length > 0 ? filters.regions : ['서울']);
+  // regions 는 사용자가 직접 누른 지역입니다.
+  // - 한 번도 안 눌렀으면 기본값 '서울 전체'를 쓰되 버튼은 칠하지 않습니다.
+  // - 눌렀다가 모두 빼면 '선택됨 없음'이 되고 적용할 수 없습니다.
+  // (이미 적용한 지역이 있으면 그 지역이 칠해진 채로 열림)
+  const [regions, setRegions] = useState(filters.regions);
+  const [touched, setTouched] = useState(filters.regions.length > 0);
   const [district, setDistrict] = useState(filters.district);
   const [expanded, setExpanded] = useState(false);
-  const first = regions[0] ?? '';
-  const districts = first === '서울' && regions.length === 1 ? (expanded ? [...SEOUL_MAIN, ...SEOUL_MORE] : SEOUL_MAIN) : ['전체'];
+  const picked = regions.length > 0;
+  const effective = picked ? regions : touched ? [] : DEFAULT_REGIONS;
+  const first = effective[0] ?? '';
+  const districts = first === '서울' && effective.length === 1 ? (expanded ? [...SEOUL_MAIN, ...SEOUL_MORE] : SEOUL_MAIN) : ['전체'];
 
+  // 지역을 누르면 시군구는 '전체'로 돌아갑니다.
   const toggle = (name: string) => {
+    setTouched(true);
     setDistrict('전체');
     setRegions((current) => (current.includes(name) ? current.filter((item) => item !== name) : [...current, name]));
   };
-  const label = regions.length > 1 ? `${first} 외 ${regions.length - 1}` : first ? `${first} ${district}` : '없음';
+  // 기본값 상태에서 구를 바로 누르면 서울도 함께 고른 것으로 칩니다.
+  const pickDistrict = (name: string) => {
+    if (!picked) setRegions(DEFAULT_REGIONS);
+    setTouched(true);
+    setDistrict(name);
+  };
+  const label = effective.length > 1 ? `${first} 외 ${effective.length - 1}` : first ? `${first} ${district}` : '없음';
 
   return (
     <section className="panel region-panel" aria-label="지역 선택">
@@ -49,13 +67,14 @@ export function RegionPanel({ filters, onCancel, onApply }: PanelProps) {
       <div className="panel-label">{first || '지역'} · 시군구 (선택)</div>
       <div className={expanded ? 'option-grid six scroll' : 'option-grid six'}>
         {districts.map((name) => (
-          <button type="button" key={name} className={district === name ? 'opt soft' : 'opt'} aria-pressed={district === name} onClick={() => setDistrict(name)}>{name}</button>
+          // 지역을 모두 뺀 상태에서는 시군구를 누를 수 없습니다.
+          <button type="button" key={name} className={picked && district === name ? 'opt soft' : 'opt'} aria-pressed={picked && district === name} disabled={!first} onClick={() => pickDistrict(name)}>{name}</button>
         ))}
-        {first === '서울' && regions.length === 1 && !expanded && (
+        {first === '서울' && effective.length === 1 && !expanded && (
           <button type="button" className="opt" onClick={() => setExpanded(true)}>더보기 +15</button>
         )}
       </div>
-      <PanelFooter label={label} canApply={regions.length > 0} onCancel={onCancel} onApply={() => onApply({ regions, district })} />
+      <PanelFooter label={label} canApply={effective.length > 0} onCancel={onCancel} onApply={() => onApply({ regions: effective, district })} />
     </section>
   );
 }
@@ -79,10 +98,9 @@ export function TimePanel({ filters, onCancel, onApply }: PanelProps) {
     setYears((current) => (next === 'year' ? current.slice(0, 1) : current));
   };
   const label = sorted.length === 0 ? '없음' : sorted.length === 1 ? String(start) : `${start} ~ ${end}`;
-  const panelClass = mode === 'range' ? 'panel time-panel range' : 'panel time-panel';
 
   return (
-    <section className={panelClass} aria-label="시점 선택">
+    <section className="panel time-panel" aria-label="시점 선택">
       <div className="panel-head time-head">
         <h4>시점 선택</h4>
         <div className="time-toggle" role="group" aria-label="시점 방식">
@@ -111,7 +129,7 @@ export function TimePanel({ filters, onCancel, onApply }: PanelProps) {
 }
 
 export function TargetPanel({ filters, onCancel, onApply }: PanelProps) {
-  const [target, setTarget] = useState(filters.target || '1인 가구');
+  const [target, setTarget] = useState(filters.target);
   const [keyword, setKeyword] = useState('');
   const groups = TARGET_GROUPS
     .map((group) => ({ ...group, items: group.items.filter((item) => item.includes(keyword.trim())) }))
