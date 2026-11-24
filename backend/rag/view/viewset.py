@@ -221,9 +221,11 @@ def build_viewset(source, *, today=None, top_k=None, n_views=None, overrides=Non
         return {**base, "status": "out_of_scope", "query_id": vb["query_id"], "notes": ["슬롯 없음 (범위 밖)"],
                 "seconds": round(time.time() - t0, 3)}
     from backend.rag.view.run import run_query
-    with maybe_step(tracer, "검색 + View", top_k=top_k or s.view_top_k, n_views=n_views or s.view_n_views) as st:
-        res = run_query(vb, top_k or s.view_top_k, n_views or s.view_n_views, progress=progress, search_fn=search_fn,
-                        skip_main=not s.view_main_with_subs)
+    per_unit = int(getattr(s, "view_records_per_unit", 0) or 0)  # >0 = 단위마다 넘길 Record 수를 채움
+    n_views = n_views or per_unit or s.view_n_views
+    with maybe_step(tracer, "검색 + View", top_k=top_k or s.view_top_k, n_views=n_views, fill=bool(per_unit)) as st:
+        res = run_query(vb, top_k or s.view_top_k, n_views, progress=progress, search_fn=search_fn,
+                        skip_main=not s.view_main_with_subs, fill=bool(per_unit))
         st.output = {u["unit_id"]: [v["tbl_id"] for v in u["views"]] for u in res["units"]}
     units, records, pending = [], [], []
     for u in res["units"]:
@@ -252,11 +254,13 @@ def build_viewset(source, *, today=None, top_k=None, n_views=None, overrides=Non
                          "n_differ": len(conf["differing_points"]), "clusters": conf["clusters"]}
         unit = {"unit_id": uid, "query": u["query"], "search_query": u["search_query"], "filters": u["filters"],
                 "candidates": u["candidates"], "views": u["views"], "notes": u["notes"], "conflict": conf,
-                "selected": None, "keep_unusable": s.view_keep_unusable, "stitched": u.get("stitched") or {}}
+                "selected": None, "keep_unusable": s.view_keep_unusable, "stitched": u.get("stitched") or {},
+                "keep_others": bool(per_unit)}
         if conf["status"] == "ambiguous":
             choice = on_ambiguous(conf) if on_ambiguous else None
             if choice:
                 _apply(unit, selection.resolve(conf["selection_token"], choice, [v["record"] for v in u["views"]]))
+                unit["selected"]["auto"] = True  # 사람이 고른 것이 아님 → keep_others 면 나머지 무리도 넘김
             else:
                 pending.append({"unit_id": uid, "selection_token": conf["selection_token"], "options": conf["options"]})
         units.append(unit)
@@ -272,7 +276,8 @@ def build_viewset(source, *, today=None, top_k=None, n_views=None, overrides=Non
 
 def unit_records(unit):
     """단위 하나가 답변 모듈로 넘길 Record: 선택이 끝났거나 충돌이 없으면 View 전부 (선택된 무리 + 충돌과 무관한 View)
-    요청 지표가 없는 표의 View(첫 코드 = 다른 지표)는 keep_unusable 과 관계없이 넘기지 않는다"""
+    요청 지표가 없는 표의 View(첫 코드 = 다른 지표)는 keep_unusable 과 관계없이 넘기지 않는다
+    keep_others (view_records_per_unit) 이고 선택이 자동이면 고르지 않은 무리의 Record 도 뒤에 (match.selected=False)"""
     c = unit["conflict"]
     if c["status"] == "ambiguous" and not unit.get("selected"):
         return []
@@ -284,6 +289,14 @@ def unit_records(unit):
     if unit.get("selected"):
         have = {r["id"] for r in recs}
         recs += [r for r in unit["selected"]["records"] if r["id"] not in have and not indicator_missing(r)]
+        if unit.get("keep_others") and unit["selected"].get("auto"):
+            # 자동 선택(auto_select)이면 고르지 않은 무리도 뒤에 — 답변 쪽이 단위마다 여러 표를 보고 판단 (match.selected=False)
+            have |= {r["id"] for r in recs}
+            others = [v["record"] for v in unit["views"] if v["record"]["id"] in set(unit["selected"]["dropped_ids"])
+                      and v["record"]["id"] not in have and not indicator_missing(v["record"])]
+            for r in others:
+                r["match"] = {**(r.get("match") or {}), "selected": False}
+            recs += others
     # 넘기는 표에 이어붙인 View 가 있으면 바로 뒤에 같이 (부모 표가 빠지면 같이 빠짐)
     stitched = unit.get("stitched") or {}
     if not stitched:
