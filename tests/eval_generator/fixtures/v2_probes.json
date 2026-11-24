@@ -1,0 +1,1657 @@
+{
+ "dataset": "generator-gapset-v2",
+ "dataset_version": "2.0.0-draft1",
+ "source_sha256": {
+  "cases.json": "b9ca67ae3346ca65ca995fb23988d8c55d2bc845c3328bdbf653ddd6e1198efb",
+  "evaluator_probes.json": "b8eade19fcfe545c1edcd912471b5a3e5e03671f8c0e8359c726e804f86310a8"
+ },
+ "input_sha256": {
+  "M01": "f6b3914076219d71f2d697ceaa80167f6028c5a272e435deb3a94f82bf454c55",
+  "R01": "6d7929c1fa75897349a7fa665090c90dcb7572cb588936c536b0130a14bbc8c5",
+  "R13": "7f75614157798e1d6cd30dedec0cf9758c9471eb17f81870c528d281e245e1c9",
+  "R15": "5d116b03dd246b608f4c5dabf9130abe4850cd9e396719ab896fd85571e12b52",
+  "S04": "51f5dc04d2f3c70e2df5a3eaaaf256abc17e7e7024f4c87059fee1cf7156d54c",
+  "S16": "f2a338095e59eeea0d4bf9cfa8ee3f7153dc01586e08f6e263dce4ddf205f58b"
+ },
+ "probes": [
+  {
+   "id": "J01",
+   "base_case_id": "R01",
+   "candidate_answer": "2024년 전국 출생아 수는 238,317명입니다.",
+   "expected_verdict": "pass",
+   "reason": "정확한 값·단위·항목·시점·지역",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J02",
+   "base_case_id": "R01",
+   "candidate_answer": "2024년 전국 출생아 수는 999,999명입니다.",
+   "expected_verdict": "fail",
+   "reason": "계산 결과가 정확해도 최종 답변 값이 틀리면 실패",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J03",
+   "base_case_id": "R01",
+   "candidate_answer": "해당 출생통계를 확인했습니다.",
+   "expected_verdict": "fail",
+   "reason": "필수 숫자를 답하지 않음",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J04",
+   "base_case_id": "R01",
+   "candidate_answer": "2024년 전국 출생아 수는 238,317가구입니다.",
+   "expected_verdict": "fail",
+   "reason": "동일 숫자라도 단위가 다름",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J05",
+   "base_case_id": "S16",
+   "candidate_answer": "2024년 가상시 순이동 인구는 20명 순유입입니다.",
+   "expected_verdict": "fail",
+   "reason": "음수의 부호와 방향을 모두 뒤집음",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J06",
+   "base_case_id": "R01",
+   "candidate_answer": "2024년 전국 출생은 확인했고, 서울 출생아 수는 238,317명입니다.",
+   "expected_verdict": "fail",
+   "reason": "문장 앞 전국을 뒤의 서울 수치 좌표로 오인하면 안 됨",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J07",
+   "base_case_id": "R01",
+   "candidate_answer": "2023년 전국 출생아 수는 238,317명입니다.",
+   "expected_verdict": "fail",
+   "reason": "연도가 다름",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J08",
+   "base_case_id": "R01",
+   "candidate_answer": "2024년 전국 혼인건수는 238,317건입니다.",
+   "expected_verdict": "fail",
+   "reason": "항목과 단위가 다름",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J09",
+   "base_case_id": "R15",
+   "candidate_answer": "2024년 전국 출생아 수는 238,317명입니다.",
+   "expected_verdict": "fail",
+   "reason": "사망 하위 질문 누락. 기대 하위 질문 2개가 분모",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J10",
+   "base_case_id": "M01",
+   "candidate_answer": "2024년 서울은 100명, 부산은 200명입니다. [E1, hidden-record]",
+   "expected_verdict": "fail",
+   "reason": "부산 값은 평가자 보관값일 뿐 최종 LLM 가시 문맥에 없음",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J11",
+   "base_case_id": "R01",
+   "candidate_answer": "2024년 전국 출생아 수는 238,317명입니다. 따라서 출산 장려 정책의 인과 효과가 입증됐습니다.",
+   "expected_verdict": "fail",
+   "reason": "정답 숫자와 함께 존재하는 근거 없는 인과 주장도 실패",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J12",
+   "base_case_id": "S04",
+   "candidate_answer": "비율은 2.5% 증가했고 상대 증가율은 20.0%p입니다.",
+   "expected_verdict": "fail",
+   "reason": "%와 %p를 서로 바꿔 씀",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J13",
+   "base_case_id": "R13",
+   "candidate_answer": "2024년 전국 합계출산율은 여성 1명당 0.75명입니다.",
+   "expected_verdict": "fail",
+   "reason": "질문이 소수 셋째 자리를 요구. 0.748 대신 두 자리 반올림은 불충분",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  },
+  {
+   "id": "J14",
+   "base_case_id": "R01",
+   "candidate_answer": "2024년 전국 출생아 수는 23만 8,317명입니다.",
+   "expected_verdict": "pass",
+   "reason": "한국어 수량 표기가 달라도 동일한 값·좌표·단위면 허용",
+   "stage": "final_answer",
+   "assessment": "동일한 정상 계산 결과를 유지한 채 최종 답변만 바꿔 검사",
+   "kind": "evaluator_probe"
+  }
+ ],
+ "cases": {
+  "M01": {
+   "id": "M01",
+   "group": "answer_context",
+   "question": "[합성 자료 검증] 2024년 서울과 부산의 인구를 각각 알려줘.",
+   "scope": "in",
+   "evidence_kind": "synthetic",
+   "input": {
+    "path": "inputs/M01.json",
+    "visible_evidence_ids": [
+     "M-visible"
+    ],
+    "context_policy": "only_visible_records",
+    "upstream_status": "ok"
+   },
+   "sub_questions": [
+    {
+     "key": "seoul",
+     "question": "서울 인구",
+     "expected_status": "answer",
+     "required_evidence_ids": [
+      "M-visible"
+     ],
+     "expected_operations": [
+      "raw"
+     ],
+     "claims": [
+      {
+       "id": "seoul",
+       "value": "100",
+       "unit": "명",
+       "binding": {
+        "region": [
+         "서울특별시"
+        ],
+        "period": [
+         "2024"
+        ],
+        "item": "인구",
+        "frequency": [
+         "Y"
+        ],
+        "dimensions": [
+         {}
+        ],
+        "basis": [
+         "observed"
+        ]
+       },
+       "evidence_ids": [
+        "M-visible"
+       ],
+       "calculation": {
+        "op": "raw",
+        "refs": [
+         "M-visible"
+        ],
+        "params": {},
+        "expression": "100"
+       },
+       "display": {
+        "text": "100명",
+        "unit": "명",
+        "scale": "1",
+        "digits": 0,
+        "rounding": "ROUND_HALF_UP",
+        "scaled_value": "100"
+       },
+       "tolerance": {
+        "atol": "0",
+        "rtol": "0"
+       },
+       "rank": null,
+       "assessment": "수치·부호·단위·모든 좌표·최종 답변의 실제 언급을 각각 검사"
+      }
+     ],
+     "hold_reason": null,
+     "required_caveats": [
+      "busan_not_in_final_llm_context"
+     ]
+    },
+    {
+     "key": "busan",
+     "question": "부산 인구",
+     "expected_status": "hold",
+     "required_evidence_ids": [
+      "M-hidden"
+     ],
+     "expected_operations": [],
+     "claims": [],
+     "hold_reason": "not_in_llm_context",
+     "required_caveats": [
+      "busan_not_in_final_llm_context"
+     ]
+    }
+   ],
+   "reference_answer": "제공된 합성 자료에서 2024년 서울 인구는 100명입니다. 부산 인구는 현재 답변에 제공된 근거 문맥에 없어 확인할 수 없습니다. [E1]",
+   "required_chart": {
+    "mode": "optional",
+    "acceptable_types": [
+     null,
+     "bar"
+    ],
+    "excluded_types": [],
+    "notice_required": false,
+    "expected_outcome": null,
+    "expected_outcomes": [],
+    "subquestions": {},
+    "null_allowed": null,
+    "reason": null,
+    "requirements": []
+   },
+   "forbidden_claims": [
+    "부산 200명을 숨은 검색 후보나 다른 문항에서 가져와 답변",
+    "숨은 Record의 출처를 인용"
+   ],
+   "coverage": [
+    "citation_visible_context_only",
+    "partial_answer",
+    "all_subquestions_counted"
+   ],
+   "pair": null,
+   "notes": "",
+   "review": {
+    "arithmetic": "independent_decimal_oracle",
+    "human_verified": false,
+    "live_executed": false
+   },
+   "required_facts": [
+    "busan_not_in_final_llm_context"
+   ],
+   "evidence_aliases": {
+    "M-visible": {
+     "record_id": "view::M01::1",
+     "label": "E1",
+     "row_index": 0
+    }
+   }
+  },
+  "R01": {
+   "id": "R01",
+   "group": "real",
+   "question": "2024년 전국 출생아 수를 명 단위로 알려줘.",
+   "scope": "in",
+   "evidence_kind": "kosis_raw",
+   "input": {
+    "path": "inputs/R01.json",
+    "visible_evidence_ids": [
+     "K-birth-00-2024"
+    ],
+    "context_policy": "only_visible_records",
+    "upstream_status": "ok"
+   },
+   "sub_questions": [
+    {
+     "key": "main",
+     "question": "2024년 전국 출생아 수를 명 단위로 알려줘.",
+     "expected_status": "answer",
+     "required_evidence_ids": [
+      "K-birth-00-2024"
+     ],
+     "expected_operations": [
+      "raw"
+     ],
+     "claims": [
+      {
+       "id": "birth_2024",
+       "value": "238317",
+       "unit": "명",
+       "binding": {
+        "region": [
+         "전국"
+        ],
+        "period": [
+         "2024"
+        ],
+        "item": "출생아수",
+        "frequency": [
+         "Y"
+        ],
+        "dimensions": [
+         {}
+        ],
+        "basis": [
+         "observed"
+        ]
+       },
+       "evidence_ids": [
+        "K-birth-00-2024"
+       ],
+       "calculation": {
+        "op": "raw",
+        "refs": [
+         "K-birth-00-2024"
+        ],
+        "params": {},
+        "expression": "238317"
+       },
+       "display": {
+        "text": "238,317명",
+        "unit": "명",
+        "scale": "1",
+        "digits": 0,
+        "rounding": "ROUND_HALF_UP",
+        "scaled_value": "238317"
+       },
+       "tolerance": {
+        "atol": "0",
+        "rtol": "0"
+       },
+       "rank": null,
+       "assessment": "수치·부호·단위·모든 좌표·최종 답변의 실제 언급을 각각 검사"
+      }
+     ],
+     "hold_reason": null,
+     "required_caveats": []
+    }
+   ],
+   "reference_answer": "2024년 전국 출생아 수는 238,317명입니다. [E1]",
+   "required_chart": {
+    "mode": "optional",
+    "acceptable_types": [
+     null,
+     "bar"
+    ],
+    "excluded_types": [],
+    "notice_required": false,
+    "expected_outcome": null,
+    "expected_outcomes": [],
+    "subquestions": {},
+    "null_allowed": null,
+    "reason": null,
+    "requirements": []
+   },
+   "forbidden_claims": [
+    "이 문항의 가시 입력에 없는 값·출처를 임의 사용"
+   ],
+   "coverage": [
+    "raw",
+    "unit",
+    "binding",
+    "integer"
+   ],
+   "pair": null,
+   "notes": "",
+   "review": {
+    "arithmetic": "independent_decimal_oracle",
+    "human_verified": false,
+    "live_executed": false
+   },
+   "required_facts": [],
+   "evidence_aliases": {
+    "K-birth-00-2024": {
+     "record_id": "view::R01::1",
+     "label": "E1",
+     "row_index": 0
+    }
+   }
+  },
+  "R13": {
+   "id": "R13",
+   "group": "real",
+   "question": "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘.",
+   "scope": "in",
+   "evidence_kind": "kosis_raw",
+   "input": {
+    "path": "inputs/R13.json",
+    "visible_evidence_ids": [
+     "K-tfr-00-2024"
+    ],
+    "context_policy": "only_visible_records",
+    "upstream_status": "ok"
+   },
+   "sub_questions": [
+    {
+     "key": "main",
+     "question": "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘.",
+     "expected_status": "answer",
+     "required_evidence_ids": [
+      "K-tfr-00-2024"
+     ],
+     "expected_operations": [
+      "raw"
+     ],
+     "claims": [
+      {
+       "id": "tfr",
+       "value": "0.748",
+       "unit": "명",
+       "binding": {
+        "region": [
+         "전국"
+        ],
+        "period": [
+         "2024"
+        ],
+        "item": "합계출산율",
+        "frequency": [
+         "Y"
+        ],
+        "dimensions": [
+         {}
+        ],
+        "basis": [
+         "observed"
+        ]
+       },
+       "evidence_ids": [
+        "K-tfr-00-2024"
+       ],
+       "calculation": {
+        "op": "raw",
+        "refs": [
+         "K-tfr-00-2024"
+        ],
+        "params": {},
+        "expression": "0.748"
+       },
+       "display": {
+        "text": "0.748명",
+        "unit": "명",
+        "scale": "1",
+        "digits": 3,
+        "rounding": "ROUND_HALF_UP",
+        "scaled_value": "0.748"
+       },
+       "tolerance": {
+        "atol": "0.00000001",
+        "rtol": "0"
+       },
+       "rank": null,
+       "assessment": "수치·부호·단위·모든 좌표·최종 답변의 실제 언급을 각각 검사"
+      }
+     ],
+     "hold_reason": null,
+     "required_caveats": [
+      "observed_not_projection",
+      "period_tfr_not_observed_completed_fertility"
+     ]
+    }
+   ],
+   "reference_answer": "2024년 전국 합계출산율은 여성 1명당 0.748명입니다. 실제 출생통계의 기간 합계출산율이며 장래인구추계 값이 아닙니다. [E1]",
+   "required_chart": {
+    "mode": "optional",
+    "acceptable_types": [
+     null,
+     "bar"
+    ],
+    "excluded_types": [],
+    "notice_required": false,
+    "expected_outcome": null,
+    "expected_outcomes": [],
+    "subquestions": {},
+    "null_allowed": null,
+    "reason": null,
+    "requirements": []
+   },
+   "forbidden_claims": [
+    "이 문항의 가시 입력에 없는 값·출처를 임의 사용"
+   ],
+   "coverage": [
+    "raw_precision",
+    "observed_not_projection",
+    "semantic_unit"
+   ],
+   "pair": null,
+   "notes": "공식 보도자료의 두 자리 표시 0.75와 원본 셀 0.748은 정밀도 차이다. 0.748은 실제 여성의 생애 최종 출생아수 관측값도 아니다.",
+   "review": {
+    "arithmetic": "independent_decimal_oracle",
+    "human_verified": false,
+    "live_executed": false
+   },
+   "required_facts": [
+    "observed_not_projection",
+    "period_tfr_not_observed_completed_fertility"
+   ],
+   "evidence_aliases": {
+    "K-tfr-00-2024": {
+     "record_id": "view::R13::1",
+     "label": "E1",
+     "row_index": 0
+    }
+   }
+  },
+  "R15": {
+   "id": "R15",
+   "group": "real",
+   "question": "2024년 전국 출생아 수와 사망자 수를 각각 알려줘.",
+   "scope": "in",
+   "evidence_kind": "kosis_raw",
+   "input": {
+    "path": "inputs/R15.json",
+    "visible_evidence_ids": [
+     "K-birth-00-2024",
+     "K-death-00-2024"
+    ],
+    "context_policy": "only_visible_records",
+    "upstream_status": "ok"
+   },
+   "sub_questions": [
+    {
+     "key": "birth",
+     "question": "출생아 수",
+     "expected_status": "answer",
+     "required_evidence_ids": [
+      "K-birth-00-2024"
+     ],
+     "expected_operations": [
+      "raw"
+     ],
+     "claims": [
+      {
+       "id": "birth",
+       "value": "238317",
+       "unit": "명",
+       "binding": {
+        "region": [
+         "전국"
+        ],
+        "period": [
+         "2024"
+        ],
+        "item": "출생아수",
+        "frequency": [
+         "Y"
+        ],
+        "dimensions": [
+         {}
+        ],
+        "basis": [
+         "observed"
+        ]
+       },
+       "evidence_ids": [
+        "K-birth-00-2024"
+       ],
+       "calculation": {
+        "op": "raw",
+        "refs": [
+         "K-birth-00-2024"
+        ],
+        "params": {},
+        "expression": "238317"
+       },
+       "display": {
+        "text": "238,317명",
+        "unit": "명",
+        "scale": "1",
+        "digits": 0,
+        "rounding": "ROUND_HALF_UP",
+        "scaled_value": "238317"
+       },
+       "tolerance": {
+        "atol": "0",
+        "rtol": "0"
+       },
+       "rank": null,
+       "assessment": "수치·부호·단위·모든 좌표·최종 답변의 실제 언급을 각각 검사"
+      }
+     ],
+     "hold_reason": null,
+     "required_caveats": []
+    },
+    {
+     "key": "death",
+     "question": "사망자 수",
+     "expected_status": "answer",
+     "required_evidence_ids": [
+      "K-death-00-2024"
+     ],
+     "expected_operations": [
+      "raw"
+     ],
+     "claims": [
+      {
+       "id": "death",
+       "value": "358569",
+       "unit": "명",
+       "binding": {
+        "region": [
+         "전국"
+        ],
+        "period": [
+         "2024"
+        ],
+        "item": "사망자수",
+        "frequency": [
+         "Y"
+        ],
+        "dimensions": [
+         {}
+        ],
+        "basis": [
+         "observed"
+        ]
+       },
+       "evidence_ids": [
+        "K-death-00-2024"
+       ],
+       "calculation": {
+        "op": "raw",
+        "refs": [
+         "K-death-00-2024"
+        ],
+        "params": {},
+        "expression": "358569"
+       },
+       "display": {
+        "text": "358,569명",
+        "unit": "명",
+        "scale": "1",
+        "digits": 0,
+        "rounding": "ROUND_HALF_UP",
+        "scaled_value": "358569"
+       },
+       "tolerance": {
+        "atol": "0",
+        "rtol": "0"
+       },
+       "rank": null,
+       "assessment": "수치·부호·단위·모든 좌표·최종 답변의 실제 언급을 각각 검사"
+      }
+     ],
+     "hold_reason": null,
+     "required_caveats": []
+    }
+   ],
+   "reference_answer": "2024년 전국 출생아 수는 238,317명, 사망자 수는 358,569명입니다. [E1]",
+   "required_chart": {
+    "mode": "optional",
+    "acceptable_types": [
+     null,
+     "bar"
+    ],
+    "excluded_types": [],
+    "notice_required": false,
+    "expected_outcome": null,
+    "expected_outcomes": [],
+    "subquestions": {},
+    "null_allowed": null,
+    "reason": null,
+    "requirements": []
+   },
+   "forbidden_claims": [
+    "이 문항의 가시 입력에 없는 값·출처를 임의 사용"
+   ],
+   "coverage": [
+    "multi_subquestion",
+    "expected_denominator_fixed"
+   ],
+   "pair": null,
+   "notes": "",
+   "review": {
+    "arithmetic": "independent_decimal_oracle",
+    "human_verified": false,
+    "live_executed": false
+   },
+   "required_facts": [],
+   "evidence_aliases": {
+    "K-birth-00-2024": {
+     "record_id": "view::R15::1",
+     "label": "E1",
+     "row_index": 0
+    },
+    "K-death-00-2024": {
+     "record_id": "view::R15::1",
+     "label": "E1",
+     "row_index": 1
+    }
+   }
+  },
+  "S04": {
+   "id": "S04",
+   "group": "synthetic",
+   "question": "[합성 자료 검증] 고령인구비율이 2023년 12.5%에서 2024년 15.0%가 됐어. %p 차이와 상대 증감률을 각각 알려줘.",
+   "scope": "in",
+   "evidence_kind": "synthetic",
+   "input": {
+    "path": "inputs/S04.json",
+    "visible_evidence_ids": [
+     "S-rate-2023",
+     "S-rate-2024"
+    ],
+    "context_policy": "only_visible_records",
+    "upstream_status": "ok"
+   },
+   "sub_questions": [
+    {
+     "key": "pp",
+     "question": "퍼센트포인트 차이",
+     "expected_status": "answer",
+     "required_evidence_ids": [
+      "S-rate-2023",
+      "S-rate-2024"
+     ],
+     "expected_operations": [
+      "change"
+     ],
+     "claims": [
+      {
+       "id": "pp",
+       "value": "2.5",
+       "unit": "%p",
+       "binding": {
+        "region": [
+         "가상시"
+        ],
+        "period": [
+         "2023",
+         "2024"
+        ],
+        "item": "고령인구비율",
+        "frequency": [
+         "Y"
+        ],
+        "dimensions": [
+         {},
+         {}
+        ],
+        "basis": [
+         "observed"
+        ]
+       },
+       "evidence_ids": [
+        "S-rate-2023",
+        "S-rate-2024"
+       ],
+       "calculation": {
+        "op": "change",
+        "refs": [
+         "S-rate-2023",
+         "S-rate-2024"
+        ],
+        "params": {},
+        "expression": "15 − 12.5"
+       },
+       "display": {
+        "text": "2.5%p",
+        "unit": "%p",
+        "scale": "1",
+        "digits": 1,
+        "rounding": "ROUND_HALF_UP",
+        "scaled_value": "2.5"
+       },
+       "tolerance": {
+        "atol": "0.00000001",
+        "rtol": "0"
+       },
+       "rank": null,
+       "assessment": "수치·부호·단위·모든 좌표·최종 답변의 실제 언급을 각각 검사"
+      }
+     ],
+     "hold_reason": null,
+     "required_caveats": [
+      "percentage_points_distinct_from_relative_percent"
+     ]
+    },
+    {
+     "key": "growth",
+     "question": "상대 증감률",
+     "expected_status": "answer",
+     "required_evidence_ids": [
+      "S-rate-2023",
+      "S-rate-2024"
+     ],
+     "expected_operations": [
+      "growth_rate"
+     ],
+     "claims": [
+      {
+       "id": "growth",
+       "value": "20.0",
+       "unit": "%",
+       "binding": {
+        "region": [
+         "가상시"
+        ],
+        "period": [
+         "2023",
+         "2024"
+        ],
+        "item": "고령인구비율",
+        "frequency": [
+         "Y"
+        ],
+        "dimensions": [
+         {},
+         {}
+        ],
+        "basis": [
+         "observed"
+        ]
+       },
+       "evidence_ids": [
+        "S-rate-2023",
+        "S-rate-2024"
+       ],
+       "calculation": {
+        "op": "growth_rate",
+        "refs": [
+         "S-rate-2023",
+         "S-rate-2024"
+        ],
+        "params": {},
+        "expression": "(15 − 12.5) ÷ 12.5 × 100"
+       },
+       "display": {
+        "text": "20.0%",
+        "unit": "%",
+        "scale": "1",
+        "digits": 1,
+        "rounding": "ROUND_HALF_UP",
+        "scaled_value": "20.0"
+       },
+       "tolerance": {
+        "atol": "0.00000001",
+        "rtol": "0"
+       },
+       "rank": null,
+       "assessment": "수치·부호·단위·모든 좌표·최종 답변의 실제 언급을 각각 검사"
+      }
+     ],
+     "hold_reason": null,
+     "required_caveats": [
+      "percentage_points_distinct_from_relative_percent"
+     ]
+    }
+   ],
+   "reference_answer": "비율의 차이는 2.5%p 증가이고, 상대 증감률은 (15.0−12.5)÷12.5×100 = 20.0% 증가입니다. [E1]",
+   "required_chart": {
+    "mode": "optional",
+    "acceptable_types": [
+     null,
+     "bar"
+    ],
+    "excluded_types": [],
+    "notice_required": false,
+    "expected_outcome": null,
+    "expected_outcomes": [],
+    "subquestions": {},
+    "null_allowed": null,
+    "reason": null,
+    "requirements": []
+   },
+   "forbidden_claims": [
+    "이 문항의 가시 입력에 없는 값·출처를 임의 사용"
+   ],
+   "coverage": [
+    "pp_vs_percent",
+    "multi_subquestion"
+   ],
+   "pair": null,
+   "notes": "",
+   "review": {
+    "arithmetic": "independent_decimal_oracle",
+    "human_verified": false,
+    "live_executed": false
+   },
+   "required_facts": [
+    "percentage_points_distinct_from_relative_percent"
+   ],
+   "evidence_aliases": {
+    "S-rate-2023": {
+     "record_id": "view::S04::1",
+     "label": "E1",
+     "row_index": 0
+    },
+    "S-rate-2024": {
+     "record_id": "view::S04::1",
+     "label": "E1",
+     "row_index": 1
+    }
+   }
+  },
+  "S16": {
+   "id": "S16",
+   "group": "synthetic",
+   "question": "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘.",
+   "scope": "in",
+   "evidence_kind": "synthetic",
+   "input": {
+    "path": "inputs/S16.json",
+    "visible_evidence_ids": [
+     "S-neg"
+    ],
+    "context_policy": "only_visible_records",
+    "upstream_status": "ok"
+   },
+   "sub_questions": [
+    {
+     "key": "main",
+     "question": "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘.",
+     "expected_status": "answer",
+     "required_evidence_ids": [
+      "S-neg"
+     ],
+     "expected_operations": [
+      "raw"
+     ],
+     "claims": [
+      {
+       "id": "negative",
+       "value": "-20",
+       "unit": "명",
+       "binding": {
+        "region": [
+         "가상시"
+        ],
+        "period": [
+         "2024"
+        ],
+        "item": "순이동 인구",
+        "frequency": [
+         "Y"
+        ],
+        "dimensions": [
+         {}
+        ],
+        "basis": [
+         "observed"
+        ]
+       },
+       "evidence_ids": [
+        "S-neg"
+       ],
+       "calculation": {
+        "op": "raw",
+        "refs": [
+         "S-neg"
+        ],
+        "params": {},
+        "expression": "-20"
+       },
+       "display": {
+        "text": "-20명",
+        "unit": "명",
+        "scale": "1",
+        "digits": 0,
+        "rounding": "ROUND_HALF_UP",
+        "scaled_value": "-20"
+       },
+       "tolerance": {
+        "atol": "0",
+        "rtol": "0"
+       },
+       "rank": null,
+       "assessment": "수치·부호·단위·모든 좌표·최종 답변의 실제 언급을 각각 검사"
+      }
+     ],
+     "hold_reason": null,
+     "required_caveats": []
+    }
+   ],
+   "reference_answer": "합성 순이동 인구는 −20명으로, 순유출입니다. [E1]",
+   "required_chart": {
+    "mode": "optional",
+    "acceptable_types": [
+     null,
+     "bar"
+    ],
+    "excluded_types": [],
+    "notice_required": false,
+    "expected_outcome": null,
+    "expected_outcomes": [],
+    "subquestions": {},
+    "null_allowed": null,
+    "reason": null,
+    "requirements": []
+   },
+   "forbidden_claims": [
+    "이 문항의 가시 입력에 없는 값·출처를 임의 사용"
+   ],
+   "coverage": [
+    "negative",
+    "sign",
+    "no_absolute_value"
+   ],
+   "pair": null,
+   "notes": "",
+   "review": {
+    "arithmetic": "independent_decimal_oracle",
+    "human_verified": false,
+    "live_executed": false
+   },
+   "required_facts": [],
+   "evidence_aliases": {
+    "S-neg": {
+     "record_id": "view::S16::1",
+     "label": "E1",
+     "row_index": 0
+    }
+   }
+  }
+ },
+ "inputs": {
+  "M01": {
+   "query_bundle": {
+    "query_id": "M01",
+    "original": "[합성 자료 검증] 2024년 서울과 부산의 인구를 각각 알려줘.",
+    "rewritten": "[합성 자료 검증] 2024년 서울과 부산의 인구를 각각 알려줘.",
+    "intent": "값 조회",
+    "filters": {
+     "의도": "값 조회"
+    },
+    "sub_questions": [
+     "서울 인구",
+     "부산 인구"
+    ],
+    "sub_filters": [
+     {
+      "의도": "값 조회"
+     },
+     {
+      "의도": "값 조회"
+     }
+    ],
+    "search_text": "[합성 자료 검증] 2024년 서울과 부산의 인구를 각각 알려줘."
+   },
+   "viewset": {
+    "status": "ok",
+    "query_id": "M01",
+    "original": "[합성 자료 검증] 2024년 서울과 부산의 인구를 각각 알려줘.",
+    "records": [
+     {
+      "id": "view::M01::1",
+      "doc_type": "view",
+      "parent_id": "table::SYN",
+      "lexical_text": "합성 자료 인구 단위=명 주기=Y 기준=observed ",
+      "table": {
+       "columns": [
+        "시점",
+        "지역",
+        "항목",
+        "값"
+       ],
+       "rows": [
+        [
+         "2024",
+         "서울특별시",
+         "인구(명)",
+         100
+        ]
+       ]
+      },
+      "metadata": {
+       "survey_nm": "합성 검증 자료",
+       "tbl_nm": "합성 통계표",
+       "unit": "명",
+       "prd_se": "Y",
+       "n_points": 1,
+       "items": [
+        "인구"
+       ],
+       "row_units": {
+        "인구": "명"
+       },
+       "basis": "observed",
+       "synthetic": true,
+       "dims": []
+      },
+      "source": {
+       "table_key": "SYN",
+       "prd_se": "Y",
+       "org_id": null,
+       "tbl_id": null,
+       "kosis_url": null
+      },
+      "notes": []
+     }
+    ],
+    "view_bundle": {
+     "query_id": "M01",
+     "original": "[합성 자료 검증] 2024년 서울과 부산의 인구를 각각 알려줘.",
+     "rewritten": "[합성 자료 검증] 2024년 서울과 부산의 인구를 각각 알려줘.",
+     "intent": "값 조회",
+     "filters": {
+      "의도": "값 조회"
+     },
+     "sub_questions": [
+      "서울 인구",
+      "부산 인구"
+     ],
+     "sub_filters": [
+      {
+       "의도": "값 조회"
+      },
+      {
+       "의도": "값 조회"
+      }
+     ],
+     "search_text": "[합성 자료 검증] 2024년 서울과 부산의 인구를 각각 알려줘."
+    }
+   },
+   "m6_visible_record_ids": [
+    "view::M01::1"
+   ]
+  },
+  "R01": {
+   "query_bundle": {
+    "query_id": "R01",
+    "original": "2024년 전국 출생아 수를 명 단위로 알려줘.",
+    "rewritten": "2024년 전국 출생아 수를 명 단위로 알려줘.",
+    "intent": "값 조회",
+    "filters": {
+     "의도": "값 조회"
+    },
+    "sub_questions": [
+     "2024년 전국 출생아 수를 명 단위로 알려줘."
+    ],
+    "sub_filters": [
+     {
+      "의도": "값 조회"
+     }
+    ],
+    "search_text": "2024년 전국 출생아 수를 명 단위로 알려줘."
+   },
+   "viewset": {
+    "status": "ok",
+    "query_id": "R01",
+    "original": "2024년 전국 출생아 수를 명 단위로 알려줘.",
+    "records": [
+     {
+      "id": "view::R01::1",
+      "doc_type": "view",
+      "parent_id": "table::KOSIS_G",
+      "lexical_text": "KOSIS 월·분기·연간 인구동향(출생사망혼인이혼) 출생아수 단위=명 주기=Y 기준=observed ",
+      "table": {
+       "columns": [
+        "시점",
+        "지역",
+        "항목",
+        "값"
+       ],
+       "rows": [
+        [
+         "2024",
+         "전국",
+         "출생아수(명)",
+         238317
+        ]
+       ]
+      },
+      "metadata": {
+       "survey_nm": "월·분기·연간 인구동향(출생사망혼인이혼)",
+       "tbl_nm": "월·분기·연간 인구동향(출생사망혼인이혼)",
+       "unit": "명",
+       "prd_se": "Y",
+       "n_points": 1,
+       "items": [
+        "출생아수"
+       ],
+       "row_units": {
+        "출생아수": "명"
+       },
+       "basis": "observed",
+       "synthetic": false,
+       "dims": []
+      },
+      "source": {
+       "table_key": "KOSIS_G",
+       "prd_se": "Y",
+       "org_id": "101",
+       "tbl_id": "DT_1B8000G",
+       "kosis_url": "https://kosis.kr/statHtml/statHtml.do?orgId=101&tblId=DT_1B8000G"
+      },
+      "notes": []
+     }
+    ],
+    "view_bundle": {
+     "query_id": "R01",
+     "original": "2024년 전국 출생아 수를 명 단위로 알려줘.",
+     "rewritten": "2024년 전국 출생아 수를 명 단위로 알려줘.",
+     "intent": "값 조회",
+     "filters": {
+      "의도": "값 조회"
+     },
+     "sub_questions": [
+      "2024년 전국 출생아 수를 명 단위로 알려줘."
+     ],
+     "sub_filters": [
+      {
+       "의도": "값 조회"
+      }
+     ],
+     "search_text": "2024년 전국 출생아 수를 명 단위로 알려줘."
+    }
+   },
+   "m6_visible_record_ids": [
+    "view::R01::1"
+   ]
+  },
+  "R13": {
+   "query_bundle": {
+    "query_id": "R13",
+    "original": "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘.",
+    "rewritten": "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘.",
+    "intent": "값 조회",
+    "filters": {
+     "의도": "값 조회"
+    },
+    "sub_questions": [
+     "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘."
+    ],
+    "sub_filters": [
+     {
+      "의도": "값 조회"
+     }
+    ],
+    "search_text": "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘."
+   },
+   "viewset": {
+    "status": "ok",
+    "query_id": "R13",
+    "original": "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘.",
+    "records": [
+     {
+      "id": "view::R13::1",
+      "doc_type": "view",
+      "parent_id": "table::KOSIS_G",
+      "lexical_text": "KOSIS 월·분기·연간 인구동향(출생사망혼인이혼) 합계출산율 단위=명 주기=Y 기준=observed ",
+      "table": {
+       "columns": [
+        "시점",
+        "지역",
+        "항목",
+        "값"
+       ],
+       "rows": [
+        [
+         "2024",
+         "전국",
+         "합계출산율(명)",
+         0.748
+        ]
+       ]
+      },
+      "metadata": {
+       "survey_nm": "월·분기·연간 인구동향(출생사망혼인이혼)",
+       "tbl_nm": "월·분기·연간 인구동향(출생사망혼인이혼)",
+       "unit": "명",
+       "prd_se": "Y",
+       "n_points": 1,
+       "items": [
+        "합계출산율"
+       ],
+       "row_units": {
+        "합계출산율": "명"
+       },
+       "basis": "observed",
+       "synthetic": false,
+       "dims": []
+      },
+      "source": {
+       "table_key": "KOSIS_G",
+       "prd_se": "Y",
+       "org_id": "101",
+       "tbl_id": "DT_1B8000G",
+       "kosis_url": "https://kosis.kr/statHtml/statHtml.do?orgId=101&tblId=DT_1B8000G"
+      },
+      "notes": []
+     }
+    ],
+    "view_bundle": {
+     "query_id": "R13",
+     "original": "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘.",
+     "rewritten": "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘.",
+     "intent": "값 조회",
+     "filters": {
+      "의도": "값 조회"
+     },
+     "sub_questions": [
+      "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘."
+     ],
+     "sub_filters": [
+      {
+       "의도": "값 조회"
+      }
+     ],
+     "search_text": "2024년 전국 합계출산율을 원자료의 소수 셋째 자리까지 알려줘. 장래추계와 구분해줘."
+    }
+   },
+   "m6_visible_record_ids": [
+    "view::R13::1"
+   ]
+  },
+  "R15": {
+   "query_bundle": {
+    "query_id": "R15",
+    "original": "2024년 전국 출생아 수와 사망자 수를 각각 알려줘.",
+    "rewritten": "2024년 전국 출생아 수와 사망자 수를 각각 알려줘.",
+    "intent": "값 조회",
+    "filters": {
+     "의도": "값 조회"
+    },
+    "sub_questions": [
+     "출생아 수",
+     "사망자 수"
+    ],
+    "sub_filters": [
+     {
+      "의도": "값 조회"
+     },
+     {
+      "의도": "값 조회"
+     }
+    ],
+    "search_text": "2024년 전국 출생아 수와 사망자 수를 각각 알려줘."
+   },
+   "viewset": {
+    "status": "ok",
+    "query_id": "R15",
+    "original": "2024년 전국 출생아 수와 사망자 수를 각각 알려줘.",
+    "records": [
+     {
+      "id": "view::R15::1",
+      "doc_type": "view",
+      "parent_id": "table::KOSIS_G",
+      "lexical_text": "KOSIS 월·분기·연간 인구동향(출생사망혼인이혼) 출생아수 / 사망자수 단위=명 주기=Y 기준=observed ",
+      "table": {
+       "columns": [
+        "시점",
+        "지역",
+        "항목",
+        "값"
+       ],
+       "rows": [
+        [
+         "2024",
+         "전국",
+         "출생아수(명)",
+         238317
+        ],
+        [
+         "2024",
+         "전국",
+         "사망자수(명)",
+         358569
+        ]
+       ]
+      },
+      "metadata": {
+       "survey_nm": "월·분기·연간 인구동향(출생사망혼인이혼)",
+       "tbl_nm": "월·분기·연간 인구동향(출생사망혼인이혼)",
+       "unit": "명",
+       "prd_se": "Y",
+       "n_points": 2,
+       "items": [
+        "출생아수",
+        "사망자수"
+       ],
+       "row_units": {
+        "출생아수": "명",
+        "사망자수": "명"
+       },
+       "basis": "observed",
+       "synthetic": false,
+       "dims": []
+      },
+      "source": {
+       "table_key": "KOSIS_G",
+       "prd_se": "Y",
+       "org_id": "101",
+       "tbl_id": "DT_1B8000G",
+       "kosis_url": "https://kosis.kr/statHtml/statHtml.do?orgId=101&tblId=DT_1B8000G"
+      },
+      "notes": []
+     }
+    ],
+    "view_bundle": {
+     "query_id": "R15",
+     "original": "2024년 전국 출생아 수와 사망자 수를 각각 알려줘.",
+     "rewritten": "2024년 전국 출생아 수와 사망자 수를 각각 알려줘.",
+     "intent": "값 조회",
+     "filters": {
+      "의도": "값 조회"
+     },
+     "sub_questions": [
+      "출생아 수",
+      "사망자 수"
+     ],
+     "sub_filters": [
+      {
+       "의도": "값 조회"
+      },
+      {
+       "의도": "값 조회"
+      }
+     ],
+     "search_text": "2024년 전국 출생아 수와 사망자 수를 각각 알려줘."
+    }
+   },
+   "m6_visible_record_ids": [
+    "view::R15::1"
+   ]
+  },
+  "S04": {
+   "query_bundle": {
+    "query_id": "S04",
+    "original": "[합성 자료 검증] 고령인구비율이 2023년 12.5%에서 2024년 15.0%가 됐어. %p 차이와 상대 증감률을 각각 알려줘.",
+    "rewritten": "[합성 자료 검증] 고령인구비율이 2023년 12.5%에서 2024년 15.0%가 됐어. %p 차이와 상대 증감률을 각각 알려줘.",
+    "intent": "증감",
+    "filters": {
+     "의도": "증감"
+    },
+    "sub_questions": [
+     "퍼센트포인트 차이",
+     "상대 증감률"
+    ],
+    "sub_filters": [
+     {
+      "의도": "증감"
+     },
+     {
+      "의도": "증감률"
+     }
+    ],
+    "search_text": "[합성 자료 검증] 고령인구비율이 2023년 12.5%에서 2024년 15.0%가 됐어. %p 차이와 상대 증감률을 각각 알려줘."
+   },
+   "viewset": {
+    "status": "ok",
+    "query_id": "S04",
+    "original": "[합성 자료 검증] 고령인구비율이 2023년 12.5%에서 2024년 15.0%가 됐어. %p 차이와 상대 증감률을 각각 알려줘.",
+    "records": [
+     {
+      "id": "view::S04::1",
+      "doc_type": "view",
+      "parent_id": "table::SYN",
+      "lexical_text": "합성 자료 고령인구비율 단위=% 주기=Y 기준=observed ",
+      "table": {
+       "columns": [
+        "시점",
+        "지역",
+        "항목",
+        "값"
+       ],
+       "rows": [
+        [
+         "2023",
+         "가상시",
+         "고령인구비율(%)",
+         12.5
+        ],
+        [
+         "2024",
+         "가상시",
+         "고령인구비율(%)",
+         15
+        ]
+       ]
+      },
+      "metadata": {
+       "survey_nm": "합성 검증 자료",
+       "tbl_nm": "합성 통계표",
+       "unit": "%",
+       "prd_se": "Y",
+       "n_points": 2,
+       "items": [
+        "고령인구비율"
+       ],
+       "row_units": {
+        "고령인구비율": "%"
+       },
+       "basis": "observed",
+       "synthetic": true,
+       "dims": []
+      },
+      "source": {
+       "table_key": "SYN",
+       "prd_se": "Y",
+       "org_id": null,
+       "tbl_id": null,
+       "kosis_url": null
+      },
+      "notes": []
+     }
+    ],
+    "view_bundle": {
+     "query_id": "S04",
+     "original": "[합성 자료 검증] 고령인구비율이 2023년 12.5%에서 2024년 15.0%가 됐어. %p 차이와 상대 증감률을 각각 알려줘.",
+     "rewritten": "[합성 자료 검증] 고령인구비율이 2023년 12.5%에서 2024년 15.0%가 됐어. %p 차이와 상대 증감률을 각각 알려줘.",
+     "intent": "증감",
+     "filters": {
+      "의도": "증감"
+     },
+     "sub_questions": [
+      "퍼센트포인트 차이",
+      "상대 증감률"
+     ],
+     "sub_filters": [
+      {
+       "의도": "증감"
+      },
+      {
+       "의도": "증감률"
+      }
+     ],
+     "search_text": "[합성 자료 검증] 고령인구비율이 2023년 12.5%에서 2024년 15.0%가 됐어. %p 차이와 상대 증감률을 각각 알려줘."
+    }
+   },
+   "m6_visible_record_ids": [
+    "view::S04::1"
+   ]
+  },
+  "S16": {
+   "query_bundle": {
+    "query_id": "S16",
+    "original": "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘.",
+    "rewritten": "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘.",
+    "intent": "값 조회",
+    "filters": {
+     "의도": "값 조회"
+    },
+    "sub_questions": [
+     "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘."
+    ],
+    "sub_filters": [
+     {
+      "의도": "값 조회"
+     }
+    ],
+    "search_text": "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘."
+   },
+   "viewset": {
+    "status": "ok",
+    "query_id": "S16",
+    "original": "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘.",
+    "records": [
+     {
+      "id": "view::S16::1",
+      "doc_type": "view",
+      "parent_id": "table::SYN",
+      "lexical_text": "합성 자료 순이동 인구 단위=명 주기=Y 기준=observed ",
+      "table": {
+       "columns": [
+        "시점",
+        "지역",
+        "항목",
+        "값"
+       ],
+       "rows": [
+        [
+         "2024",
+         "가상시",
+         "순이동 인구(명)",
+         -20
+        ]
+       ]
+      },
+      "metadata": {
+       "survey_nm": "합성 검증 자료",
+       "tbl_nm": "합성 통계표",
+       "unit": "명",
+       "prd_se": "Y",
+       "n_points": 1,
+       "items": [
+        "순이동 인구"
+       ],
+       "row_units": {
+        "순이동 인구": "명"
+       },
+       "basis": "observed",
+       "synthetic": true,
+       "dims": []
+      },
+      "source": {
+       "table_key": "SYN",
+       "prd_se": "Y",
+       "org_id": null,
+       "tbl_id": null,
+       "kosis_url": null
+      },
+      "notes": []
+     }
+    ],
+    "view_bundle": {
+     "query_id": "S16",
+     "original": "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘.",
+     "rewritten": "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘.",
+     "intent": "값 조회",
+     "filters": {
+      "의도": "값 조회"
+     },
+     "sub_questions": [
+      "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘."
+     ],
+     "sub_filters": [
+      {
+       "의도": "값 조회"
+      }
+     ],
+     "search_text": "[합성 자료 검증] 가상시 순이동 인구 -20명을 부호를 보존해서 알려줘."
+    }
+   },
+   "m6_visible_record_ids": [
+    "view::S16::1"
+   ]
+  }
+ },
+ "fixture_sha256": "f5f3f12dfa6a1027f967f1af0209d8ac087324fa13a5e496aa0e9c10191b277f"
+}
