@@ -19,6 +19,8 @@
   python -m backend.rag.search.tuning.compare --golden <셋> --dense hcx arctic-ko bge-m3-ko ens-ko   # 임베딩 모델 비교
       (첫 dense 가 기준 → report.md 'dense 비교' 에 질문별 득실 · 부호 검정 p. 로컬 모델은 search/embedders.py)
   python -m backend.rag.search.tuning.compare --golden <합성 셋> --alt <alt_positives.jsonl> --split heldout
+  python -m backend.rag.search.tuning.compare --from-run <실행> --audit <gold_audit.jsonl> --okf on --llm-variants base okf okf-keep
+      (LLM 재정렬: 표 구조 카드만 · + 표 정의·OKF 개념 · + 근거 없으면 원래 순서 — '방법 비교' 절에 search·search+llm 대비 득실)
   python -m backend.rag.search.tuning.compare --from-run hard_okf2 --audit <gold_audit.jsonl>
       (정답 표시 검토 반영 지표를 따로 — gold_audit.py. --from-run 은 그 실행의 날짜(--today)도 이어받아 질의 분석 캐시를 그대로 씀)
   python -m backend.rag.search.tuning.compare --from-run docs_hard --dense bge-m3-ko --dense-docs "rule,def" --ce
@@ -399,13 +401,32 @@ def aggregate(recs):
     return out
 
 
+LLM_VARIANTS = {"base": {"okf": False, "keep_if_unsure": False}, "okf": {"okf": True, "keep_if_unsure": False},
+                "okf-keep": {"okf": True, "keep_if_unsure": True}}
+LLM_TOKENS = ("base", "okf", "traits", "keep", "think")
+
+
+def llm_variant(v, thinking="low") -> dict:
+    """재정렬 변형 이름 → llm_rerank 설정. 조각을 '+' 나 '-' 로 이음: base · okf · traits · keep · think
+    예: 'okf-keep' · 'traits+keep' · 'okf+traits+keep+think' (think = HCX-007 추론, 수준은 --llm-thinking)"""
+    toks = [t for t in re.split(r"[+\-]", str(v)) if t]
+    bad = [t for t in toks if t not in LLM_TOKENS]
+    if not toks or bad:
+        raise ValueError(f"재정렬 변형 '{v}' — 조각은 {', '.join(LLM_TOKENS)}")
+    return {"okf": "okf" in toks, "keep_if_unsure": "keep" in toks, "traits": "traits" in toks,
+            "thinking": thinking if "think" in toks else None}
+
+
 def run(rows, analysis, denses, llm, top_k, pool, log=print, tuned=None, docs=("rule",), cards=None, kos14=None, ce=None,
-        arms=None, raw_analysis=None, okf=None):
+        arms=None, raw_analysis=None, okf=None, llm_variants=None, llm_thinking="low"):
     """tuned: 폴더 — dense(·문서)마다 <폴더>/search.tuned.<dense>[.<docs>].yaml 의 가중치로 (없으면 기본 가중치, 이름에 * 없음)
     docs: dense 문서 구성 목록 (index.parse_docs). 두 개 이상이거나 rule 이 아니면 구성 이름이 '<dense>|<docs>'
     ce: 교차 인코더 재정렬 설정(dict) — 주면 방법 'search+ce' 를 함께 (ce_rerank.py)
     arms: ARMS 이름 목록 — 구성마다 arm 을 붙여 나란히 (이름 '<dense>|<docs>|<arm>'). raw_analysis = 검증 전 단위 (arm off)
-    okf: ['on', 'off'] — OKF 개념 별칭(값 채널)을 켜고 끈 구성을 나란히 (이름 '<dense>|okf-on'). 질의 분석은 같은 것을 씀"""
+    okf: ['on', 'off'] — OKF 개념 별칭(값 채널)을 켜고 끈 구성을 나란히 (이름 '<dense>|okf-on'). 질의 분석은 같은 것을 씀
+    llm_variants: ['base', 'okf', 'okf-keep'] — llm 일 때 재정렬 방법을 나란히 (방법 이름 search+llm · search+llm+okf …)
+      base = 표 구조 카드만 (기존) · okf = 카드에 표 정의·OKF 개념 · okf-keep = okf + LLM 이 근거 없다 하면 원래 순서
+      조각을 이어 씀 (llm_variant): traits = 구분 줄 · think = HCX-007 추론 (수준 llm_thinking)"""
     from backend.rag.search.tuning.tune import load_tuned, tuned_path
     per, info = [], {}
     docs = list(docs or ["rule"])
@@ -425,12 +446,15 @@ def run(rows, analysis, denses, llm, top_k, pool, log=print, tuned=None, docs=("
                 dense = f"{dense_base}|okf-{ov}" if ov else dense_base
                 if dd != "rule":
                     settings.update({"dense_docs": dd, "dense_cards": cards, "kos14_cards": kos14})
-                methods = [("search", False, None)] + ([("search+ce", False, ce)] if ce else []) \
-                    + ([("search+llm", True, None)] if llm else [])
-                for m, use_llm, ce_cfg in methods:
+                methods = [("search", False, None, None)] + ([("search+ce", False, ce, None)] if ce else []) \
+                    + ([("search+llm" + ("" if v == "base" else f"+{v}"), True, None, llm_variant(v, llm_thinking))
+                        for v in (llm_variants or ["base"])] if llm else [])
+                for m, use_llm, ce_cfg, llm_cfg in methods:
                     st_m = dict(settings)
                     if ce_cfg:
                         st_m["ce_rerank"] = {**ce_cfg, "enabled": True}
+                    if llm_cfg:
+                        st_m["llm_rerank"] = {**(st_m.get("llm_rerank") or {}), **llm_cfg}
                     try:
                         pipe0 = get_search_for(dense0, use_llm, st_m or None)
                     except Exception as e:  # noqa: BLE001  (구성 하나가 비교 전체를 막지 않게)
@@ -515,23 +539,26 @@ def sign_test(a_only, b_only):
 
 
 def method_vs_base(per, metrics=("hit@1", "hit@3", "hit@5", "groups@5", "groups@10", "mrr")):
-    """같은 dense 구성에서 방법(search+ce · search+llm)을 'search' 와 견줌 → 질문별 득실 · 부호 검정"""
+    """같은 dense 구성에서 방법(search+ce · search+llm)을 'search' 와 견줌 → 질문별 득실 · 부호 검정
+    search+llm+… (OKF 변형)은 'search' 와 'search+llm' 둘 다와 견줌 (OKF 정보가 더한 몫만 보이게)"""
     idx = defaultdict(dict)
     for r in per:
         idx[(r["dense"], r["qid"])][r["method"]] = r
-    methods = [m for m in dict.fromkeys(r["method"] for r in per) if m != "search"]
+    all_m = list(dict.fromkeys(r["method"] for r in per))
+    pairs_of = [("search", m) for m in all_m if m != "search"] + \
+        [("search+llm", m) for m in all_m if m.startswith("search+llm+") and "search+llm" in all_m]
     out = []
     for dense in dict.fromkeys(r["dense"] for r in per):
-        for m in methods:
-            pairs = [(d["search"], d[m]) for (dd, _), d in idx.items() if dd == dense and "search" in d and m in d]
+        for b, m in pairs_of:
+            pairs = [(d[b], d[m]) for (dd, _), d in idx.items() if dd == dense and b in d and m in d]
             if not pairs:
                 continue
             for metric in metrics:
                 if metric == "mrr":
                     a = sum(float(x["mrr"]) for x, _ in pairs) / len(pairs)
-                    b = sum(float(y["mrr"]) for _, y in pairs) / len(pairs)
-                    out.append({"dense": dense, "method": m, "metric": "mrr", "base_value": a, "value": b, "delta": b - a,
-                                "base_only": None, "only": None, "p": None})
+                    bm = sum(float(y["mrr"]) for _, y in pairs) / len(pairs)
+                    out.append({"dense": dense, "base": b, "method": m, "metric": "mrr", "base_value": a, "value": bm,
+                                "delta": bm - a, "base_only": None, "only": None, "p": None})
                     continue
                 vx = [x.get(metric) for x, _ in pairs]
                 vy = [y.get(metric) for _, y in pairs]
@@ -539,7 +566,7 @@ def method_vs_base(per, metrics=("hit@1", "hit@3", "hit@5", "groups@5", "groups@
                     continue
                 bo = sum(1 for x, y in zip(vx, vy) if x and not y)
                 mo = sum(1 for x, y in zip(vx, vy) if y and not x)
-                out.append({"dense": dense, "method": m, "metric": metric, "base_value": sum(vx) / len(vx),
+                out.append({"dense": dense, "base": b, "method": m, "metric": metric, "base_value": sum(vx) / len(vx),
                             "value": sum(vy) / len(vy), "delta": (sum(vy) - sum(vx)) / len(vx), "base_only": bo, "only": mo,
                             "p": sign_test(bo, mo)})
     return out
@@ -654,10 +681,12 @@ def report_md(meta, table, fails, wins, per):
                      f"{d['delta']:+.3f} | {_fmt(d['base_only'])} | {_fmt(d['dense_only'])} | {_fmt(d['p'])} |")
     mv = method_vs_base(per)
     if mv:
-        L += ["", "## 방법 비교 (기준 = search, 같은 dense 구성·같은 질문)", "",
-              "| dense | 방법 | 지표 | search | 방법 | 차이 | search만 | 방법만 | p |", "|---|---|---|---|---|---|---|---|---|"]
+        L += ["", "## 방법 비교 (같은 dense 구성·같은 질문 — 기준은 search, OKF 변형은 search+llm 과도 견줌)", "",
+              "| dense | 기준 | 방법 | 지표 | 기준 값 | 방법 값 | 차이 | 기준만 | 방법만 | p |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
         for d in mv:
-            L.append(f"| {_cell(d['dense'])} | {d['method']} | {d['metric']} | {_fmt(d['base_value'])} | {_fmt(d['value'])} | "
+            L.append(f"| {_cell(d['dense'])} | {d.get('base', 'search')} | {d['method']} | {d['metric']} | {_fmt(d['base_value'])} | "
+                     f"{_fmt(d['value'])} | "
                      f"{d['delta']:+.3f} | {d['base_only'] if d['base_only'] is not None else '-'} | "
                      f"{d['only'] if d['only'] is not None else '-'} | {_fmt(d['p']) if d['p'] is not None else '-'} |")
     if wins:  # search 와 다른 방법을 같이 돌렸을 때 (--llm · --ce)
@@ -765,6 +794,21 @@ def rebuild_report(run_dir):
     return out
 
 
+def missed_qids(run_dir, method=None):
+    """이전 실행 per_query.csv → (기준 방법이 1위를 놓쳤지만 10위 안인 qid 집합, 기준 방법)"""
+    per = load_per_query(Path(run_dir) / "per_query.csv")
+    methods = list(dict.fromkeys(r["method"] for r in per))
+    m = method or ("search+llm" if "search+llm" in methods else "search")
+    out = set()
+    for r in per:
+        if r["method"] != m or r.get("audit_excluded") in (True, "True", 1, "1"):
+            continue
+        sfx = next((s for s in ("_aud", "_alt", "") if r.get(f"hit@1{s}") not in (None, "")), "")
+        if not float(r.get(f"hit@1{sfx}") or 0) and float(r.get(f"hit@10{sfx}") or 0):
+            out.add(r["qid"])
+    return out, m
+
+
 def find_run(key):
     """폴더 경로 또는 이름 일부 → 가장 최근 실행 폴더"""
     p = Path(key)
@@ -789,6 +833,16 @@ def main(argv=None):
     ap.add_argument("--list-runs", action="store_true", help="이전 compare 실행 목록 (폴더 · 골든셋 · alt · dense) 만 보여 주고 끝")
     ap.add_argument("--variants", nargs="*", default=["O", "P"])
     ap.add_argument("--llm", action="store_true", help="LLM 재정렬(HCX)을 붙인 구성도 함께 (search+llm)")
+    ap.add_argument("--llm-variants", nargs="*", default=None,
+                    help="LLM 재정렬 방법을 나란히. 조각을 + 로 이음: base(표 구조 카드) okf(+표 정의·OKF 개념) traits(+구분 줄)"
+                         " keep(근거 없으면 원래 순서) think(HCX-007 추론). 예: base okf traits okf+traits+keep traits+think."
+                         " 주면 --llm 을 켬. 재정렬 결과는 실행 폴더 llm_rerank_cache.jsonl 에 남고 --from-run 이 다시 씀")
+    ap.add_argument("--llm-thinking", default="low", choices=["low", "medium", "high"],
+                    help="변형에 think 가 있을 때 추론 수준 (느림: low 도 질의 단위마다 수십 초)")
+    ap.add_argument("--only-missed", default=None, metavar="실행",
+                    help="그 실행에서 기준 방법이 1위를 놓쳤지만 10위 안이던 질문만 (검토 반영 > 완화 > 엄격 순으로 판정)."
+                         " 추론처럼 비싼 변형을 먼저 재 볼 때 — 고를 수 있는 질문만 모았으므로 전체 지표로 읽지 말 것")
+    ap.add_argument("--only-missed-method", default=None, help="--only-missed 의 기준 방법 (기본: search+llm 있으면 그것, 없으면 search)")
     ap.add_argument("--dense", nargs="*", default=["hcx"], choices=dense_names())
     ap.add_argument("--dense-docs", nargs="*", default=["rule"],
                     help="dense 문서 구성: rule | def | slot | tmpl | tslot | kos14 ('+' 로 여러 개 = 최댓값, 끝에 +rw). 첫 구성이 기준")
@@ -853,7 +907,13 @@ def main(argv=None):
     from backend.core.config import RUNS_DIR
     out = Path(a.out) if a.out else Path(RUNS_DIR) / "search_compare" / f"{datetime.now():%Y%m%d_%H%M%S}_{a.name}"
     out.mkdir(parents=True, exist_ok=True)
-    rows = load_golden(a.golden, tuple(a.variants), limit=a.limit, split=a.split)
+    for v in a.llm_variants or []:
+        llm_variant(v)  # 잘못된 이름은 시작 전에
+    rows = load_golden(a.golden, tuple(a.variants), limit=None if a.only_missed else a.limit, split=a.split)
+    if a.only_missed:
+        keep_q, base_m = missed_qids(find_run(a.only_missed), a.only_missed_method)
+        rows = [r for r in rows if r["qid"] in keep_q][:a.limit] if a.limit else [r for r in rows if r["qid"] in keep_q]
+        print(f"[놓친 질문만] {find_run(a.only_missed).name} 의 {base_m} 기준 1위를 놓쳤지만 10위 안 → {len(rows)}문항", flush=True)
     print(f"[골든셋] {len(rows)}문항 ← {a.golden}", flush=True)
     if a.alt:  # 판정 안 된 레코드는 대체 정답 없음으로
         from backend.rag.search.tuning.alt_gold import load_alt
@@ -874,6 +934,17 @@ def main(argv=None):
     if a.cache and Path(a.cache).resolve() != cache.resolve() and not cache.exists():
         import shutil
         shutil.copyfile(a.cache, cache)           # 다른 실행의 질의 분석을 그대로 (HCX 를 다시 부르지 않음)
+    if a.llm_variants:
+        a.llm = True
+    if a.llm:  # 재정렬 결과 파일 캐시 (이전 실행 것을 이어받아 HCX 를 다시 부르지 않게)
+        from backend.rag.search import llm_rerank as LR
+        rc = out / "llm_rerank_cache.jsonl"
+        if a.from_run and not rc.exists():
+            prev_rc = find_run(a.from_run) / "llm_rerank_cache.jsonl"
+            if prev_rc.exists():
+                import shutil
+                shutil.copyfile(prev_rc, rc)
+        LR.use_cache_file(rc)
     analysis = analyze_all(rows, a.analyze, a.today, cache)
     raw_analysis, n_pruned = analysis, 0
     if not a.raw_units:
@@ -887,11 +958,13 @@ def main(argv=None):
     ce = {"model": a.ce_model, "mode": a.ce_mode, "top_n": a.ce_top_n, "doc": a.ce_doc, "k": a.ce_k,
           "weight": a.ce_weight} if a.ce else None
     per, info = run(rows, analysis, a.dense, a.llm, a.top_k, a.pool, tuned=a.tuned, docs=a.dense_docs, cards=a.cards,
-                    kos14=a.kos14, ce=ce, arms=a.arms, raw_analysis=raw_analysis, okf=a.okf)
+                    kos14=a.kos14, ce=ce, arms=a.arms, raw_analysis=raw_analysis, okf=a.okf, llm_variants=a.llm_variants,
+                    llm_thinking=a.llm_thinking)
     table, fails, wins = summarize(per)
     meta = {"created": datetime.now().isoformat(timespec="seconds"), "golden": a.golden, "n_rows": len(rows),
             "variants": a.variants, "analyze": a.analyze, "today": a.today, "top_k": a.top_k, "pool": a.pool,
             "dense": a.dense, "dense_docs": a.dense_docs, "ce": ce, "configs": info, "alt": a.alt, "audit": a.audit,
+            "llm_variants": a.llm_variants, "llm_thinking": a.llm_thinking, "only_missed": a.only_missed,
             "arms": a.arms, "okf": a.okf, "prune_units": not a.raw_units, "n_pruned": n_pruned,
             "analysis_status": dict(Counter(u[0].get("status") for u in analysis.values()))}
     (out / "summary.json").write_text(json.dumps({"meta": meta, "table": table, "fails": fails, "wins": wins,

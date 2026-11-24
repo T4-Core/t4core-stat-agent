@@ -58,7 +58,9 @@ DEFAULTS = {
              "cond_miss": 0.8, "cond_floor": 0.64, "cond_df": 8},
     # LLM 재정렬: 끼워 넣는 형제·같은 개념 표는 상위 top_n 의 '뒤' 에 붙임 (앞 순위를 밀어내지 않음).
     # 하위 단위는 그 단위 문장으로, 원래 질문은 맥락으로만. skip_roles 의 단위(분모)는 규칙이 고른 순서를 그대로 둠
-    "llm_rerank": {"enabled": False, "top_n": 12, "add_siblings": 4, "skip_roles": ["분모"]},
+    "llm_rerank": {"enabled": False, "top_n": 12, "add_siblings": 4, "skip_roles": ["분모"],
+                   "okf": False, "keep_if_unsure": False,  # okf: 카드에 표 정의·개념 (llm_rerank.py) · 불확실하면 원래 순서
+                   "traits": False, "thinking": None, "think_tokens": None},  # 구분 줄 (traits.py) · HCX-007 추론 low|medium|high
     # (선택) 교차 인코더 재정렬 — ce_rerank.py. 상위 top_n 을 [질문, 표 글] 쌍으로 다시 채점해 순위 융합(blend)
     "ce_rerank": {"enabled": False, "model": "bge-reranker-ko", "top_n": 20, "mode": "blend", "k": 5, "weight": 1.0,
                   "base_weight": 1.0, "doc": "struct+def", "max_length": 512, "batch": 16, "skip_roles": ["분모"]},
@@ -496,9 +498,20 @@ class TableSearch:
         if use_llm and hits:  # (선택) LLM 재정렬 — 상위 top_n 을 표 구조 요약으로 다시 줄 세움
             from backend.rag.search.llm_rerank import rerank
             target, context = (question, None) if main_like else (query, question)
-            hits, llm_note = rerank(target, qv, hits, self.facets, len(hits) if n_add else lr.get("top_n", 12),
-                                    self.chat_fn, sib=self.sib, concept_of=self.concept_of, context=context, role=role)
-            if sb.get("enabled", True):  # 무리 안의 선택은 좌표 규칙이 마지막으로 (LLM 은 무리 사이 순서)
+            n_rr = len(hits) if n_add else lr.get("top_n", 12)
+            okf_notes = None
+            if lr.get("okf"):
+                from backend.rag.search.okf_terms import rerank_notes
+                okf_notes = rerank_notes([h["tbl_id"] for h in hits[:n_rr]], question, query)
+            hits, llm_note = rerank(target, qv, hits, self.facets, n_rr, self.chat_fn, sib=self.sib,
+                                    concept_of=self.concept_of, context=context, role=role, okf_notes=okf_notes,
+                                    keep_if_unsure=bool(lr.get("keep_if_unsure")), traits=bool(lr.get("traits")),
+                                    traits_own_defs=not lr.get("okf"), thinking=lr.get("thinking"),
+                                    think_tokens=lr.get("think_tokens"))
+            from backend.rag.search.llm_rerank import UNSURE
+            kept = bool(llm_note) and llm_note.endswith(UNSURE)
+            # 불확실 → 원래 순서 그대로 (형제 규칙을 다시 돌리면 top_n 뒤에 끼운 형제가 정답 자리를 차지 — 11/24 keep 버그)
+            if sb.get("enabled", True) and not kept:  # 무리 안의 선택은 좌표 규칙이 마지막으로 (LLM 은 무리 사이 순서)
                 by = {h["tbl_id"]: h for h in hits}
                 again, more = self.sib.resolve([h["tbl_id"] for h in hits], qv, sex_text, filters, len(hits), set())
                 hits = [dict(by[t], rank=r) for r, t in enumerate(again, 1)]

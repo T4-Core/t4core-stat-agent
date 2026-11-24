@@ -80,8 +80,11 @@ def evaluate(h, rows, analysis, cfg, log=print):
     dense = (cfg.get("dense") or ["none"])[0]
     docs = (cfg.get("dense_docs") or ["rule"])[:1]
     with use_build(h):
-        per, _ = C.run(rows, analysis, [dense], False, cfg.get("top_k") or 10, cfg.get("pool") or 50, log=lambda *_: None,
-                       docs=docs, okf=["on"])
+        per, info = C.run(rows, analysis, [dense], False, cfg.get("top_k") or 10, cfg.get("pool") or 50, log=lambda *_: None,
+                          docs=docs, okf=["on"])
+    if rows and not per:  # compare.run 은 검색기를 못 만들면 그 구성을 건너뜀 — 여기서는 빈 결과로 비교하지 않게 오류로
+        errs = [f"{k}: {v['error']}" for k, v in info.items() if isinstance(v, dict) and v.get("error")]
+        raise RuntimeError(f"빌드 {h or '(없음)'} 로 검색기를 만들지 못함 — " + ("; ".join(errs) or "평가 행 없음"))
     return {r["qid"]: r for r in per}
 
 

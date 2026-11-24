@@ -52,6 +52,25 @@ def table_notes(doc) -> list:
     return [ln.strip()[2:].strip() for ln in m.group(1).splitlines() if ln.strip().startswith("- ") and ln.strip()[2:].strip()]
 
 
+def table_definitions(doc, max_n=3, max_len=160) -> list:
+    """표 파일의 KOSIS 주석 중 정의·집계 대상·산식 줄 (개념 이름과 관계없이) → [줄]. build 가 catalog.json 에 넣고
+    LLM 재정렬 카드가 씀 ('주1) 미혼모·부의 개념 : …' · '… 체류기간 90일을 초과하여 … 집계' · '… / … x 100')"""
+    out = []
+    for ln in table_notes(doc):
+        if _ADMIN.search(ln):
+            continue
+        cue = max([w for w, rx in _CUE if rx.search(ln)] + [0])
+        if cue < 2 and not _FORMULA.search(ln):
+            continue
+        ln = re.sub(r"^[*·•]\s*", "", ln)
+        ln = ln if len(ln) <= max_len else ln[:max_len - 1] + "…"
+        if ln not in out:
+            out.append(ln)
+        if len(out) >= max_n:
+            break
+    return out
+
+
 def _forms(name):
     from backend.rag.okf.drafts import GENERIC, morphs
     return {f for f, _, _ in morphs(name) if len(f) >= 2 and f not in GENERIC}

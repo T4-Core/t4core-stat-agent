@@ -8,7 +8,7 @@
   5) 최근 빌드 KEEP 개만 남김 (되돌리기: python -m backend.rag.okf use <해시>)
 
   파생물
-    catalog.json     표 {tbl_id: 경로·제목·설명·분류(이름·종류·코드 수·합계·분류 id·작은 코드 목록)·항목·기간·형제·상태}
+    catalog.json     표 {tbl_id: 경로·제목·설명·분류(이름·종류·코드 수·합계·분류 id·작은 코드 목록)·항목·기간·형제·상태·정의(KOSIS 주석)}
     codebooks.json   {분류 id: {code: name}}  코드가 많은 차원 (표 파일에는 예시만)
     concepts.json    개념 [{id, title, description, status, aliases(사용), pending, not, binds, calc, trust}]
     backlinks.json   {tbl_id: [개념 id]} + rules (표 대신 dim_kind 로 묶인 개념)
@@ -30,7 +30,7 @@ from backend.rag.okf import tables as T
 from backend.rag.okf.doc import Doc, concept_id, iter_docs, resolve
 from backend.rag.okf.lint import alias_active, concept_body, follow, lint
 
-BUILD_VERSION = "okf-build/1"
+BUILD_VERSION = "okf-build/2"  # 2: catalog.json 에 표 정의(KOSIS 주석) — 재정렬 카드용
 KEEP = 3
 
 
@@ -65,6 +65,7 @@ def codebooks_from(recs) -> dict:
 
 
 def _catalog(bundle: Path):
+    from backend.rag.okf.assist import table_definitions
     cat = {}
     for p in iter_docs(bundle, ("tables",)):
         d = Doc.read(p)
@@ -81,7 +82,8 @@ def _catalog(bundle: Path):
         cat[tid] = {"path": concept_id(bundle, p), "title": d.meta.get("title"), "description": d.meta.get("description"),
                     "org_id": xt.get("org_id"), "survey": xt.get("survey"), "periods": xt.get("periods"), "dims": dims,
                     "items": xt.get("items") or [], "siblings": xt.get("siblings") or [],
-                    "status": d.meta.get("status") or "stable", "superseded_by": d.meta.get("superseded_by")}
+                    "status": d.meta.get("status") or "stable", "superseded_by": d.meta.get("superseded_by"),
+                    "definitions": table_definitions(d)}
     return cat
 
 
@@ -243,3 +245,6 @@ def _gate(gate, new, base, log):
     except SystemExit as e:  # compare.find_run 이 실행을 못 찾음
         log(f"검사를 못 함: {e} → 빌드를 바꾸지 않음")
         return {"ok": False, "error": str(e)}
+    except Exception as e:  # noqa: BLE001  (검색기 생성 실패 등 — 새 빌드는 남기고 CURRENT 는 그대로)
+        log(f"검사를 못 함: {e.__class__.__name__}: {e} → 빌드를 바꾸지 않음")
+        return {"ok": False, "error": f"{e.__class__.__name__}: {e}"}

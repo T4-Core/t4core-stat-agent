@@ -133,7 +133,7 @@ x-t4-concept:
 | `vocab.json` | 정규 어휘 사전 (프로필 + CSV 값 사전). `query_analyzer/vocab.get_vocab` 이 OKF 빌드를 먼저 읽음 |
 | `aliases.json` | 개념의 사용 가능 별칭 → 정규 이름 (vocab_aliases.csv 대신) |
 | `vocab_vectors.<임베더>.npz` | `--embed` 로. 벡터 후보(`vocab_suggest.py`)가 vocab.json 옆에서 찾음 |
-| `catalog.json` | 표 요약 (`Catalog.table`) |
+| `catalog.json` | 표 요약 (`Catalog.table`). `definitions` = 표 파일 '# 주석' 중 정의·집계 대상·산식 줄 (최대 3, 빌드 2부터) |
 | `codebooks.json` | 큰 차원의 코드 전체 (`Catalog.has_code`) |
 | `concepts.json` · `backlinks.json` | 개념 + 표 → 개념 역링크 (`Catalog.concepts_for`) |
 | `manifest.json` | 해시 · 개수 · 검사 결과 |
@@ -194,6 +194,55 @@ python -m backend.rag.search.tuning.compare --golden <셋> --dense hcx --dense-d
 `--okf` 는 검색 쪽만 켜고 끈다. 질의 분석(정규 어휘 사전의 별칭 → 조건 보충)은 두 구성이 같은 캐시를 쓴다.
 
 테스트는 내 PC 의 실제 빌드를 읽지 않는다(`tests/conftest.py` 가 빈 폴더로 바꿈).
+
+### LLM 재정렬에 OKF 정보 (`search.yaml llm_rerank.okf`, 기본 꺼짐)
+
+RRF 는 순위만 합쳐서, 이미 위에 있는 표들 사이의 순서(형제 표·같은 값의 표)를 별칭으로는 못 바꾼다.
+그래서 재정렬하는 LLM 에게 표 이름만으로는 안 보이는 근거를 카드에 붙여 준다 (`okf_terms.rerank_notes`).
+
+- **정의:** `catalog.json definitions` — KOSIS 주석 중 개념·집계 대상·산식.
+  예: 당해연도 혼인 비율 `초혼 경험자 / 인구 x 100` ↔ 누적 혼인 비율, 장기국제이동 `1년 초과` ↔ 국제이동 `90일 초과`.
+  골든셋에서 뽑은 것이 아니라서, 이 효과는 dev·heldout 모두에서 볼 수 있다.
+- **개념:** 질문에 제목·별칭·`not`·묶인 이름이 나온 개념(초안·폐기 제외) 중 그 후보 표에 묶인 것.
+  별칭이면 `질문의 'X' = 이 개념`, `not` 이면 `주의: … 같은 뜻이 아님`. 개념은 dev 에서 캐냈으므로 이 효과는 heldout 에서만 본다.
+- **`keep_if_unsure`:** LLM 이 `sure: false`(근거 없음)라 하면 원래 순서를 둔다. 값이 같은 표들 사이에서 근거 없이 순서만 바뀌는 것을 막는다.
+
+```powershell
+# 빌드 2 (정의 포함)로 다시 빌드 — 해시가 바뀜
+python -m backend.rag.okf build --gate <compare 실행>
+# 질의 분석·검색 캐시를 이어받아 재정렬 방법만 나란히 (HCX: 질문 × 방법 수 만큼 호출 — 먼저 --limit 20)
+python -m backend.rag.search.tuning.compare --from-run <실행> --split heldout --audit <gold_audit.jsonl> --okf on --llm-variants base okf okf-keep --name rr_okf
+```
+
+report.md '방법 비교' 절: `search+llm+okf` 는 `search` 와 `search+llm` 둘 다를 기준으로 득실·부호 검정을 낸다 (OKF 가 더한 몫만 보려면 후자).
+재정렬 결과는 실행 폴더 `llm_rerank_cache.jsonl` 에 남고, `--from-run` 이 이어받아 같은 질문·후보·카드면 다시 부르지 않는다.
+
+### 구분 줄 · 추론 (`search.yaml llm_rerank.traits` · `llm_rerank.thinking`, 기본 꺼짐)
+
+11/24 실험(hard 144 · easy 170)에서 OKF 줄이 바꾼 질문은 hard 7개(좋아짐 4·나빠짐 3) · easy 6개(3·3)뿐이었다.
+남은 1위 실패는 대부분 2~5위의 '비슷한 표'(총괄표↔상세표, 비율 표↔건수 표, 같은 말 다른 집계 기준, (계)/(남)/(여) 형제)라서
+그 차이를 카드에 직접 적는다.
+
+- **구분 줄 (`traits: true`, `search/traits.py`):** 후보끼리 다른 성질만 `구분:` 한 줄로 — 총괄표 · 비율 직접 제공(항목 이름) ·
+  성별 분할/분류 · 연령 분류 · 주기. 모든 후보가 같은 성질은 쓰지 않는다.
+  - `형제 차이:` 같은 형제 무리가 후보에 둘 이상이면 제목에서 그 표에만 있는 말 (`이 표만 '여'`, `'2008~2015'`).
+  - `집계 기준:` OKF 빌드의 표 정의. 표에 정의가 없으면 같은 조사의 다른 표 2개 이상이 공유하는 정의(`조사 공통`).
+  - 표 메타데이터에서 만들므로(골든셋을 보지 않음) dev·heldout 모두로 평가해도 된다.
+- **추론 (`thinking: low|medium|high`):** HCX-007 추론을 켠다. HCX 문서상 추론은 구조화 출력과 함께 못 쓴다 →
+  JSON 형식을 프롬프트에 적고 응답 글에서 뽑는다 (`backend/core/llm.py chat(thinking=…)`).
+  - `maxCompletionTokens` 에 추론 토큰이 포함된다 → effort 별 문서 기본값(5120 · 10240 · 20480)으로 올림 (`think_tokens` 로 바꿈).
+  - 시간 제한 180초, 시간 초과 재시도 1회 (일반 호출은 60초 · 8회). 실패·빈 답이면 추론 없이 한 번 더 (메모 `추론 실패(…) → 일반`).
+  - 추론 글은 `llm_rerank_cache.jsonl` 의 `why` 에 남는다 — 왜 그 순서인지 사람이 볼 수 있다 (사용자에게 그대로 보이지 말 것).
+  - 질의 분석·골든셋 생성은 구조화 출력이 필요해서 그대로 추론 없이 둔다.
+- **keep 버그 수정:** `keep_if_unsure` 에서 LLM 이 불확실이라 하면 엔진이 형제 규칙을 다시 돌리지 않는다.
+  전에는 top_n 뒤에 끼운 형제가 이 단계에서 정답 자리를 차지해, keep 이 search 보다 나빠지는 질문이 있었다 (hard 5 · easy 5).
+
+```powershell
+# 비싼 추론은 먼저 '1위를 놓쳤지만 10위 안' 질문만 (이 부분집합의 지표는 전체 지표로 읽지 않는다)
+python -m backend.rag.search.tuning.compare --from-run <실행> --only-missed <실행> --llm-variants base traits traits+think --name rr_think_missed
+# 전체: 조각을 + 로 이음 (base · okf · traits · keep · think), 추론 수준은 --llm-thinking
+python -m backend.rag.search.tuning.compare --from-run <실행> --llm-variants base traits okf+traits okf+traits+keep --name rr_traits
+```
 
 ## 개념 초안 모으기 (`python -m backend.rag.okf drafts`)
 

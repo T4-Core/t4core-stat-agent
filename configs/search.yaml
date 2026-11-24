@@ -14,9 +14,6 @@
 # roles: {enabled: true, den_miss: 0.35, den_dim: 0.2, den_survey: 1.5}  # 분모 단위 ('인구' 뿐인 하위 질의)
 # stitch: {enabled: true, links: null}                                  # 기간 묶음 (period_groups.py, 연결: configs/period_links.csv) → 결과에 years_have·years_missing·stitch
 # concepts: {enabled: true, path: null, add: 3}                         # 개념 카탈로그 (concepts.py build → <CSV 값 사전>/concepts.json)
-<<<<<<< HEAD
 # okf: {enabled: true, value_weight: 0.9}       # OKF 개념의 승인된 별칭 → 그 표의 값 표현 (search/okf_terms.py). 비교: compare --okf off on
-=======
 
 feas: {cond_miss: 1.0, move_miss: 1.0, move_derived: 1.0}
->>>>>>> develop

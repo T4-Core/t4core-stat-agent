@@ -97,3 +97,19 @@ def test_build_keeps_current_when_gate_fails(env):  # noqa: F811
     assert B.current(root) == m1["hash"] and (root / m2["hash"] / "manifest.json").exists()   # 새 빌드는 남음
     m3 = B.build(b, root, env["prof"], None, log=lambda *_: None, gate=lambda new, base: {"ok": True})
     assert m3["ok"] and m3["reused"] and B.current(root) == m2["hash"]
+
+
+def test_gate_searcher_error_is_reported(tmp_path, monkeypatch):
+    """검색기를 못 만들면 (compare.run 이 그 구성을 건너뛰어 빈 결과) 0 으로 나누지 않고 그 오류를 보여 줌"""
+    from backend.rag.search.tuning import compare as C
+    run = _run(tmp_path)
+    monkeypatch.setattr(C, "run", lambda *a, **k: ([], {"search[hcx|okf-on]": {"error": "RuntimeError: HCX 임베딩 401"}}))
+    _cfg, rows, analysis, _ = G.load_run(run)
+    try:
+        G.evaluate("base", rows, analysis, {"dense": ["hcx"]})
+        raise AssertionError("오류가 나야 함")
+    except RuntimeError as e:
+        assert "HCX 임베딩 401" in str(e) and "base" in str(e)
+    logs = []
+    g = B._gate(lambda new, base: G.gate(tmp_path, new, base, run, log=lambda *_: None), "new", "base", logs.append)
+    assert g["ok"] is False and "HCX 임베딩 401" in g["error"] and "검사를 못 함" in logs[0]
