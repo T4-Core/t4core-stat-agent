@@ -1,0 +1,16 @@
+services:
+  web:
+    build:
+      context: ../../frontend/web
+      args:
+        VITE_API_BASE_PATH: "${VITE_API_BASE_PATH:-/api/v1}"
+        VITE_USE_MOCK: "${VITE_USE_MOCK:-false}"
+        VITE_SUPABASE_URL: "${VITE_SUPABASE_URL:-}"
+        VITE_SUPABASE_PUBLISHABLE_KEY: "${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
+        VITE_ADMIN_EMAIL_DOMAIN: "${VITE_ADMIN_EMAIL_DOMAIN:-team.local}"
+        VITE_USER_URL: "${VITE_USER_URL:-/}"
+    ports:
+      - "80:80"
+    environment:
+      BACKEND_UPSTREAM: "${BACKEND_UPSTREAM:-backend:8000}"
+    restart: unless-stopped
