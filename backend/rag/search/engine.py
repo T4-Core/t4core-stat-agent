@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import threading
 import time
 
@@ -55,12 +56,35 @@ DEFAULTS = {
              "geo_finer": 0.92,
              # 조건 누락: 질문의 드문 표현(값 사전에서 cond_df 개 이하 표에만 있는 말, 3자 이상)을 가진 표가 있으면,
              # 같은 조사의 그 말이 없는 표에 cond_miss (말마다 곱, 바닥 cond_floor). '쌍태아' 를 물었는데 일반 출생 표가 1위이던 문제
-             "cond_miss": 0.8, "cond_floor": 0.64, "cond_df": 8},
+             "cond_miss": 0.8, "cond_floor": 0.64, "cond_df": 8, "cond_dims_only": True,  # 11/25: 지표·측정 말 제외 (hard 손실 2 → 0)
+             # 요청 단위 (_unit_fit, 항목 단위 = 메타 프로필·값 사전): 수를 묻는데(율·비율을 묻지 않음) 항목 단위가 모두 율
+             # (천명당·%·십만명당 …)인 표 → rate_miss · '건' 을 분명히 묻는데 항목 단위가 '명' 뿐인 표 → count_miss. 1.0 = 끔
+             # (11/24 hard·easy·retrieval_golden 캐시 회귀에서 잃은 문항 0 — 0.5 와 0.7 결과 같음)
+             "rate_miss": 0.7, "count_miss": 0.8,
+             # 인구 기본 기준 (_pop_basis, 사람 결정 2026-11-25): 집계 기준을 말하지 않은 '인구' 질문의 기본 답 = 주민등록.
+             # 인구총조사·장래인구추계의 인구 표 → pop_basis (외국인·다문화 질문, 총조사·추계·전망을 말한 질문은 그대로). 1.0 = 끔
+             # (11/25 캐시 회귀: hard hit@1 +1 · 정책과 맞는 손실 1 (총조사 분모 표시) · easy 변화 0 · retrieval_golden hit@1 +1)
+             "pop_basis": 0.8,
+             # 조사 (_survey_fit, search/surveys.py): filters['조사'] 로 지정하면 다른 조사 표 → survey_miss (사용자가 고른 기준).
+             # 질문에서 조사 줄임말('센서스'·'인구동향'·'주민등록' …)을 읽으면 그 조사 표 × survey_alias (이름이 글자 그대로면 survey_hit 이 이미 올림)
+             # (11/25 캐시 회귀: hard·easy·커버리지 변화 0, retrieval_golden app_groups +1 — 질문이 줄임말을 쓰는 일이 드묾)
+             "survey_miss": 0.3, "survey_alias": 1.35,
+             # 장래추계 (_proj_fit): 질문이 추계·전망·장래·시나리오를 말하지 않았고 요청 연도가 없거나 실측 범위(proj_last_actual 이하)면
+             # 장래인구추계·장래가구추계 표 → proj_miss ('2025년 경기도 출생아' 에 추계 표 DT_1BPB004 가 1위이던 것). 1.0 = 끔
+             # (11/25 캐시 회귀: hard 0 · easy groups·app +1 · golden mrr +2문항 · 잃은 0. 0.5 는 golden app_groups −1)
+             "proj_miss": 0.7, "proj_last_actual": 2026,
+             # 외국인 기본 기준 (_foreign_basis, 사람 결정 2026-11-25): 기준을 말하지 않은 '외국인' 질문의 기본 답 = 지방자치단체외국인주민현황.
+             # 출입국(등록·체류외국인)·인구총조사의 외국인 표 → foreign_basis (등록·체류·출입국·입국·출국·총조사 등을 말하면 그대로). 1.0 = 끔
+             # (11/25 캐시 회귀: hard 0 · easy hit@1 1·1 · golden mrr −1 — 잃은 2 는 정답이 인구총조사 외국인 표 = 정책과 맞는 손실)
+             "foreign_basis": 0.8},
     # LLM 재정렬: 끼워 넣는 형제·같은 개념 표는 상위 top_n 의 '뒤' 에 붙임 (앞 순위를 밀어내지 않음).
     # 하위 단위는 그 단위 문장으로, 원래 질문은 맥락으로만. skip_roles 의 단위(분모)는 규칙이 고른 순서를 그대로 둠
     "llm_rerank": {"enabled": False, "top_n": 12, "add_siblings": 4, "skip_roles": ["분모"],
                    "okf": False, "keep_if_unsure": False,  # okf: 카드에 표 정의·개념 (llm_rerank.py) · 불확실하면 원래 순서
-                   "traits": False, "thinking": None, "think_tokens": None},  # 구분 줄 (traits.py) · HCX-007 추론 low|medium|high
+                   "traits": False, "thinking": None, "think_tokens": None,  # 구분 줄 (traits.py) · HCX-007 추론 low|medium|high
+                   # 조건부 호출 (gate): None = 늘 부름 (기존). {"ratio": r, "same_group": bool} = 1·2위 점수 비 ≥ r 이거나
+                   # (same_group) 1·2위가 같은 형제 무리·같은 값 묶음일 때만 부름 — 1위가 뚜렷하면 HCX 를 쓰지 않음
+                   "gate": None},
     # (선택) 교차 인코더 재정렬 — ce_rerank.py. 상위 top_n 을 [질문, 표 글] 쌍으로 다시 채점해 순위 융합(blend)
     "ce_rerank": {"enabled": False, "model": "bge-reranker-ko", "top_n": 20, "mode": "blend", "k": 5, "weight": 1.0,
                   "base_weight": 1.0, "doc": "struct+def", "max_length": 512, "batch": 16, "skip_roles": ["분모"]},
@@ -98,6 +122,45 @@ def _merge(a, b):
             _merge(a[k], v)
         else:
             a[k] = v
+
+
+RATE_UNIT_RE = re.compile(r"%|퍼센트|당|비|지수|^세$")     # 항목 단위가 율·비·평균 나이 (수가 아님)
+COUNT_UNIT_RE = re.compile(r"^(?:명|건|가구|호|개|세대|개사)(?:\s|$)")
+
+
+def rate_unit(u):
+    """항목 단위가 율인가 — 수 단위로 시작하는 묶음 표기('명 가임여자 1명당 명' = 출생아수 + 합계출산율)는 율 표가 아님"""
+    u = str(u or "").strip()
+    return bool(u) and not COUNT_UNIT_RE.search(u) and bool(RATE_UNIT_RE.search(u))
+RATE_Q_RE = re.compile(r"비율|율|률|퍼센트|%|비중|구성비|명\s*당|가구\s*당|당\s|당$|평균|지수|성비|몇\s*배")
+CHANGE_RE = re.compile(r"(?:증가|감소|증감|변화|늘|줄)\S*\s*(?:율|률)|몇\s*(?:퍼센트|%)\s*(?:증가|감소|늘|줄|올|내)")
+COUNT_GUN_RE = re.compile(r"건수|몇\s*건|\d\s*건|(?<![가-힣])건(?:이|은|인|을|의)?(?![가-힣])")  # '조건이' 의 '건이' 는 아님
+COUNT_Q_RE = re.compile(r"수(?![가-힣])(?!\s*있)|수$|수는|수가|수를|몇\s*(?:명|가구|호|건|개)|인구|가구\s*수|규모|합계|총계")
+
+
+def want_unit(text):
+    """질문(단위 문장) → 요청 단위: '건' (건수를 분명히) · '수' (사람·가구 수 등) · None (율·비율을 묻거나 모름)
+    증감률('몇 퍼센트 증가') 은 원자료가 수일 수 있어 율 요청으로 보지 않음. 율·률·천 명당을 직접 물으면 '몇 건' 이 붙어도
+    율 요청 ('조이혼율은 인구 천 명당 몇 건') — 율이 먼저"""
+    t = str(text or "")
+    if RATE_Q_RE.search(CHANGE_RE.sub(" ", t)):
+        return None
+    if COUNT_GUN_RE.search(t):
+        return "건"
+    return "수" if COUNT_Q_RE.search(t) else None
+
+
+FOREIGN_Q_RE = re.compile(r"외국인")
+FOREIGN_BASIS_RE = re.compile(r"등록\s*외국인|체류|출입국|입국|출국|총조사|센서스|불법|사증|비자|테이블|통계표|표에서|표의")
+FOREIGN_NOT_DEFAULT = {"출입국자및체류외국인통계", "인구총조사"}
+PROJ_Q_RE = re.compile(r"추계|전망|장래|예상|예측|시나리오|중위|고위|저위|미래|앞으로|될\s*것")
+PROJ_SURVEYS = {"장래인구추계", "장래가구추계"}
+MEASURE_END_RE = re.compile(r"(?:건수|비율|율|률|가구수|인구수|인원|명수|호수|가구|인구|수)$")
+POP_Q_RE = re.compile(r"인구|주민\s*수|사람\s*수|몇\s*명이\s*살")
+POP_BASIS_RE = re.compile(r"총조사|센서스|추계|전망|장래|예상|미래|테이블|통계표|표에서|표의")  # 표 이름을 대면 그 표가 기준
+POP_OTHER_RE = re.compile(r"외국인|다문화|귀화|체류|결혼이민|이주|국적")
+POP_NOT_DEFAULT = {"인구총조사", "장래인구추계"}
+POP_TABLE_RE = re.compile(r"인구")
 
 
 DEN_BASE = {"인구": "인구", "인구수": "인구", "총인구": "인구", "총인구수": "인구", "전체인구": "인구", "주민등록인구": "인구",
@@ -347,6 +410,11 @@ class TableSearch:
         feas, why = self._conditions(feas, why, self.ch.value.link(core), filters)
         if den:
             feas, why = self._denominator(feas, why, den, question, filters, today)
+        feas, why = self._unit_fit(feas, why, question if main else query)
+        feas, why = self._pop_basis(feas, why, question if main else query, question)
+        feas, why = self._survey_fit(feas, why, qv, question, filters)
+        feas, why = self._proj_fit(feas, why, qv, question)
+        feas, why = self._foreign_basis(feas, why, question if main else query, question)
         return {"scores": lists, "ranks": rk, "feas": feas, "why": why, "qv": qv, "found": found, "role": "분모" if den else role}
 
     def specific_terms(self, keys, filters=None):
@@ -364,15 +432,125 @@ class TableSearch:
                 cand += [n] + list(self.ch.value.link(n))
         from backend.rag.search.facets import AGE_NAME, SEX_NAME
         regions = self.ch.region_dict or set()
+        # cond_dims_only: 분류 값으로 고르는 말만 — 지표·측정 말('혼인건수'·'가구의비율'·'이혼건수')은 항목 이름이 표마다 달라
+        # (혼인건수 ↔ 혼인) 같은 조사의 정답 표를 깎던 것 (11/25 hard SG-2f9f690aa434-O · SG-05ddfdd48569-P)
+        dims_only = bool(fz.get("cond_dims_only"))
+        slot_keys = {norm(v) for k in ("지표", "대상") for v in (filters or {}).get(k) or []} if dims_only else set()
         out = {}
         for key in dict.fromkeys(cand):
             if len(key) < 3 or key in TOTALS or key in regions or key.isdigit() or AGE_NAME.search(key) \
                     or SEX_NAME.search(key) or _is_sido_key(key):
                 continue
+            if dims_only and (MEASURE_END_RE.search(key) or key in slot_keys):
+                continue
             hold = set(table.get(key) or ()) | {i for i, t in enumerate(self._titles) if key in t}
             if hold and len(hold) <= dfmax:
                 out[key] = hold
         return out
+
+    def _rerank_gate(self, ids, final, gate):
+        """LLM 재정렬을 부를까 — 1·2위가 경합할 때만: 점수 비 ≥ ratio, 또는 (same_group) 같은 형제 무리·같은 값 묶음
+        → (부를까, 안 부를 때 메모)"""
+        if len(ids) < 2:
+            return False, "건너뜀 (후보 하나)"
+        a, b = (float(final[self._pos[t]]) for t in ids[:2])
+        hi, lo = max(a, b), min(a, b)               # 형제 해소로 순서가 바뀌었을 수 있음 — 비는 늘 ≤ 1
+        ratio = lo / hi if hi > 0 else 1.0
+        if ratio >= float(gate.get("ratio", 1.01)):
+            return True, None
+        if gate.get("same_group"):
+            g = getattr(self.sib, "of", {}) or {}
+            if g.get(ids[0]) and g.get(ids[0]) == g.get(ids[1]):
+                return True, None
+            k = (self.concept_of or {}).get(ids[0])
+            if k is not None and k == (self.concept_of or {}).get(ids[1]):
+                return True, None
+        return False, f"건너뜀 (1·2위 점수 비 {ratio:.2f} — 경합 아님)"
+
+    def _foreign_basis(self, feas, why, text, question):
+        """기준 없는 '외국인' 질문 → 출입국·인구총조사의 외국인 표를 뒤로 (기본 기준 = 외국인주민현황)"""
+        fac = float(self.s["feas"].get("foreign_basis", 1.0))
+        if fac >= 1.0 or not FOREIGN_Q_RE.search(str(text or "")) or FOREIGN_BASIS_RE.search(str(question or "")):
+            return feas, why
+        feas, why = feas.copy(), list(why)
+        for i, f in enumerate(self.ch.facets):
+            if f.survey_nm in FOREIGN_NOT_DEFAULT and "외국인" in (f.tbl_nm or ""):
+                feas[i] *= fac
+                why[i] = list(why[i] or []) + ["외국인 기본 기준 아님 (외국인주민현황 우선)"]
+        return feas, why
+
+    def _proj_fit(self, feas, why, qv, question):
+        """추계를 묻지 않은 실측 시점 질문 → 장래추계 표를 뒤로. 연도가 없는 질문(최신 값을 물음)도 실측으로 봄
+        (11/25 측정은 이 동작). proj_last_actual(2026)은 자료가 갱신되면 다시 볼 것"""
+        fz = self.s["feas"]
+        miss = float(fz.get("proj_miss", 1.0))
+        if miss >= 1.0 or PROJ_Q_RE.search(str(question or "")):
+            return feas, why
+        if qv.years and max(qv.years) > int(fz.get("proj_last_actual", 2026)):
+            return feas, why
+        feas, why = feas.copy(), list(why)
+        for i, f in enumerate(self.ch.facets):
+            if f.survey_nm in PROJ_SURVEYS:
+                feas[i] *= miss
+                why[i] = list(why[i] or []) + ["추계 표 (실측을 물음)"]
+        return feas, why
+
+    def _survey_fit(self, feas, why, qv, question, filters):
+        """조사 지정 (filters['조사']) · 질문 속 조사 줄임말 → 가능성 계수"""
+        fz = self.s["feas"]
+        miss, alias = float(fz.get("survey_miss", 1.0)), float(fz.get("survey_alias", 1.0))
+        want = {str(x) for x in ((filters or {}).get("조사") or [])}
+        from backend.rag.search.surveys import detect_surveys
+        seen = detect_surveys(question) - want if alias != 1.0 else set()
+        if not (want and miss < 1.0) and not seen:
+            return feas, why
+        feas, why = feas.copy(), list(why)
+        for i, f in enumerate(self.ch.facets):
+            if want and miss < 1.0 and f.survey_nm not in want:
+                feas[i] *= miss
+                why[i] = list(why[i] or []) + ["지정한 조사 아님"]
+            elif f.survey_nm in seen:
+                sv = norm(f.survey_nm)
+                if not (len(sv) >= 4 and (sv in qv.link or (len(sv) >= 6 and sv[:4] in qv.link))):  # 이름 그대로면 이미 올림
+                    feas[i] *= alias
+                    why[i] = list(why[i] or []) + ["질문의 조사"]
+        return feas, why
+
+    def _pop_basis(self, feas, why, text, question):
+        """기준 없는 '인구' 질문 → 인구총조사·장래인구추계의 인구 표를 뒤로 (기본 기준 = 주민등록인구현황).
+        기준 말·외국인 말은 원 질문 전체에서 봄 (하위 단위 문장에는 빠져 있을 수 있음)"""
+        fac = float(self.s["feas"].get("pop_basis", 1.0))
+        if fac >= 1.0 or not POP_Q_RE.search(str(text or "")) or POP_BASIS_RE.search(str(question or ""))                 or POP_OTHER_RE.search(str(question or "")):
+            return feas, why
+        feas, why = feas.copy(), list(why)
+        for i, f in enumerate(self.ch.facets):
+            if f.survey_nm in POP_NOT_DEFAULT and POP_TABLE_RE.search(f.tbl_nm or ""):
+                feas[i] *= fac
+                why[i] = list(why[i] or []) + ["인구 기본 기준 아님 (주민등록 우선)"]
+        return feas, why
+
+    def _unit_fit(self, feas, why, text):
+        """요청 단위와 표의 항목 단위 — 본 질의는 원 질문, 하위 질의는 그 문장으로 판단
+        ('출생아 수와 혼인 건수' 를 나눈 출생 단위가 '건' 때문에 깎이지 않게). 단위를 모르는 표는 그대로"""
+        fz = self.s["feas"]
+        rate, cnt = float(fz.get("rate_miss", 1.0)), float(fz.get("count_miss", 1.0))
+        if rate >= 1.0 and cnt >= 1.0:
+            return feas, why
+        want = want_unit(text)
+        if not want:
+            return feas, why
+        feas, why = feas.copy(), list(why)
+        for i, f in enumerate(self.ch.facets):
+            units = [str(u) for u in f.units or [] if str(u).strip()]
+            if not units:
+                continue
+            if rate < 1.0 and want in ("건", "수") and all(rate_unit(u) for u in units):
+                feas[i] *= rate
+                why[i] = list(why[i] or []) + ["율 표 (수를 물음)"]
+            elif cnt < 1.0 and want == "건" and all(u == "명" for u in units)                     and not any("건" in str(x) for x in getattr(f, "items", None) or []):  # 출생건수 항목에 단위 '명' (DT_1B8000K)
+                feas[i] *= cnt
+                why[i] = list(why[i] or []) + ["단위 명 ('건' 을 물음)"]
+        return feas, why
 
     def _conditions(self, feas, why, keys, filters):
         """조건 누락 감점 — 드문 표현을 가진 표와 같은 조사인데 그 말이 없는 표 (조사가 다른 표는 그대로:
@@ -458,7 +636,12 @@ class TableSearch:
         if sb.get("enabled", True):  # 형제 표 해소
             allowed = {self.docs[i].id for i in np.nonzero(final > 0)[0]}
             ids, sib_notes = self.sib.resolve(ids, qv, sex_text, filters, int(sb.get("window", 12)), allowed)
+        gate_note = None
+        if use_llm and lr.get("gate"):
+            use_llm, gate_note = self._rerank_gate(ids, final, lr["gate"])
         n_add = int(lr.get("add_siblings", 0)) + (int(self.s["concepts"].get("add", 0)) if self.concepts else 0)
+        if not use_llm:
+            n_head = top_k if not use_ce else max(top_k, int(ce.get("top_n", 20)))
         if use_llm and n_add:  # LLM 이 형제·같은 개념 표를 나란히 보게 상위 top_n 뒤에 붙임
             ids = self._with_siblings(ids, int(lr.get("top_n", 12)), int(lr.get("add_siblings", 0)), final,
                                       int(self.s["concepts"].get("add", 0)))
@@ -494,7 +677,7 @@ class TableSearch:
                     if h["tbl_id"] in more:
                         h["stages"] = {**h.get("stages", {}), "sibling_after_ce": more[h["tbl_id"]]}
         if self.llm and not use_llm:
-            llm_note = f"건너뜀 (역할 {role})"
+            llm_note = gate_note or f"건너뜀 (역할 {role})"
         if use_llm and hits:  # (선택) LLM 재정렬 — 상위 top_n 을 표 구조 요약으로 다시 줄 세움
             from backend.rag.search.llm_rerank import rerank
             target, context = (question, None) if main_like else (query, question)

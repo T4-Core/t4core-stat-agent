@@ -29,6 +29,12 @@ MOVE_WORD_RE = re.compile(r"전입|전출|이사|이동|유입|유출|옮기|옮
 TREND_WORD_RE = re.compile(r"추이|추세|흐름")
 
 
+
+# 비교축 말 → 정해진 축 이름 ('서울 자치구별 …' 의 '자치구', '연령대별' 의 '연령대'). View·검색이 아는 이름으로
+AXIS_SYNONYM = {"자치구": "시군구", "구": "시군구", "구군": "시군구", "시군": "시군구", "시·군·구": "시군구", "기초자치단체": "시군구",
+                "광역시도": "시도", "시·도": "시도", "광역자치단체": "시도",
+                "연령대": "연령", "나이": "연령", "나이대": "연령", "연령층": "연령", "연령구간": "연령", "성": "성별"}
+
 def _ns(v):
     return re.sub(r"\s+", "", str(v))
 
@@ -297,7 +303,10 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
     for v in [v for v in s["이동"] if v not in MOVE_VALUES]:
         log.append(f"{tag}이동 삭제(정해진 값 아님): {v}")
     s["이동"] = [v for v in s["이동"] if v in MOVE_VALUES]
-    s["비교축"] = list(dict.fromkeys(re.sub(r"별$", "", v) for v in s["비교축"]))
+    axes = [re.sub(r"별$", "", v) for v in s["비교축"]]
+    for v in [v for v in axes if v in AXIS_SYNONYM]:
+        log.append(f"{tag}비교축 '{v}' → '{AXIS_SYNONYM[v]}'")
+    s["비교축"] = list(dict.fromkeys(AXIS_SYNONYM.get(v, v) for v in axes))
 
     # 의도: '연도별'로 연도가 2개 이상이면 추이 (프롬프트 의도 규칙)
     if len(s["시점"]) >= 2 and ("연도" in s["비교축"] or "연도별" in q or TREND_WORD_RE.search(q)):

@@ -30,6 +30,7 @@ VIEW_INTENT = {"값 조회": "값 조회", "추이": "추이", "비교": "비교
                "증감률": "추이", "합계": "값 조회", "범위 밖": "값 조회"}
 VIEW_INTENTS = ("값 조회", "추이", "비교", "순위")  # View 모듈(build_view.VIEW_TYPE)이 아는 의도
 OUT_OF_SCOPE = "범위 밖"
+GEO_AXES = ("시도", "시군구", "읍면동", "지역", "행정구역", "지자체")  # 비교축 중 지역 수준을 말하는 것
 UNSUPPORTED = ("전출지", "전입지", "이동")
 COHORT_COND_RE = re.compile(r"출생연도\s*=\s*((?:19|20)\d{2})(?:\s*~\s*((?:19|20)\d{2}))?")
 TIME_RE = re.compile(r"^((?:19|20)\d{2})\s*년?(?:\s*(\d{1,2})\s*월)?$")
@@ -142,9 +143,13 @@ def to_view_filters(f, intent=None, notes=None, label=""):
         if f.get(k):
             out[k] = list(f[k])
     if f.get("비교축"):
-        out["비교축"] = f["비교축"][0]
-        if len(f["비교축"]) > 1:
-            notes.append(f"{tag}[비교축] 여러 개 {f['비교축']} 중 첫 번째만 사용 (View 모듈 Filters.비교축 은 하나)")
+        axes = list(dict.fromkeys(f["비교축"]))
+        geo = [a for a in axes if a in GEO_AXES]  # 지역 축이 있으면 그것이 비교축 ('자치구별 연령대' → 시군구 + 보조축 연령)
+        out["비교축"] = geo[0] if geo else axes[0]
+        rest = [a for a in axes if a != out["비교축"]]
+        if rest:
+            out["보조축"] = rest
+            notes.append(f"{tag}[비교축] 여러 개 {axes} → 비교축 '{out['비교축']}' + 보조축 {rest} (히트맵처럼 두 축으로 나눠 봄)")
     intents = _intents(intent)  # 원 질문 의도는 목록
     if intents:
         out["의도"] = VIEW_INTENT.get(intents[0], "값 조회")

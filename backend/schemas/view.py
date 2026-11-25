@@ -123,6 +123,8 @@ class ViewUnit(UnitResult):
     search_query: str = ""
     conflict: PointConflict
     selected: dict | None = None
+    survey_options: list[dict] = Field(default_factory=list,
+                                       description="조사를 지정하지 않았고 상위 후보가 여러 조사로 갈리면 조사별 대표 표 — 고르면 filters['조사'] 로 다시")
 
 
 class PendingSelection(BaseModel):

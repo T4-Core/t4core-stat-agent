@@ -13,6 +13,7 @@
                ('서울 출생아수와 부산 인구' 처럼 자리가 다르면 따로 묻는 것이라 남김)
                (비율 질문의 분모 단위는 roles.py 가 원문 규칙으로 따로 더함 — 역할 단위는 여기서 건드리지 않음)
   하나만 남음  남은 하위 질문이 하나이고 그 대상·지표가 본 질문에 다 들어 있으면 뺌 (본 질문과 같은 검색)
+               단 역할 단위가 함께 있으면 남김 (roles.py 가 본 질의를 복사해 둔 단위 — 지우면 본 질의가 검색되지 않음)
 
   prune_sub_slots(question, main_slots, sub_slots) → (남길 하위 슬롯, 내역)     validate.validate_slots 에서
   prune_units(question, units)                    → (남길 검색 단위, 내역)     compare / tune 이 캐시된 분석에 다시 적용
@@ -111,7 +112,9 @@ def _prune(question, main_vals, main_text, subs):
             out.append(x)
         kept = out
     llm = [x for x in kept if not x[2]]
-    if len(llm) == 1 and _covered(llm[0][1], main_vals, main_text):
+    # 역할 단위가 함께 남으면 지우지 않음 — roles.py 가 본 질의를 첫 하위 단위로 복사해 둔 것 (지우면 run_query 가 main 을 건너뛰어
+    # 역할 단위만 검색됨). 앱 경로(prune_sub_slots)는 역할 단위를 더하기 전이라 해당 없음, 캐시에 다시 적용하는 prune_units 용
+    if len(llm) == 1 and not any(x[2] for x in kept) and _covered(llm[0][1], main_vals, main_text):
         log.append(f"하위 질문 삭제(하나만 남았고 본 질문과 같음): {llm[0][0]} {llm[0][1]}")
         kept = [x for x in kept if x is not llm[0]]
     return [x[0] for x in kept], log

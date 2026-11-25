@@ -89,7 +89,29 @@ COHORT_NAME_RE = re.compile(r"생년|출생\s*연도|출생\s*년도|년생|코�
 # ── 지역 ────────────────────────────────────────────────────────
 URBAN_NAMES = {"동부", "읍부", "면부", "시부", "군부", "읍면부"}
 AXIS_GEO = {"시도": "시도", "시도별": "시도", "광역": "시도", "시군구": "시군구", "시군구별": "시군구", "구군": "시군구",
+            "자치구": "시군구", "자치구별": "시군구", "구": "시군구", "구별": "시군구", "시군": "시군구",
             "읍면동": "읍면동", "읍면동별": "읍면동"}
+AXIS_AGE = {"연령", "연령별", "연령대", "연령대별", "나이", "나이대", "연령층", "연령구간"}
+
+
+def axes_of(f):
+    """비교축 + 보조축 → 축 목록 (앞이 비교축)"""
+    out = [f.get("비교축")] + list(f.get("보조축") or [])
+    return [a for a in dict.fromkeys(out) if a]
+
+
+def age_axis_codes(codes):
+    """연령을 축으로 나눠 볼 때 쓸 구간 — 5세 구간이 있으면 그것, 없으면 10세, 없으면 가장 잘게 나뉜 것 (+ 'N세 이상' 맨 끝 하나)"""
+    ages = [c for c in codes if not c["is_total"] and c.get("age_from") is not None]
+    if not ages:
+        return []
+    for width in (5, 10):
+        sel = [c for c in ages if c.get("age_to") is not None and c["age_to"] - c["age_from"] + 1 == width]
+        if len(sel) >= 3:
+            top = max(c["age_to"] for c in sel)
+            tail = [c for c in ages if c.get("age_to") is None and c["age_from"] == top + 1]
+            return sorted(sel, key=lambda c: c["age_from"]) + tail[:1]
+    return sorted(leaves(ages), key=lambda c: c["age_from"])
 AXIS_ANY = {"지역", "지역별", "행정구역", "행정구역별", "지자체", "지자체별"}
 
 
@@ -344,8 +366,8 @@ def match_level(l, f, stems, notes, miss=None):
         return default
 
     if kind == "regions":
-        regions, axis = f.get("지역"), f.get("비교축")
-        gt = axis_geo(axis, codes)
+        regions = f.get("지역")
+        gt = next((g for g in (axis_geo(a, codes) for a in axes_of(f)) if g), None)  # 축 중 지역 수준을 말하는 것
         if regions:
             sel, miss, dup = match_regions(codes, regions, gt)
             if miss:
@@ -370,6 +392,12 @@ def match_level(l, f, stems, notes, miss=None):
     if kind == "ages":
         if f.get("연령"):
             return age_codes(codes, f["연령"], notes, name) or fallback("연령 범위 코드 없음")
+        if any(squash(a) in AXIS_AGE for a in axes_of(f)):  # '연령대별' — 연령 구간을 펼침
+            sel = age_axis_codes(codes)
+            if sel:
+                note(notes, "연령", "axis", f"{name}: 연령으로 나눠 봄 → 구간 {len(sel)}개", dim=name,
+                     applied=[c.get("std") or c.get("name") for c in sel])
+                return sel
         return [c for c in codes if c["is_total"]] or fallback("합계 코드 없음")
     if kind == "scenario":
         # 시나리오는 지표 단어로 고르지 않는다: 이름이 '높은 출산율 추계(… 기대수명-중위 …)' 처럼 길어서
