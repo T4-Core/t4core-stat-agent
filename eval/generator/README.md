@@ -36,6 +36,7 @@ python -m eval.generator.report storage/runs/eval_generator/v2_isolated/runs.jso
 | `binding.py` | claim 기준 numeric_match · 단위 · 부호 · semantic_ok (binding 기대가 없으면 N/A) |
 | `schema_v2.py` · `v2.py` | v2 데이터셋 스키마 · 내부 Question 변환, 경로 · 해시 검증, probe 실행 기록 · fixture, 입력 슬롯 overlay 적용 · 검증 |
 | `questions/v2_slots.json` | v2 isolated 입력 슬롯 overlay (oracle 질의 분석 형식) |
+| `checks/chart_structure.py` | 차트 구조 판정: 요구 결과 · 조건(정답 좌표 기준) · 표시 · 좌표 포함. 판정 규칙 버전(`JUDGE_RULES`) 2 이상 실행에만 적용 |
 | `display_ref.py` | 기대 표시값 (팀 `format_value`와 독립 구현) |
 | `reason_codes.py` | 보류 사유 문장 → 사유 코드 |
 | `chart_extract.py` | 차트 유형별 figure · ChartContent 정규형 비교 |

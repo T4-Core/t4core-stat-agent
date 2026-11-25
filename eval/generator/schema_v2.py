@@ -131,8 +131,12 @@ def value_spec(c: Claim) -> ValueSpec:
     tol_k = _factor(c.unit)
     b = c.binding
     key = {"시점": b.period[0]} if len(b.period) == 1 else None
+    # [CHANGED] 이전: region · period · item 만 옮겼다. 차트 구조 검사가 성별 · 연령 · 평가영역 같은 차원을 정답 좌표로 쓴다
+    #   (binding 판정은 region · period · item 만 읽으므로 기존 판정에는 영향이 없다)
+    dims = {k: v for k, v in (b.dimensions[0] if len(b.dimensions or []) == 1 else {}).items()
+            if k not in ("region", "period", "item") and v not in (None, "")}
     return ValueSpec(role="FINAL", value=n.value, unit=n.unit or "", display=d.text,
-                     binding=Coord(region=b.region or None, period=b.period or None, item=b.item),
+                     binding=Coord(region=b.region or None, period=b.period or None, item=b.item, **dims),
                      key=key, atol=float(Decimal(c.tolerance.atol)) * abs(tol_k), rtol=float(Decimal(c.tolerance.rtol)),
                      digits=d.digits, scale=abs(k))
 

@@ -88,6 +88,7 @@ A0 조기 중단 기대는 하위 질문 보류 사유와 **분리해서** 입�
 | 기대 hold인데 값 | 근거(원본 행 복원 · share 분자≠분모 · 질문한 지표)가 없으면 실패 | 자동 | M3 |
 | C5 금지 문구 | `None` · `nan` · `내부 오류` 등 | 자동 | M6 |
 | C6 차트 | 렌더링 실패, Chart-Data Fidelity 불일치 | 자동 | M5 |
+| C6 차트 조건 · 표시 | `chart_requirement`(v2 차트 조건을 정답 좌표로 대조) · `chart_visible`(축 범위 밖 수치, y2 보조축 없음). 4.5 | 자동 (알 수 없는 조건은 수동) | M3 · M5 |
 | 단위 의미 | 지표와 표 메타데이터 단위가 어긋남 (혼인건수인데 `명`) | 수동 | data |
 
 ### 2단계: 완전성 (1단계를 통과한 응답만)
@@ -104,6 +105,7 @@ A0 조기 중단 기대는 하위 질문 보류 사유와 **분리해서** 입�
 질문 판정: 1단계 실패 → **미달** / 미충족 있음 → **보류** / 그 밖 → **통과**.
 - v2 문항(`strict_final`)은 계산이 됐어도 FINAL claim이 답변 문장에 없으면 **보류**다 (하위 질문 하나를 답변에서 빠뜨림).
 - `m3_only` 조건은 모듈 3 항목(연산 · 계산 · 보류)만 보고, 완전성은 기대대로 값을 냈는가 · 보류했는가로 정한다(고지는 모듈 6 몫).
+- 요구한 차트를 고지 없이 그리지 못했거나(`chart_outcome`) 차트에 정답 좌표가 빠졌거나(`chart_covers_final`) 차트 금지 문항에 차트를 그렸으면(`chart_forbidden_drawn`) **보류**다(`chart_unmet`, 4.5). 차트를 그렸는데 답변이 계산 결과 없음이면(`chart_answer_consistent`) **미달**이다. 다른 사유로 보류 · 미달이어도 `chart_unmet` 태그는 따로 남긴다.
 - 자동 판정이 정하지 못한 항목(`ok=None`)은 `needs_review` 태그로 판정 시트에 넘긴다. 사람이 판정 시트의 `verdict`를 채우면 그 값이 최종이다.
 - 기대가 hold인 하위 질문을 올바르게 보류하면 **Generator 기준 통과**다. 사용자 질문은 답을 받지 못했으므로 E2E 응답률을 함께 보고하고, First Failure는 `M1+R`로 기록한다.
 
@@ -145,6 +147,35 @@ A0 조기 중단 기대는 하위 질문 보류 사유와 **분리해서** 입�
 - `invisible_citation`: LLM이 쓴 답변(`method=hcx`)의 숫자는 M6 프롬프트에 실린 자리표시자 값(`m6_shown_tokens`, 없으면 기록된 M6 메시지에서 추출)이나 질문 속 숫자여야 한다. 목록 개수 표현(`외 14개`)은 제외한다. v2 문항은 답변의 근거 라벨(`[E1]`)이 가시 근거 라벨이어야 한다. 템플릿 답변은 대상이 아니다.
 - `table_complete`(지표): 사용자 표가 목록 결과의 점을 모두 담았는가. 문장 인용 가능성과 따로 센다.
 - `unsupported_causal`: 답변이 인과를 단정(`때문`, `로 인해`, `효과가 입증`, `초래했다` 등)하고 근거에 인과 항목이 없으면 1단계 실패. 가능성 표현(`~일 수 있다`)은 수동 판정, 산술 설명(문장의 숫자가 모두 계산 결과 · 입력값)과 보류 고지는 대상이 아니다.
+
+### 4.5 차트 구조 판정 (판정 규칙 버전 2 이상, ⑤는 3 이상)
+실행 기록의 `judge_rules`가 ①~④는 2 이상, ⑤는 3 이상인 실행에만 적용한다. 필드가 없는 이전 실행은 1이며 다시 판정하지 않는다(보고서 머리에 버전 분포를 표시하고, `--compare`는 버전이 다르면 경고한다).
+
+| 층 | 코드 | 내용 | 단계 | 적용 |
+|---|---|---|---|---|
+| ① 요구 결과 | `chart_outcome` | required: 최종 종류가 허용 종류. fallback: 허용 종류 + 고지(`notice_required`). per_subquestion: 하위 질문별 종류 | 고지 없이 미충족 → 2단계 보류, 고지 있음 → 지표 | v2 |
+| ② 조건 | `chart_requirement` | `required_chart.requirements` 코드를 정답 claim 좌표와 대조 (아래) | 1단계 | v2 required, 요구 종류로 그린 차트 |
+| ③ 표시 | `chart_visible` | figure 수치가 고정 축 범위(`layout.*axis.range`) 안. encoding에 `y2`가 있으면 `yaxis: y2` 계열이 있음 | 1단계 | 그린 차트 전부 |
+| ④ 좌표 포함 | `chart_covers_final` | 차트가 맡은 하위 질문의 FINAL 좌표가 chart_contents 행에 있음 (차트에 나타난 차원만 대조) | 2단계 보류 | v2 required · per_subquestion |
+| ⑤a 차트-답변 일관성 | `chart_answer_consistent` | 그림 상태가 drawn인 차트가 있는데 M6 출력이 `insufficient`(계산 결과 없음)이면 모순이다. 사용자에게 "결과를 만들 수 없다"고 안내하면서 값이 든 차트를 보여 준 것이다. 귀속 M3 | 1단계 미달 (`chart_inconsistent` 태그) | 기대 상태가 answer인 하위 질문이 있는 문항. 정답 좌표 없이 판정하므로 v2가 아닌 세트에도 적용 |
+| ⑤b 차트 금지 | `chart_forbidden_drawn` | 데이터셋 모드가 `forbidden`인 문항에서 차트가 그려졌다. 보류해야 할 값을 차트로 보여 준 것이다(예: 명 · 명 · 가구 값을 한 축에 놓은 B07). 귀속 M3 | 2단계 보류 (`chart_unmet`) | v2 forbidden |
+
+②는 Generator 자체 검증(`chart_calculate/validate.check_chart`)과 같은 코드를 쓰지만 형태가 아니라 **정답 좌표 기준의 의미**로 판정한다. 예: `two_points_per_category`는 정답에서 값이 2개인 차원(시점 2023 · 2024)이 양 끝(start · end)이고 나머지 차원(지역)이 범주(label)여야 한다. 범주마다 점이 2개라는 형태만으로는 통과하지 않는다.
+
+| 코드 | 의미 검사 |
+|---|---|
+| `two_points_per_category` | 값이 정확히 2개인 정답 차원 = start · end의 차원, label = 나머지 다중 차원 |
+| `two_series_required` | group · series 열의 값이 2개, 정답의 그 차원도 2개 |
+| `time_axis_required` | x 열이 시점 |
+| `category_axis_required` | 범주 축이 정답의 범주 차원 (계열 · 항목 · 시점 제외) |
+| `two_dimensions_required` | x · y가 서로 다른 다중 차원 |
+| `two_measures_required` · `three_measures_required` | x · y(· size)가 서로 다른 지표 항목이고 정답 항목 집합과 같음 |
+| `region_dimension_required` | region 역할 열이 지역 |
+| `non_negative` | 값 역할의 수치가 0 이상 |
+| `parts_sum_to_total` | 구성비(share)면 묶음별 합 100. 원값 구성은 구성 요소 합을 총계로 본다(별도 합계 행 불필요) |
+| `max/min_categories_N` · `min_points_N` | 범주 · 점 수 |
+
+귀책: ① 종류 선택은 M2, M2가 고른 종류가 M3 검증에서 대체됐으면 M3. ② · ④는 M3(chart_contents). ③ 축 범위는 M5, combo가 아닌 종류에 y2를 붙인 경우는 M3.
 
 ## 5. 지표
 

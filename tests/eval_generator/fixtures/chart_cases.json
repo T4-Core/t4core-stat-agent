@@ -1,0 +1,4837 @@
+{
+ "_about": "v2 isolated 슬롯 실행 1회차의 차트 관련 필드 발췌 (차트 구조 검사 단위 테스트 입력). 판정 결과가 아니다",
+ "cases": {
+  "C01": {
+   "question": {
+    "id": "C01",
+    "group": "chart",
+    "question": "[합성 자료 검증] 2022~2024년 합성 혼인건수 추이를 꺾은선그래프로 그려줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 10.0,
+        "unit": "건",
+        "display": "10건",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2022"
+         ],
+         "item": "합성 혼인건수"
+        },
+        "key": {
+         "시점": "2022"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "건",
+        "display": "20건",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 혼인건수"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 30.0,
+        "unit": "건",
+        "display": "30건",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 혼인건수"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [
+     "chart_rows_equal_calculation_values_and_coordinate_labels"
+    ],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 가상시 2022 합성 혼인건수 10건; 가상시 2023 합성 혼인건수 20건; 가상시 2024 합성 혼인건수 30건. [E1]",
+    "verified": false,
+    "notes": "",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "line"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "line"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "time_axis_required",
+       "min_points_3"
+      ]
+     },
+     "notes": ""
+    }
+   },
+   "run": {
+    "id": "C01",
+    "run": 1,
+    "question": "[합성 자료 검증] 2022~2024년 합성 혼인건수 추이를 꺾은선그래프로 그려줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C01"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "line",
+       "sub_question_ids": [
+        "C01-1"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "선그래프",
+          "code": "line",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c1"
+        ],
+        "stage": {
+         "reason": null,
+         "selected": "line",
+         "applied": true
+        }
+       }
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "line",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "scatter",
+          "mode": "lines+markers+text",
+          "name": "합성 혼인건수",
+          "x": [
+           "2022",
+           "2023",
+           "2024"
+          ],
+          "y": [
+           10.0,
+           20.0,
+           30.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": [
+           5.0,
+           35.0
+          ]
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [
+      {
+       "chart_id": "c1",
+       "outcome": "honored",
+       "reason": null,
+       "final_chart": "line"
+      }
+     ],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "line",
+        "measure": "raw",
+        "title": "2022~2024년 합성 혼인건수 추이",
+        "encoding": {
+         "x": "시점",
+         "y": "값",
+         "series": "항목"
+        },
+        "axis": {
+         "x": {
+          "label": "시점",
+          "type": "time",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         },
+         "y": {
+          "label": "합성 혼인건수",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 5.0,
+          "max": 35.0,
+          "display_ref": "d1"
+         }
+        },
+        "options": {},
+        "columns": [
+         "시점",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2022",
+          "합성 혼인건수",
+          10
+         ],
+         [
+          "2023",
+          "합성 혼인건수",
+          20
+         ],
+         [
+          "2024",
+          "합성 혼인건수",
+          30
+         ]
+        ],
+        "record_ids": [
+         "view::C01::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C03": {
+   "question": {
+    "id": "C03",
+    "group": "chart",
+    "question": "[합성 자료 검증] 2022~2024년 남녀 합성 인구를 연도별 누적 막대그래프로 그려줘. 두 성별이 전체의 상호 배타적 구성요소야.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 10.0,
+        "unit": "명",
+        "display": "10명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2022"
+         ],
+         "item": "합성 인구",
+         "성별": "남자"
+        },
+        "key": {
+         "시점": "2022"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "명",
+        "display": "20명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2022"
+         ],
+         "item": "합성 인구",
+         "성별": "여자"
+        },
+        "key": {
+         "시점": "2022"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 15.0,
+        "unit": "명",
+        "display": "15명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 인구",
+         "성별": "남자"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 25.0,
+        "unit": "명",
+        "display": "25명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 인구",
+         "성별": "여자"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "명",
+        "display": "20명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구",
+         "성별": "남자"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 30.0,
+        "unit": "명",
+        "display": "30명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구",
+         "성별": "여자"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 가상시 2022 합성 인구 10명; 가상시 2022 합성 인구 20명; 가상시 2023 합성 인구 15명; 가상시 2023 합성 인구 25명; 가상시 2024 합성 인구 20명; 가상시 2024 합성 인구 30명. [E1]",
+    "verified": false,
+    "notes": "구성 기준 총계는 각 연도 남녀 합계이며 별도 전체 행을 중복으로 넣지 않는다.",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "stacked_bar"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "stacked_bar"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "non_negative",
+       "parts_sum_to_total"
+      ]
+     },
+     "notes": "구성 기준 총계는 각 연도 남녀 합계이며 별도 전체 행을 중복으로 넣지 않는다."
+    }
+   },
+   "run": {
+    "id": "C03",
+    "run": 1,
+    "question": "[합성 자료 검증] 2022~2024년 남녀 합성 인구를 연도별 누적 막대그래프로 그려줘. 두 성별이 전체의 상호 배타적 구성요소야.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C03"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "line",
+       "sub_question_ids": [
+        "C03-1"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "누적 막대",
+          "code": "stacked_bar",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c1"
+        ],
+        "stage": {
+         "reason": "data_mismatch",
+         "selected": "line",
+         "applied": true
+        }
+       }
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "line",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "scatter",
+          "mode": "lines+markers+text",
+          "name": "남자",
+          "x": [
+           "2022",
+           "2023",
+           "2024"
+          ],
+          "y": [
+           10.0,
+           15.0,
+           20.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         },
+         {
+          "type": "scatter",
+          "mode": "lines+markers+text",
+          "name": "여자",
+          "x": [
+           "2022",
+           "2023",
+           "2024"
+          ],
+          "y": [
+           20.0,
+           25.0,
+           30.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": [
+           5.0,
+           35.0
+          ]
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [
+      "이 자료로는 누적 막대를 그릴 수 없어 꺾은선 그래프로 보여 드립니다."
+     ],
+     "request_outcomes": [
+      {
+       "chart_id": "c1",
+       "outcome": "substituted",
+       "reason": "data_mismatch",
+       "final_chart": "line"
+      }
+     ],
+     "chart_errors": [
+      {
+       "node": "chart_select",
+       "chart_id": "c1",
+       "level": "warning",
+       "reason": "요청한 stacked_bar 차트를 그릴 수 없음: parts_sum_to_total: 합계 행 없음 → line"
+      }
+     ],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "line",
+        "measure": "raw",
+        "title": "2022~2024년 남녀 합성 인구",
+        "encoding": {
+         "x": "시점",
+         "y": "값",
+         "series": "성별"
+        },
+        "axis": {
+         "x": {
+          "label": "시점",
+          "type": "time",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         },
+         "y": {
+          "label": "합성 인구",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 5.0,
+          "max": 35.0,
+          "display_ref": "d1"
+         }
+        },
+        "options": {},
+        "columns": [
+         "시점",
+         "성별",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2022",
+          "남자",
+          "합성 인구",
+          10
+         ],
+         [
+          "2022",
+          "여자",
+          "합성 인구",
+          20
+         ],
+         [
+          "2023",
+          "남자",
+          "합성 인구",
+          15
+         ],
+         [
+          "2023",
+          "여자",
+          "합성 인구",
+          25
+         ],
+         [
+          "2024",
+          "남자",
+          "합성 인구",
+          20
+         ],
+         [
+          "2024",
+          "여자",
+          "합성 인구",
+          30
+         ]
+        ],
+        "record_ids": [
+         "view::C03::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C04": {
+   "question": {
+    "id": "C04",
+    "group": "chart",
+    "question": "[합성 자료 검증] 2024년 남녀·연령별 합성 인구를 인구피라미드로 그려줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 10.0,
+        "unit": "명",
+        "display": "10명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구",
+         "연령": "0~4세",
+         "성별": "남자"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 12.0,
+        "unit": "명",
+        "display": "12명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구",
+         "연령": "0~4세",
+         "성별": "여자"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 11.0,
+        "unit": "명",
+        "display": "11명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구",
+         "연령": "5~9세",
+         "성별": "남자"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 13.0,
+        "unit": "명",
+        "display": "13명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구",
+         "연령": "5~9세",
+         "성별": "여자"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 12.0,
+        "unit": "명",
+        "display": "12명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구",
+         "연령": "10~14세",
+         "성별": "남자"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 14.0,
+        "unit": "명",
+        "display": "14명",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구",
+         "연령": "10~14세",
+         "성별": "여자"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 가상시 2024 합성 인구 10명; 가상시 2024 합성 인구 12명; 가상시 2024 합성 인구 11명; 가상시 2024 합성 인구 13명; 가상시 2024 합성 인구 12명; 가상시 2024 합성 인구 14명. [E1]",
+    "verified": false,
+    "notes": "",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "pyramid"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "pyramid"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "two_series_required",
+       "non_negative",
+       "category_axis_required"
+      ]
+     },
+     "notes": ""
+    }
+   },
+   "run": {
+    "id": "C04",
+    "run": 1,
+    "question": "[합성 자료 검증] 2024년 남녀·연령별 합성 인구를 인구피라미드로 그려줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C04"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "pyramid",
+       "sub_question_ids": [
+        "C04-1"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "피라미드",
+          "code": "pyramid",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c1"
+        ],
+        "stage": {
+         "reason": null,
+         "selected": "pyramid",
+         "applied": true
+        }
+       }
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "pyramid",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "bar",
+          "mode": null,
+          "name": "남자",
+          "x": [
+           -10.0,
+           -11.0,
+           -12.0
+          ],
+          "y": [
+           "0~4세",
+           "5~9세",
+           "10~14세"
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": "h"
+         },
+         {
+          "type": "bar",
+          "mode": null,
+          "name": "여자",
+          "x": [
+           12.0,
+           13.0,
+           14.0
+          ],
+          "y": [
+           "0~4세",
+           "5~9세",
+           "10~14세"
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": "h"
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": [
+           -15,
+           15
+          ]
+         },
+         "yaxis": {
+          "range": null
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [
+      {
+       "chart_id": "c1",
+       "outcome": "honored",
+       "reason": null,
+       "final_chart": "pyramid"
+      }
+     ],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "pyramid",
+        "measure": "raw",
+        "title": "2024년 남녀·연령별 합성 인구",
+        "encoding": {
+         "y": "연령",
+         "group": "성별",
+         "value": "값"
+        },
+        "axis": {
+         "y": {
+          "label": "연령",
+          "type": "category",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         },
+         "x": {
+          "label": "합성 인구",
+          "type": "numeric",
+          "scale": "linear",
+          "min": -20.0,
+          "max": 20.0,
+          "display_ref": "d1"
+         }
+        },
+        "options": {},
+        "columns": [
+         "시점",
+         "연령",
+         "성별",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2024",
+          "0~4세",
+          "남자",
+          "합성 인구",
+          10
+         ],
+         [
+          "2024",
+          "0~4세",
+          "여자",
+          "합성 인구",
+          12
+         ],
+         [
+          "2024",
+          "5~9세",
+          "남자",
+          "합성 인구",
+          11
+         ],
+         [
+          "2024",
+          "5~9세",
+          "여자",
+          "합성 인구",
+          13
+         ],
+         [
+          "2024",
+          "10~14세",
+          "남자",
+          "합성 인구",
+          12
+         ],
+         [
+          "2024",
+          "10~14세",
+          "여자",
+          "합성 인구",
+          14
+         ]
+        ],
+        "record_ids": [
+         "view::C04::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C08": {
+   "question": {
+    "id": "C08",
+    "group": "chart",
+    "question": "[합성 자료 검증] 다섯 지역 합성 자료로 x=인구, y=가구 수, 크기=면적인 버블차트를 그려줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 100.0,
+        "unit": "명",
+        "display": "100명",
+        "binding": {
+         "region": [
+          "서울특별시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 50.0,
+        "unit": "가구",
+        "display": "50가구",
+        "binding": {
+         "region": [
+          "서울특별시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 2.0,
+        "unit": "㎢",
+        "display": "2.000㎢",
+        "binding": {
+         "region": [
+          "서울특별시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 면적"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 200.0,
+        "unit": "명",
+        "display": "200명",
+        "binding": {
+         "region": [
+          "부산광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 90.0,
+        "unit": "가구",
+        "display": "90가구",
+        "binding": {
+         "region": [
+          "부산광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 4.0,
+        "unit": "㎢",
+        "display": "4.000㎢",
+        "binding": {
+         "region": [
+          "부산광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 면적"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 300.0,
+        "unit": "명",
+        "display": "300명",
+        "binding": {
+         "region": [
+          "대구광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 130.0,
+        "unit": "가구",
+        "display": "130가구",
+        "binding": {
+         "region": [
+          "대구광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 6.0,
+        "unit": "㎢",
+        "display": "6.000㎢",
+        "binding": {
+         "region": [
+          "대구광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 면적"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 400.0,
+        "unit": "명",
+        "display": "400명",
+        "binding": {
+         "region": [
+          "인천광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 170.0,
+        "unit": "가구",
+        "display": "170가구",
+        "binding": {
+         "region": [
+          "인천광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 8.0,
+        "unit": "㎢",
+        "display": "8.000㎢",
+        "binding": {
+         "region": [
+          "인천광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 면적"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 500.0,
+        "unit": "명",
+        "display": "500명",
+        "binding": {
+         "region": [
+          "광주광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 210.0,
+        "unit": "가구",
+        "display": "210가구",
+        "binding": {
+         "region": [
+          "광주광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 10.0,
+        "unit": "㎢",
+        "display": "10.000㎢",
+        "binding": {
+         "region": [
+          "광주광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 면적"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 서울특별시 2024 합성 인구 100명; 서울특별시 2024 합성 가구 50가구; 서울특별시 2024 합성 면적 2㎢; 부산광역시 2024 합성 인구 200명; 부산광역시 2024 합성 가구 90가구; 부산광역시 2024 합성 면적 4㎢; 대구광역시 2024 합성 인구 300명; 대구광역시 2024 합성 가구 130가구; 대구광역시 2024 합성 면적 6㎢; 인천광역시 2024 합성 인구 400명; 인천광역시 2024 합성 가구 170가구; 인천광역시 2024 합성 면적 8㎢; 광주광역시 2024 합성 인구 500명; 광주광역시 2024 합성 가구 210가구; 광주광역시 2024 합성 면적 10㎢. [E1]",
+    "verified": false,
+    "notes": "",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "bubble"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "bubble"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "three_measures_required",
+       "non_negative"
+      ]
+     },
+     "notes": ""
+    }
+   },
+   "run": {
+    "id": "C08",
+    "run": 1,
+    "question": "[합성 자료 검증] 다섯 지역 합성 자료로 x=인구, y=가구 수, 크기=면적인 버블차트를 그려줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C08"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "bubble",
+       "sub_question_ids": [
+        "C08-1"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "버블",
+          "code": "bubble",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c1"
+        ],
+        "stage": {
+         "reason": null,
+         "selected": "bubble",
+         "applied": true
+        }
+       }
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "bubble",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "scatter",
+          "mode": "markers+text",
+          "name": "합성 가구",
+          "x": [
+           100.0,
+           200.0,
+           300.0,
+           400.0,
+           500.0
+          ],
+          "y": [
+           50.0,
+           90.0,
+           130.0,
+           170.0,
+           210.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": null
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [
+      {
+       "chart_id": "c1",
+       "outcome": "honored",
+       "reason": null,
+       "final_chart": "bubble"
+      }
+     ],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "bubble",
+        "measure": "raw",
+        "title": "버블 차트: 다섯 지역 합성 자료",
+        "encoding": {
+         "x": "합성 인구",
+         "y": "합성 가구",
+         "size": "합성 면적",
+         "label": "지역"
+        },
+        "axis": {
+         "x": {
+          "label": "합성 인구",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 0.0,
+          "max": 600.0,
+          "display_ref": "d1"
+         },
+         "y": {
+          "label": "합성 가구",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 0.0,
+          "max": 250.0,
+          "display_ref": "d2"
+         }
+        },
+        "options": {},
+        "columns": [
+         "시점",
+         "지역",
+         "합성 인구",
+         "합성 가구",
+         "합성 면적"
+        ],
+        "rows": [
+         [
+          "2024",
+          "서울특별시",
+          100,
+          50,
+          2
+         ],
+         [
+          "2024",
+          "부산광역시",
+          200,
+          90,
+          4
+         ],
+         [
+          "2024",
+          "대구광역시",
+          300,
+          130,
+          6
+         ],
+         [
+          "2024",
+          "인천광역시",
+          400,
+          170,
+          8
+         ],
+         [
+          "2024",
+          "광주광역시",
+          500,
+          210,
+          10
+         ]
+        ],
+        "record_ids": [
+         "view::C08::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C09": {
+   "question": {
+    "id": "C09",
+    "group": "chart",
+    "question": "[합성 자료 검증] 2022~2024년 합성 혼인건수는 막대, 합성 비율은 선으로 같은 복합차트에 그려줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 10.0,
+        "unit": "건",
+        "display": "10건",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2022"
+         ],
+         "item": "합성 혼인건수"
+        },
+        "key": {
+         "시점": "2022"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "건",
+        "display": "20건",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 혼인건수"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 30.0,
+        "unit": "건",
+        "display": "30건",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 혼인건수"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 0.01,
+        "unit": "ratio",
+        "display": "1.000%",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2022"
+         ],
+         "item": "합성 비율"
+        },
+        "key": {
+         "시점": "2022"
+        },
+        "atol": 1e-10,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 0.01
+       },
+       {
+        "role": "FINAL",
+        "value": 0.02,
+        "unit": "ratio",
+        "display": "2.000%",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 비율"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 1e-10,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 0.01
+       },
+       {
+        "role": "FINAL",
+        "value": 0.03,
+        "unit": "ratio",
+        "display": "3.000%",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 비율"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-10,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 0.01
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [
+     "separate_axis_units_count_and_percent",
+     "chart_rows_equal_calculation_values_and_coordinate_labels"
+    ],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 가상시 2022 합성 혼인건수 10건; 가상시 2023 합성 혼인건수 20건; 가상시 2024 합성 혼인건수 30건; 가상시 2022 합성 비율 1%; 가상시 2023 합성 비율 2%; 가상시 2024 합성 비율 3%. [E1]",
+    "verified": false,
+    "notes": "건과 %는 독립 축과 표시 단위를 써야 한다. 동일 축의 원값으로 혼합하지 않는다.",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "combo"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "combo"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "time_axis_required",
+       "two_series_required",
+       "min_points_3"
+      ]
+     },
+     "notes": "건과 %는 독립 축과 표시 단위를 써야 한다. 동일 축의 원값으로 혼합하지 않는다."
+    }
+   },
+   "run": {
+    "id": "C09",
+    "run": 1,
+    "question": "[합성 자료 검증] 2022~2024년 합성 혼인건수는 막대, 합성 비율은 선으로 같은 복합차트에 그려줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C09"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "line",
+       "sub_question_ids": [
+        "C09-1"
+       ],
+       "request": null
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "line",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "scatter",
+          "mode": "lines+markers+text",
+          "name": "합성 혼인건수",
+          "x": [
+           "2022",
+           "2023",
+           "2024"
+          ],
+          "y": [
+           10.0,
+           20.0,
+           30.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         },
+         {
+          "type": "scatter",
+          "mode": "lines+markers+text",
+          "name": "합성 비율",
+          "x": [
+           "2022",
+           "2023",
+           "2024"
+          ],
+          "y": [
+           1.0,
+           2.0,
+           3.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": [
+           5.0,
+           35.0
+          ]
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "line",
+        "measure": "raw",
+        "title": "2022~2024년 합성 혼인건수와 합성 비율",
+        "encoding": {
+         "x": "시점",
+         "y": "값",
+         "series": "항목",
+         "y2": "값"
+        },
+        "axis": {
+         "x": {
+          "label": "시점",
+          "type": "time",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         },
+         "y": {
+          "label": "합성 혼인건수",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 5.0,
+          "max": 35.0,
+          "display_ref": "d1"
+         },
+         "y2": {
+          "label": "합성 비율",
+          "type": "numeric",
+          "scale": "percent",
+          "min": 0.0,
+          "max": 4.0,
+          "display_ref": "d2"
+         }
+        },
+        "options": {
+         "marks": {
+          "y": "line",
+          "y2": "line"
+         },
+         "series_axis": {
+          "합성 혼인건수": "y",
+          "합성 비율": "y2"
+         }
+        },
+        "columns": [
+         "시점",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2022",
+          "합성 혼인건수",
+          10
+         ],
+         [
+          "2022",
+          "합성 비율",
+          1
+         ],
+         [
+          "2023",
+          "합성 혼인건수",
+          20
+         ],
+         [
+          "2023",
+          "합성 비율",
+          2
+         ],
+         [
+          "2024",
+          "합성 혼인건수",
+          30
+         ],
+         [
+          "2024",
+          "합성 비율",
+          3
+         ]
+        ],
+        "record_ids": [
+         "view::C09::1"
+        ],
+        "warnings": [
+         "단위가 달라 지표별로 왼쪽(y)·오른쪽(y2) 축에 나눠 그림"
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C10": {
+   "question": {
+    "id": "C10",
+    "group": "chart",
+    "question": "[합성 자료 검증] 같은 100점 척도의 주거·고용·문화 합성 점수를 가시와 나시의 레이더차트로 그려줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 70.0,
+        "unit": "index",
+        "display": "70.000index",
+        "binding": {
+         "region": [
+          "가시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 표준점수",
+         "평가영역": "주거",
+         "기준": "동일 100점 척도"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 80.0,
+        "unit": "index",
+        "display": "80.000index",
+        "binding": {
+         "region": [
+          "가시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 표준점수",
+         "평가영역": "고용",
+         "기준": "동일 100점 척도"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 90.0,
+        "unit": "index",
+        "display": "90.000index",
+        "binding": {
+         "region": [
+          "가시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 표준점수",
+         "평가영역": "문화",
+         "기준": "동일 100점 척도"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 80.0,
+        "unit": "index",
+        "display": "80.000index",
+        "binding": {
+         "region": [
+          "나시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 표준점수",
+         "평가영역": "주거",
+         "기준": "동일 100점 척도"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 70.0,
+        "unit": "index",
+        "display": "70.000index",
+        "binding": {
+         "region": [
+          "나시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 표준점수",
+         "평가영역": "고용",
+         "기준": "동일 100점 척도"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 85.0,
+        "unit": "index",
+        "display": "85.000index",
+        "binding": {
+         "region": [
+          "나시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 표준점수",
+         "평가영역": "문화",
+         "기준": "동일 100점 척도"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 1e-08,
+        "rtol": 0.0,
+        "digits": 3,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 가시 2024 합성 표준점수 70index; 가시 2024 합성 표준점수 80index; 가시 2024 합성 표준점수 90index; 나시 2024 합성 표준점수 80index; 나시 2024 합성 표준점수 70index; 나시 2024 합성 표준점수 85index. [E1]",
+    "verified": false,
+    "notes": "",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "radar"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "radar"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "min_categories_3",
+       "max_categories_8"
+      ]
+     },
+     "notes": ""
+    }
+   },
+   "run": {
+    "id": "C10",
+    "run": 1,
+    "question": "[합성 자료 검증] 같은 100점 척도의 주거·고용·문화 합성 점수를 가시와 나시의 레이더차트로 그려줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C10"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "radar",
+       "sub_question_ids": [
+        "C10-1"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "레이더",
+          "code": "radar",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c1"
+        ],
+        "stage": {
+         "reason": null,
+         "selected": "radar",
+         "applied": true
+        }
+       }
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "radar",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "scatterpolar",
+          "mode": null,
+          "name": "가시",
+          "x": null,
+          "y": null,
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         },
+         {
+          "type": "scatterpolar",
+          "mode": null,
+          "name": "나시",
+          "x": null,
+          "y": null,
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {}
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [
+      {
+       "chart_id": "c1",
+       "outcome": "honored",
+       "reason": null,
+       "final_chart": "radar"
+      }
+     ],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "radar",
+        "measure": "raw",
+        "title": "레이더차트: 가시와 나시의 주거·고용·문화 합성 점수",
+        "encoding": {
+         "label": "항목",
+         "series": "지역",
+         "value": "값"
+        },
+        "axis": {},
+        "options": {
+         "display_ref": "d1"
+        },
+        "columns": [
+         "시점",
+         "지역",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2024",
+          "가시",
+          "주거",
+          70
+         ],
+         [
+          "2024",
+          "나시",
+          "주거",
+          80
+         ],
+         [
+          "2024",
+          "가시",
+          "고용",
+          80
+         ],
+         [
+          "2024",
+          "나시",
+          "고용",
+          70
+         ],
+         [
+          "2024",
+          "가시",
+          "문화",
+          90
+         ],
+         [
+          "2024",
+          "나시",
+          "문화",
+          85
+         ]
+        ],
+        "record_ids": [
+         "view::C10::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C11": {
+   "question": {
+    "id": "C11",
+    "group": "chart",
+    "question": "[합성 자료 검증] 다섯 시도의 2024년 합성 인구를 지도에 색으로 표현해줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 100.0,
+        "unit": "명",
+        "display": "100명",
+        "binding": {
+         "region": [
+          "서울특별시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 200.0,
+        "unit": "명",
+        "display": "200명",
+        "binding": {
+         "region": [
+          "부산광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 300.0,
+        "unit": "명",
+        "display": "300명",
+        "binding": {
+         "region": [
+          "대구광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 400.0,
+        "unit": "명",
+        "display": "400명",
+        "binding": {
+         "region": [
+          "인천광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 500.0,
+        "unit": "명",
+        "display": "500명",
+        "binding": {
+         "region": [
+          "광주광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 서울특별시 2024 합성 인구 100명; 부산광역시 2024 합성 인구 200명; 대구광역시 2024 합성 인구 300명; 인천광역시 2024 합성 인구 400명; 광주광역시 2024 합성 인구 500명. [E1]",
+    "verified": false,
+    "notes": "한국 시도 경계 키 매핑은 별도 렌더러 통합 검증 대상이며 이 산출물에서는 실행하지 않았다.",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "map"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "map"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "region_dimension_required"
+      ]
+     },
+     "notes": "한국 시도 경계 키 매핑은 별도 렌더러 통합 검증 대상이며 이 산출물에서는 실행하지 않았다."
+    }
+   },
+   "run": {
+    "id": "C11",
+    "run": 1,
+    "question": "[합성 자료 검증] 다섯 시도의 2024년 합성 인구를 지도에 색으로 표현해줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C11"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "bar",
+       "sub_question_ids": [
+        "C11-1"
+       ],
+       "request": null
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "bar",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "bar",
+          "mode": null,
+          "name": "합성 인구",
+          "x": [
+           "서울특별시",
+           "부산광역시",
+           "대구광역시",
+           "인천광역시",
+           "광주광역시"
+          ],
+          "y": [
+           100.0,
+           200.0,
+           300.0,
+           400.0,
+           500.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": [
+           0.0,
+           600.0
+          ]
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "bar",
+        "measure": "raw",
+        "title": "2024년 다섯 시도의 합성 인구",
+        "encoding": {
+         "x": "지역",
+         "y": "값"
+        },
+        "axis": {
+         "x": {
+          "label": "지역",
+          "type": "category",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         },
+         "y": {
+          "label": "합성 인구",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 0.0,
+          "max": 600.0,
+          "display_ref": "d1"
+         }
+        },
+        "options": {
+         "orientation": "vertical"
+        },
+        "columns": [
+         "시점",
+         "지역",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2024",
+          "서울특별시",
+          "합성 인구",
+          100
+         ],
+         [
+          "2024",
+          "부산광역시",
+          "합성 인구",
+          200
+         ],
+         [
+          "2024",
+          "대구광역시",
+          "합성 인구",
+          300
+         ],
+         [
+          "2024",
+          "인천광역시",
+          "합성 인구",
+          400
+         ],
+         [
+          "2024",
+          "광주광역시",
+          "합성 인구",
+          500
+         ]
+        ],
+        "record_ids": [
+         "view::C11::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C12": {
+   "question": {
+    "id": "C12",
+    "group": "chart",
+    "question": "[합성 자료 검증] 3개 지역×2개 연도의 합성 인구를 지역과 연도 두 축의 히트맵으로 그려줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 10.0,
+        "unit": "명",
+        "display": "10명",
+        "binding": {
+         "region": [
+          "서울특별시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 11.0,
+        "unit": "명",
+        "display": "11명",
+        "binding": {
+         "region": [
+          "서울특별시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "명",
+        "display": "20명",
+        "binding": {
+         "region": [
+          "부산광역시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 21.0,
+        "unit": "명",
+        "display": "21명",
+        "binding": {
+         "region": [
+          "부산광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 30.0,
+        "unit": "명",
+        "display": "30명",
+        "binding": {
+         "region": [
+          "대구광역시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 31.0,
+        "unit": "명",
+        "display": "31명",
+        "binding": {
+         "region": [
+          "대구광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 서울특별시 2023 합성 인구 10명; 서울특별시 2024 합성 인구 11명; 부산광역시 2023 합성 인구 20명; 부산광역시 2024 합성 인구 21명; 대구광역시 2023 합성 인구 30명; 대구광역시 2024 합성 인구 31명. [E1]",
+    "verified": false,
+    "notes": "",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "heatmap"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "heatmap"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "two_dimensions_required"
+      ]
+     },
+     "notes": ""
+    }
+   },
+   "run": {
+    "id": "C12",
+    "run": 1,
+    "question": "[합성 자료 검증] 3개 지역×2개 연도의 합성 인구를 지역과 연도 두 축의 히트맵으로 그려줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C12"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "heatmap",
+       "sub_question_ids": [
+        "C12-1"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "히트맵",
+          "code": "heatmap",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c1"
+        ],
+        "stage": {
+         "reason": null,
+         "selected": "heatmap",
+         "applied": true
+        }
+       }
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "heatmap",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "heatmap",
+          "mode": null,
+          "name": null,
+          "x": [
+           "2023",
+           "2024"
+          ],
+          "y": [
+           "서울특별시",
+           "부산광역시",
+           "대구광역시"
+          ],
+          "z": [
+           [
+            10.0,
+            11.0
+           ],
+           [
+            20.0,
+            21.0
+           ],
+           [
+            30.0,
+            31.0
+           ]
+          ],
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": null
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [
+      {
+       "chart_id": "c1",
+       "outcome": "honored",
+       "reason": null,
+       "final_chart": "heatmap"
+      }
+     ],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "heatmap",
+        "measure": "raw",
+        "title": "3개 지역×2개 연도의 합성 인구 히트맵",
+        "encoding": {
+         "x": "시점",
+         "y": "지역",
+         "value": "값"
+        },
+        "axis": {
+         "x": {
+          "label": "시점",
+          "type": "time",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         },
+         "y": {
+          "label": "지역",
+          "type": "category",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         }
+        },
+        "options": {},
+        "columns": [
+         "시점",
+         "지역",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2023",
+          "서울특별시",
+          "합성 인구",
+          10
+         ],
+         [
+          "2023",
+          "부산광역시",
+          "합성 인구",
+          20
+         ],
+         [
+          "2023",
+          "대구광역시",
+          "합성 인구",
+          30
+         ],
+         [
+          "2024",
+          "서울특별시",
+          "합성 인구",
+          11
+         ],
+         [
+          "2024",
+          "부산광역시",
+          "합성 인구",
+          21
+         ],
+         [
+          "2024",
+          "대구광역시",
+          "합성 인구",
+          31
+         ]
+        ],
+        "record_ids": [
+         "view::C12::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C14": {
+   "question": {
+    "id": "C14",
+    "group": "chart",
+    "question": "[합성 자료 검증] 다섯 지역의 합성 인구를 x축, 합성 가구 수를 y축으로 산점도를 그려줘. 인과관계는 주장하지 마.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 100.0,
+        "unit": "명",
+        "display": "100명",
+        "binding": {
+         "region": [
+          "서울특별시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 50.0,
+        "unit": "가구",
+        "display": "50가구",
+        "binding": {
+         "region": [
+          "서울특별시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 200.0,
+        "unit": "명",
+        "display": "200명",
+        "binding": {
+         "region": [
+          "부산광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 90.0,
+        "unit": "가구",
+        "display": "90가구",
+        "binding": {
+         "region": [
+          "부산광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 300.0,
+        "unit": "명",
+        "display": "300명",
+        "binding": {
+         "region": [
+          "대구광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 130.0,
+        "unit": "가구",
+        "display": "130가구",
+        "binding": {
+         "region": [
+          "대구광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 400.0,
+        "unit": "명",
+        "display": "400명",
+        "binding": {
+         "region": [
+          "인천광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 170.0,
+        "unit": "가구",
+        "display": "170가구",
+        "binding": {
+         "region": [
+          "인천광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 500.0,
+        "unit": "명",
+        "display": "500명",
+        "binding": {
+         "region": [
+          "광주광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 210.0,
+        "unit": "가구",
+        "display": "210가구",
+        "binding": {
+         "region": [
+          "광주광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 가구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [
+     "scatter_not_causal_proof"
+    ],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 서울특별시 2024 합성 인구 100명; 서울특별시 2024 합성 가구 50가구; 부산광역시 2024 합성 인구 200명; 부산광역시 2024 합성 가구 90가구; 대구광역시 2024 합성 인구 300명; 대구광역시 2024 합성 가구 130가구; 인천광역시 2024 합성 인구 400명; 인천광역시 2024 합성 가구 170가구; 광주광역시 2024 합성 인구 500명; 광주광역시 2024 합성 가구 210가구. [E1]",
+    "verified": false,
+    "notes": "",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "scatter"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "scatter"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "two_measures_required",
+       "min_points_5"
+      ]
+     },
+     "notes": ""
+    }
+   },
+   "run": {
+    "id": "C14",
+    "run": 1,
+    "question": "[합성 자료 검증] 다섯 지역의 합성 인구를 x축, 합성 가구 수를 y축으로 산점도를 그려줘. 인과관계는 주장하지 마.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C14"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "scatter",
+       "sub_question_ids": [
+        "C14-1"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "산점도",
+          "code": "scatter",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c1"
+        ],
+        "stage": {
+         "reason": null,
+         "selected": "scatter",
+         "applied": true
+        }
+       }
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "scatter",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "scatter",
+          "mode": "markers+text",
+          "name": "합성 가구",
+          "x": [
+           100.0,
+           200.0,
+           300.0,
+           400.0,
+           500.0
+          ],
+          "y": [
+           50.0,
+           90.0,
+           130.0,
+           170.0,
+           210.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": null
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [
+      {
+       "chart_id": "c1",
+       "outcome": "honored",
+       "reason": null,
+       "final_chart": "scatter"
+      }
+     ],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "scatter",
+        "measure": "raw",
+        "title": "다섯 지역의 합성 인구와 합성 가구 수",
+        "encoding": {
+         "x": "합성 인구",
+         "y": "합성 가구",
+         "label": "지역"
+        },
+        "axis": {
+         "x": {
+          "label": "합성 인구",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 0.0,
+          "max": 600.0,
+          "display_ref": "d1"
+         },
+         "y": {
+          "label": "합성 가구",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 0.0,
+          "max": 250.0,
+          "display_ref": "d2"
+         }
+        },
+        "options": {},
+        "columns": [
+         "시점",
+         "지역",
+         "합성 인구",
+         "합성 가구"
+        ],
+        "rows": [
+         [
+          "2024",
+          "서울특별시",
+          100,
+          50
+         ],
+         [
+          "2024",
+          "부산광역시",
+          200,
+          90
+         ],
+         [
+          "2024",
+          "대구광역시",
+          300,
+          130
+         ],
+         [
+          "2024",
+          "인천광역시",
+          400,
+          170
+         ],
+         [
+          "2024",
+          "광주광역시",
+          500,
+          210
+         ]
+        ],
+        "record_ids": [
+         "view::C14::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C15": {
+   "question": {
+    "id": "C15",
+    "group": "chart",
+    "question": "[합성 자료 검증] 세 가상 지역의 2023년과 2024년 합성 인구를 덤벨차트로 비교해줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "명",
+        "display": "20명",
+        "binding": {
+         "region": [
+          "가시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 30.0,
+        "unit": "명",
+        "display": "30명",
+        "binding": {
+         "region": [
+          "가시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 30.0,
+        "unit": "명",
+        "display": "30명",
+        "binding": {
+         "region": [
+          "나시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "명",
+        "display": "20명",
+        "binding": {
+         "region": [
+          "나시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 40.0,
+        "unit": "명",
+        "display": "40명",
+        "binding": {
+         "region": [
+          "다시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 50.0,
+        "unit": "명",
+        "display": "50명",
+        "binding": {
+         "region": [
+          "다시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [],
+    "chart_request": null,
+    "expect_text": "합성 자료의 모든 요청 좌표를 제시하고 지정 차트로 그립니다. 가시 2023 합성 인구 20명; 가시 2024 합성 인구 30명; 나시 2023 합성 인구 30명; 나시 2024 합성 인구 20명; 다시 2023 합성 인구 40명; 다시 2024 합성 인구 50명. [E1]",
+    "verified": false,
+    "notes": "",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "required",
+    "chart_types": [
+     "dumbbell"
+    ],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "required",
+      "acceptable_types": [
+       "dumbbell"
+      ],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": "honored",
+      "expected_outcomes": [],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": null,
+      "requirements": [
+       "two_points_per_category"
+      ]
+     },
+     "notes": ""
+    }
+   },
+   "run": {
+    "id": "C15",
+    "run": 1,
+    "question": "[합성 자료 검증] 세 가상 지역의 2023년과 2024년 합성 인구를 덤벨차트로 비교해줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C15"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "dumbbell",
+       "sub_question_ids": [
+        "C15-1"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "덤벨",
+          "code": "dumbbell",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c1"
+        ],
+        "stage": {
+         "reason": null,
+         "selected": "dumbbell",
+         "applied": true
+        }
+       }
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "dumbbell",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "scatter",
+          "mode": "lines",
+          "name": null,
+          "x": [
+           20.0,
+           40.0,
+           null,
+           30.0,
+           50.0,
+           null
+          ],
+          "y": [
+           "2023",
+           "2023",
+           null,
+           "2024",
+           "2024",
+           null
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         },
+         {
+          "type": "scatter",
+          "mode": "markers+text",
+          "name": "합성 인구 (가시)",
+          "x": [
+           20.0,
+           30.0
+          ],
+          "y": [
+           "2023",
+           "2024"
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         },
+         {
+          "type": "scatter",
+          "mode": "markers+text",
+          "name": "합성 인구 (다시)",
+          "x": [
+           40.0,
+           50.0
+          ],
+          "y": [
+           "2023",
+           "2024"
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": null
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [
+      {
+       "chart_id": "c1",
+       "outcome": "honored",
+       "reason": null,
+       "final_chart": "dumbbell"
+      }
+     ],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "dumbbell",
+        "measure": "raw",
+        "title": "2023년과 2024년 세 가상 지역의 합성 인구 비교",
+        "encoding": {
+         "start": "합성 인구 (가시)",
+         "end": "합성 인구 (다시)",
+         "label": "시점"
+        },
+        "axis": {
+         "x": {
+          "label": "합성 인구 (가시) · 합성 인구 (다시)",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 10.0,
+          "max": 60.0,
+          "display_ref": "d1"
+         }
+        },
+        "options": {},
+        "columns": [
+         "시점",
+         "합성 인구 (가시)",
+         "합성 인구 (다시)"
+        ],
+        "rows": [
+         [
+          "2023",
+          20,
+          40
+         ],
+         [
+          "2024",
+          30,
+          50
+         ]
+        ],
+        "record_ids": [
+         "view::C15::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C16": {
+   "question": {
+    "id": "C16",
+    "group": "chart",
+    "question": "[합성 자료 검증] 가시 -10명, 나시 20명의 순이동을 원형그래프로 그려줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "main",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": -10.0,
+        "unit": "명",
+        "display": "-10명",
+        "binding": {
+         "region": [
+          "가시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 순이동"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "명",
+        "display": "20명",
+        "binding": {
+         "region": [
+          "나시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 순이동"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [
+     "negative_values_incompatible_with_pie",
+     "replacement_or_table_notice"
+    ],
+    "chart_request": null,
+    "expect_text": "합성 순이동은 가시 −10명, 나시 20명입니다. 음수는 원형 구성비로 표현할 수 없어 막대그래프로 대체하거나 표로 제공합니다. [E1]",
+    "verified": false,
+    "notes": "",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "fallback",
+    "chart_types": [
+     "bar",
+     null
+    ],
+    "chart_notice": true,
+    "v2": {
+     "required_chart": {
+      "mode": "fallback",
+      "acceptable_types": [
+       "bar",
+       null
+      ],
+      "excluded_types": [],
+      "notice_required": true,
+      "expected_outcome": null,
+      "expected_outcomes": [
+       "substituted",
+       "table_only"
+      ],
+      "subquestions": {},
+      "null_allowed": null,
+      "reason": "data_mismatch",
+      "requirements": []
+     },
+     "notes": ""
+    }
+   },
+   "run": {
+    "id": "C16",
+    "run": 1,
+    "question": "[합성 자료 검증] 가시 -10명, 나시 20명의 순이동을 원형그래프로 그려줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C16"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "bar",
+       "sub_question_ids": [
+        "C16-1"
+       ],
+       "request": null
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "bar",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "bar",
+          "mode": null,
+          "name": "합성 순이동",
+          "x": [
+           "가시",
+           "나시"
+          ],
+          "y": [
+           -10.0,
+           20.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": [
+           -1.5,
+           2.5
+          ]
+         },
+         "yaxis": {
+          "range": [
+           -10.0,
+           30.0
+          ]
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "bar",
+        "measure": "raw",
+        "title": "순이동",
+        "encoding": {
+         "x": "지역",
+         "y": "값"
+        },
+        "axis": {
+         "x": {
+          "label": "지역",
+          "type": "category",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         },
+         "y": {
+          "label": "합성 순이동",
+          "type": "numeric",
+          "scale": "linear",
+          "min": -10.0,
+          "max": 30.0,
+          "display_ref": "d1"
+         }
+        },
+        "options": {
+         "orientation": "vertical"
+        },
+        "columns": [
+         "시점",
+         "지역",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2024",
+          "가시",
+          "합성 순이동",
+          -10
+         ],
+         [
+          "2024",
+          "나시",
+          "합성 순이동",
+          20
+         ]
+        ],
+        "record_ids": [
+         "view::C16::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  },
+  "C20": {
+   "question": {
+    "id": "C20",
+    "group": "chart",
+    "question": "[합성 자료 검증] 2022~2024년 혼인건수는 선으로, 2024년 세 지역 인구 비교는 막대로 각각 그려줘.",
+    "scope": "in",
+    "sub_questions": [
+     {
+      "key": "marriage_trend",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 10.0,
+        "unit": "건",
+        "display": "10건",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2022"
+         ],
+         "item": "합성 혼인건수"
+        },
+        "key": {
+         "시점": "2022"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "건",
+        "display": "20건",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2023"
+         ],
+         "item": "합성 혼인건수"
+        },
+        "key": {
+         "시점": "2023"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 30.0,
+        "unit": "건",
+        "display": "30건",
+        "binding": {
+         "region": [
+          "가상시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 혼인건수"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 1
+     },
+     {
+      "key": "population_compare",
+      "match": {
+       "item_any": [],
+       "region_any": [],
+       "op_any": []
+      },
+      "answerable_when": [
+       {
+        "when": null,
+        "expect": "answer",
+        "hold_reason": null
+       }
+      ],
+      "m2": {
+       "acceptable_charts": [],
+       "measure": null
+      },
+      "m3": {
+       "op": "raw",
+       "operands": [],
+       "denominator": null,
+       "min_periods": null,
+       "result_unit": null
+      },
+      "values": [
+       {
+        "role": "FINAL",
+        "value": 20.0,
+        "unit": "명",
+        "display": "20명",
+        "binding": {
+         "region": [
+          "서울특별시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 30.0,
+        "unit": "명",
+        "display": "30명",
+        "binding": {
+         "region": [
+          "부산광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       },
+       {
+        "role": "FINAL",
+        "value": 70.0,
+        "unit": "명",
+        "display": "70명",
+        "binding": {
+         "region": [
+          "대구광역시"
+         ],
+         "period": [
+          "2024"
+         ],
+         "item": "합성 인구"
+        },
+        "key": {
+         "시점": "2024"
+        },
+        "atol": 0.0,
+        "rtol": 0.0,
+        "digits": 0,
+        "scale": 1.0
+       }
+      ],
+      "direction": null,
+      "match_index": 2
+     }
+    ],
+    "required_caveats": [],
+    "required_facts": [
+     "chart_rows_equal_calculation_values_and_coordinate_labels"
+    ],
+    "chart_request": null,
+    "expect_text": "합성 혼인건수는 2022년 10건·2023년 20건·2024년 30건을 꺾은선으로, 2024년 합성 인구 서울 20명·부산 30명·대구 70명을 막대로 각각 표시합니다. [E1]",
+    "verified": false,
+    "notes": "",
+    "dataset": "v2",
+    "dataset_version": "2.0.0-draft1",
+    "strict_final": true,
+    "citation_labels": [
+     "E1"
+    ],
+    "chart_mode": "per_subquestion",
+    "chart_types": [],
+    "chart_notice": false,
+    "v2": {
+     "required_chart": {
+      "mode": "per_subquestion",
+      "acceptable_types": [],
+      "excluded_types": [],
+      "notice_required": false,
+      "expected_outcome": null,
+      "expected_outcomes": [],
+      "subquestions": {
+       "marriage_trend": [
+        "line"
+       ],
+       "population_compare": [
+        "bar"
+       ]
+      },
+      "null_allowed": false,
+      "reason": null,
+      "requirements": []
+     },
+     "notes": ""
+    }
+   },
+   "run": {
+    "id": "C20",
+    "run": 1,
+    "question": "[합성 자료 검증] 2022~2024년 혼인건수는 선으로, 2024년 세 지역 인구 비교는 막대로 각각 그려줘.",
+    "judge_rules": 2,
+    "analysis": {
+     "view_bundle": {
+      "query_id": "C20"
+     }
+    },
+    "modules": {
+     "charts": [
+      {
+       "chart_id": "c1",
+       "chart_type": "bar",
+       "sub_question_ids": [
+        "C20-1"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "막대",
+          "code": "bar",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c1"
+        ],
+        "stage": {
+         "reason": null,
+         "selected": "bar",
+         "applied": true
+        }
+       }
+      },
+      {
+       "chart_id": "c2",
+       "chart_type": "bar",
+       "sub_question_ids": [
+        "C20-2"
+       ],
+       "request": {
+        "preferred": [
+         {
+          "text": "막대",
+          "code": "bar",
+          "supported": true
+         }
+        ],
+        "excluded": [],
+        "scope": [
+         "c2"
+        ],
+        "stage": {
+         "reason": null,
+         "selected": "bar",
+         "applied": true
+        }
+       }
+      }
+     ],
+     "drawn": [
+      {
+       "chart_id": "c1",
+       "chart_type": "bar",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "bar",
+          "mode": null,
+          "name": "합성 혼인건수",
+          "x": [
+           "2022",
+           "2023",
+           "2024"
+          ],
+          "y": [
+           10.0,
+           20.0,
+           30.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": [
+           0.0,
+           40.0
+          ]
+         }
+        }
+       }
+      },
+      {
+       "chart_id": "c2",
+       "chart_type": "bar",
+       "status": "drawn",
+       "figure": {
+        "data": [
+         {
+          "type": "bar",
+          "mode": null,
+          "name": "합성 인구",
+          "x": [
+           "서울특별시",
+           "부산광역시",
+           "대구광역시"
+          ],
+          "y": [
+           20.0,
+           30.0,
+           70.0
+          ],
+          "z": null,
+          "xaxis": null,
+          "yaxis": null,
+          "orientation": null
+         }
+        ],
+        "layout": {
+         "xaxis": {
+          "range": null
+         },
+         "yaxis": {
+          "range": [
+           0.0,
+           80.0
+          ]
+         }
+        }
+       }
+      }
+     ],
+     "chart_notices": [],
+     "request_outcomes": [
+      {
+       "chart_id": "c1",
+       "outcome": "honored",
+       "reason": null,
+       "final_chart": "bar"
+      },
+      {
+       "chart_id": "c2",
+       "outcome": "honored",
+       "reason": null,
+       "final_chart": "bar"
+      }
+     ],
+     "chart_errors": [],
+     "module3": {
+      "chart_contents": [
+       {
+        "chart_id": "c1",
+        "chart_type": "bar",
+        "measure": "raw",
+        "title": "혼인 추이",
+        "encoding": {
+         "x": "시점",
+         "y": "값"
+        },
+        "axis": {
+         "x": {
+          "label": "시점",
+          "type": "time",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         },
+         "y": {
+          "label": "합성 혼인건수",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 0.0,
+          "max": 40.0,
+          "display_ref": "d1"
+         }
+        },
+        "options": {
+         "orientation": "vertical"
+        },
+        "columns": [
+         "시점",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2022",
+          "합성 혼인건수",
+          10
+         ],
+         [
+          "2023",
+          "합성 혼인건수",
+          20
+         ],
+         [
+          "2024",
+          "합성 혼인건수",
+          30
+         ]
+        ],
+        "record_ids": [
+         "view::C20::1"
+        ],
+        "warnings": []
+       },
+       {
+        "chart_id": "c2",
+        "chart_type": "bar",
+        "measure": "raw",
+        "title": "인구 비교",
+        "encoding": {
+         "x": "지역",
+         "y": "값"
+        },
+        "axis": {
+         "x": {
+          "label": "지역",
+          "type": "category",
+          "scale": null,
+          "min": null,
+          "max": null,
+          "display_ref": null
+         },
+         "y": {
+          "label": "합성 인구",
+          "type": "numeric",
+          "scale": "linear",
+          "min": 0.0,
+          "max": 80.0,
+          "display_ref": "d2"
+         }
+        },
+        "options": {
+         "orientation": "vertical"
+        },
+        "columns": [
+         "시점",
+         "지역",
+         "항목",
+         "값"
+        ],
+        "rows": [
+         [
+          "2024",
+          "서울특별시",
+          "합성 인구",
+          20
+         ],
+         [
+          "2024",
+          "부산광역시",
+          "합성 인구",
+          30
+         ],
+         [
+          "2024",
+          "대구광역시",
+          "합성 인구",
+          70
+         ]
+        ],
+        "record_ids": [
+         "view::C20::1"
+        ],
+        "warnings": []
+       }
+      ]
+     }
+    }
+   }
+  }
+ }
+}

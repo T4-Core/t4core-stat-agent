@@ -29,7 +29,7 @@ from typing import Any
 
 import backend.core.llm as llm
 from backend.core.config import EVAL_RUNS_DIR, ROOT
-from eval.generator import ORACLE_DIR, QUESTIONS_DIR, rel, trace
+from eval.generator import JUDGE_RULES, ORACLE_DIR, QUESTIONS_DIR, rel, trace
 from eval.generator.verdict import SETS, load_questions
 
 M3_FIELDS_FOR_M6 = ("calc_results", "displays", "answer_steps", "plan_warnings", "withheld")   # Module6Request 의 M3 유래 필드
@@ -165,7 +165,8 @@ def record(base: dict, rec: Recorder, t0: float, **kw) -> dict:
     out = {**base, **kw, "seconds": round(time.time() - t0, 1), "hcx_calls": rec.calls,
            "qa_timing": {k: round(v, 3) for k, v in rec.qa_timing.items()}, "module_seconds": rec.module_seconds,
            "module_attempts": rec.attempts, "requests": rec.requests or None, "source": "full",
-           "m6_shown_tokens": rec.m6_shown_tokens}
+           "m6_shown_tokens": rec.m6_shown_tokens,
+           "judge_rules": JUDGE_RULES}           # [NEW] 이 실행을 판정할 규칙 버전 (새 규칙은 이후 실행에만 적용)
     mods = out.get("modules")
     if mods and out.get("viewset") is not None:
         out["records"] = out["viewset"].get("records") or []
@@ -328,7 +329,7 @@ def manifest(args, set_path: Path | None) -> dict:
             "model": llm.CHAT_MODEL, "prompts": _sha([agent / "prompts.py"]),
             "m2_code": _sha(list((agent / "chart_decision" / "chart_decision_module").glob("*.py"))),
             "set_hash": _sha([set_path]) if set_path else None, "from": args.from_ and rel(args.from_),
-            "started": time.strftime("%Y-%m-%d %H:%M:%S")}
+            "started": time.strftime("%Y-%m-%d %H:%M:%S"), "judge_rules": JUDGE_RULES}
 
 
 def main(argv=None):
