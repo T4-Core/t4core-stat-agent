@@ -24,8 +24,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.agent.chart_calculate.axis import axis_range, group_sums
-from backend.agent.chart_calculate.calculate import TIME_COL, Calc, period_index, run_steps
+from backend.agent.chart_calculate.calculate import INDICATOR_HINTS, TIME_COL, Calc, period_index, run_steps
 from backend.agent.chart_calculate.display import format_value, strip_unit, unit_of
+from backend.core.korean import unit_tail
 from backend.agent.chart_calculate.select import ITEM_COL, REGION_HINTS, VALUE_COL  # noqa: F401  (REGION_HINTS: 예전 위치 호환)
 from backend.agent.chart_calculate.specs import SPECS, requirements_for
 from backend.agent.chart_calculate.validate import check_chart
@@ -47,6 +48,22 @@ def measure_name(op: str, agg: str | None = None) -> str | None:
 _NO_AXIS = {"pie", "donut", "treemap", "map", "radar"}
 
 
+def shown_item(calc: Calc) -> str | None:
+    """[NEW 11-25 5단계 5-0] 축 · 범례 · 제목에 쓸 항목 이름 (단위 괄호 포함 원래 값. 쓰는 쪽에서 strip_unit)
+
+    항목 열 값에 단위 괄호가 없고, 지표를 담는 분류 열(이름에 항목 · 종류 · 지표가 든 열. 항목 열 자체는 빼고)의 고정 값 중
+    단위 괄호가 있는 것이 정확히 하나면 그 값을 쓴다.
+      DT_1B8000G: 항목 '출생사망혼인이혼' · 종류별 '조혼인율(천명당)' → '조혼인율(천명당)' (표시는 '조혼인율')
+    이전: 항상 항목 열 값 → '출생사망혼인이혼' 이 막대 · 산점도 · 버블의 축 이름과 범례에 나왔다 (15유형 T1-scatter · T2-bubble).
+    단위 괄호가 없는 값('거처종류별: 계')은 지표 이름인지 알 수 없어 쓰지 않는다 (그때는 이전처럼 항목 열 값)"""
+    item = calc.item
+    if item and unit_tail(item):
+        return item
+    hits = [str(v) for c, v in calc.fixed.items()
+            if c != ITEM_COL and any(h in c for h in INDICATOR_HINTS) and unit_tail(str(v))]
+    return hits[0] if len(hits) == 1 else item
+
+
 @dataclass
 class _Branch:
     """plan.output 의 갈래 하나 = 차트에 들어갈 계산 결과 하나"""
@@ -57,7 +74,8 @@ class _Branch:
 
     @property
     def base_label(self) -> str:
-        name = strip_unit(self.calc.item) if self.calc.item else VALUE_COL
+        item = shown_item(self.calc)              # [CHANGED 11-25 5-0] 이전: self.calc.item (항목 열 값 그대로)
+        name = strip_unit(item) if item else VALUE_COL
         return name if self.step.op == "raw" else f"{name} {measure_name(self.step.op, self.step.agg)}"
 
     @property
@@ -422,8 +440,8 @@ def _compose(chart_type: str, plan: Plan, branches: list[_Branch], displays: dic
             more.append("단위가 다른 지표를 한 축에 그림")
     category = enc.get("x") or enc.get("label") or enc.get("region")
     # 제목의 항목 이름: 갈래 하나에 항목이 여럿이면 key 의 항목 이름들, 아니면 갈래의 항목
-    names = list(dict.fromkeys(
-        strip_unit(str(p.key[ITEM_COL])) if ITEM_COL in p.key else strip_unit(b.calc.item or "")
+    names = list(dict.fromkeys(      # [CHANGED 11-25 5-0] 갈래의 항목은 shown_item (축 · 범례와 같은 이름)
+        strip_unit(str(p.key[ITEM_COL])) if ITEM_COL in p.key else strip_unit(shown_item(b.calc) or "")
         for b in live for p in b.calc.points))
     return ChartContent(
         chart_id=plan.chart_id, chart_type=chart_type, measure=plan.measure,

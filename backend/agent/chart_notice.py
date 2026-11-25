@@ -47,8 +47,12 @@ def render_states(charts: list, m3: Module3Output | None, drawn: list | None, *,
       rejected  QA 의 M5-out 검증이 모듈 5 출력을 버렸는가 (→ failed/render_error)"""
     have = {c.chart_id for c in (m3.chart_contents if m3 is not None else [])}
     by_chart: dict[str, dict] = {}
+    # [CHANGED 11-25] 차트 자신의 결과를 먼저 본다. 이전에는 drawn 순서대로 받아, 합친 차트가 맨 앞에 오면(모듈 5 5단계)
+    #   c1 의 상태가 합친 차트(c1+c2)의 상태로 잡혔다
     for d in drawn or []:
-        for cid in [_get(d, "chart_id"), *(_get(d, "merged_from") or [])]:
+        by_chart.setdefault(_get(d, "chart_id"), d)
+    for d in drawn or []:
+        for cid in _get(d, "merged_from") or []:
             by_chart.setdefault(cid, d)
     out: dict[str, dict] = {}
     for c in map(_as_chart, charts):
@@ -84,8 +88,22 @@ def _final_chart(cid: str, m3: Module3Output | None) -> str | None:
     return _get(v, "final_chart_type") if v is not None else None
 
 
-def request_outcomes(charts: list, m3: Module3Output | None, states: dict[str, dict]) -> list[dict]:
-    """요청이 있는 차트마다 최종 결과. 요청이 없는 차트(request=None)는 만들지 않는다"""
+def merged_types(drawn: list | None) -> dict[str, list[str]]:
+    """[NEW 11-25 5단계] 합친 차트(모듈 5 겹쳐 그리기)에 들어가 그려진 차트 → [합친 차트 유형]. 그린 것(drawn)만"""
+    out: dict[str, list[str]] = {}
+    for d in drawn or []:
+        if _get(d, "status") == "drawn":
+            for cid in _get(d, "merged_from") or []:
+                out.setdefault(cid, []).append(_get(d, "chart_type"))
+    return out
+
+
+def request_outcomes(charts: list, m3: Module3Output | None, states: dict[str, dict],
+                     merged: dict[str, list[str]] | None = None) -> list[dict]:
+    """요청이 있는 차트마다 최종 결과. 요청이 없는 차트(request=None)는 만들지 않는다
+    merged: [NEW 11-25] merged_types(drawn). 요청한 차트가 합친 차트로 그려졌으면(시도별 출생아수 · 사망자수 → 산점도)
+            그 차트의 결과는 honored 이고 final_chart 는 합친 차트 유형이다. 이전: 하위 차트(막대) 기준이라
+            '이 자료로는 산점도를 그릴 수 없어 막대 그래프로 보여 드립니다' 가 합친 산점도와 함께 나갔다"""
     out = []
     for c in map(_as_chart, charts):
         req = c.request
@@ -96,6 +114,9 @@ def request_outcomes(charts: list, m3: Module3Output | None, states: dict[str, d
         final = _final_chart(cid, m3)
         wanted = [n.code for n in req.preferred if n.supported and n.code]
         outcome, reason = _decide(stage.reason, stage.applied, stage.selected, wanted, bool(req.preferred), final, st)
+        via = next((t for t in (merged or {}).get(cid, []) if t in wanted), None)
+        if via and outcome in ("honored", "substituted"):
+            outcome, reason, final = "honored", None, via
         assert reason in OUTCOME_REASONS[outcome], (outcome, reason)
         out.append(ChartRequestOutcome(chart_id=cid, outcome=outcome, reason=reason, final_chart=final).model_dump(mode="json"))
     return out
@@ -174,6 +195,6 @@ def finalize_chart_request(charts: list, m3: Module3Output | None, drawn: list |
                            error: str | None = None, stopped: bool = False, rejected: bool = False) -> dict[str, Any]:
     """일반 경로와 QA 경로가 같은 입력으로 부르는 단일 함수 → {render_status, request_outcomes, chart_notices}"""
     states = render_states(charts, m3, drawn, draw=draw, error=error, stopped=stopped, rejected=rejected)
-    outcomes = request_outcomes(charts, m3, states)
+    outcomes = request_outcomes(charts, m3, states, merged_types(drawn))       # [CHANGED 11-25] 합친 차트도 본다
     titles = {c.chart_id: c.title for c in (m3.chart_contents if m3 is not None else [])}
     return {"render_status": states, "request_outcomes": outcomes, "chart_notices": chart_notices(charts, outcomes, titles)}

@@ -239,10 +239,10 @@ out
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `overlay_id` | str | `"c1+c2"` |
-| `charts` | list[str] (2개) | 겹쳐 그릴 두 차트 |
-| `mode` | `combo` \| `lines` \| `bars` | combo = 큰 값 막대(왼쪽 축) + 작은 값 선(오른쪽 축) |
-| `axes` | dict | combo일 때 `{chart_id: "y" \| "y2"}` |
+| `overlay_id` | str | `"c1+c2"`, `"c1+c2+c3"` |
+| `charts` | list[str] (2개 이상) | 합쳐 그릴 차트 (하위질문 순서). [CHANGED 11-25] 이전: 정확히 2개 |
+| `mode` | `combo` \| `lines` \| `bars` \| `scatter` \| `bubble` \| `radar` | combo = 큰 값 막대(왼쪽 축) + 작은 값 선(오른쪽 축). scatter · bubble · radar 는 [NEW 11-25] 사용자가 요청한 관계 차트 |
+| `axes` | dict | combo `{chart_id: "y" \| "y2"}` · scatter `{c1: "x", c2: "y"}` · bubble `{c1: "x", c2: "y", c3: "size"}` |
 | `reason` | str | 겹친 이유 |
 
 - 모듈 5만 읽는다. 모듈 3 어댑터는 `charts`만 읽으므로 모듈 3 입력은 겹쳐 그리기와 관계없다.
@@ -293,7 +293,7 @@ out
 }
 ```
 
-→ 모듈 5는 c1(출생아수 선), c2(합계출산율 선), c1+c2(막대 + 선 combo) 3개를 그린다.
+→ 모듈 5는 c1+c2(막대 + 선 combo), c1(출생아수 선), c2(합계출산율 선) 3개를 그린다. [CHANGED 11-25] 합친 차트가 맨 앞 (답변 화면의 첫 차트)
 
 ---
 
@@ -548,23 +548,31 @@ flowchart LR
 flowchart TD
     A["reason 문장<br/>'{지표} {비교축}별 {의도}'"] --> B["warnings 모으기<br/>(view_check · chart_select의 warning)"]
     B --> C{"겹쳐 그리기 조건<br/>모두 만족?"}
-    C -->|예| D["overlays에 추가<br/>mode = combo / lines / bars"]
+    C -->|예| D["overlays에 추가<br/>mode = combo / lines / bars<br/>/ scatter / bubble / radar"]
     C -->|아니오| D2["overlays 없음 · errors에 이유 (info)"]
     D --> V["ChartPlanOut 스키마 검증 (pydantic)"]
     D2 --> V
     V --> O[chart_plan]
 ```
 
-**겹쳐 그리기 조건** (모두 만족해야 함)
+**① 관계 차트 조건** ([NEW 11-25] 먼저 본다 · 모두 만족해야 함)
 
-1. 차트가 정확히 2개이고 둘 다 차트가 있음 (null 아님)
+1. 사용자가 산점도 · 버블 · 레이더를 요청함 (모든 차트의 요청 1순위가 같음)
+2. 차트 수: 산점도 2 · 버블 3 · 레이더 3~8, 모두 차트가 있음
+3. measure가 같고, 시점이 하나로 같고, 범주 축이 같음 (시점 축은 아님 · 범주 개수는 달라도 됨 — 모듈 5가 범주 이름으로 짝지음)
+4. 모두 계열 1개 · 범주 수 산점도 5개 이상 · 버블 3개 이상 · 레이더 8개 이하 · 레이더는 단위가 모두 같음
+
+**② 같은 x축 겹치기 조건** (모두 만족해야 함. [CHANGED 11-25] 2개 → 2개 이상)
+
+1. 차트가 2개 이상이고 모두 차트가 있음 (null 아님)
 2. 의도가 `추이` 또는 `비교`
-3. 두 차트 유형이 같고 `line` 또는 `bar`
+3. 차트 유형이 모두 같고 `line` 또는 `bar`
 4. measure가 같음
 5. x축이 같음 (기간 · 비교축 · 범주 축과 개수)
-6. 두 차트 모두 계열 1개
+6. 모든 차트 계열 1개
 
-**mode 정하기**: 두 값의 최댓값 비율이 10배 이상이거나 단위가 다르면 `combo`(큰 값 막대 + 작은 값 선), 아니면 `lines`(line) / `bars`(bar)
+**mode 정하기**: 2개는 최댓값 비율이 10배 이상이거나 단위가 다르거나 사용자가 콤보를 요청했으면 `combo`(큰 값 막대 + 작은 값 선), 아니면 `lines`(line) / `bars`(bar).
+3개 이상은 축이 하나뿐이라 단위가 같고 비율이 10배 미만일 때만 `lines` / `bars`
 
 - 스키마 검증에 실패하면 원래 dict를 그대로 내보내고 `errors`에 기록한다 (멈추지 않음).
 
@@ -583,6 +591,7 @@ flowchart TD
 | "2018년 부산진구 국제결혼 이주자 수는 2015년에 비해 얼마나 변화" (한 지역 · 두 시점 증감 = 값 1개) | `chart_type: null` + 경고 "차트 없음(표만): 차트에 올릴 값이 1개뿐이라 표로 …" |
 | "오늘 서울 날씨" | measure `범위 밖`, `chart_type: null` |
 | 하위질문 2개, 단위 다른 추이 | 차트 2개 + `overlays` combo |
+| "2024년 시도별 출생아수와 사망자수의 관계를 산점도로" (지표마다 다른 표) | 차트 2개(막대) + `overlays` scatter `{c1: x, c2: y}` → 모듈 5가 시도 이름으로 짝지은 산점도를 맨 앞에 |
 
 ---
 
