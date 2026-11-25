@@ -167,7 +167,7 @@ function SourceLine({ ids, label = '출처 표' }: { ids: unknown; label?: strin
   return <p className="pd-small">{label}: {tbls.map((tbl, index) => <span key={tbl}>{index > 0 ? ' · ' : ''}<Kosis tbl={tbl} /> {tables[tbl]?.name}</span>)}</p>;
 }
 
-function tablesOf(response: D) {
+export function tablesOf(response: D) {
   const out: Record<string, { name?: string; survey?: string; url?: string }> = {};
   for (const unit of list(response.views?.units)) {
     for (const candidate of list(unit.candidates)) out[candidate.tbl_id] ??= { name: candidate.tbl_nm, survey: candidate.survey_nm };
@@ -531,7 +531,7 @@ function FitPlot({ figure, chartType }: { figure: PlotlyFigure; chartType?: stri
 }
 
 /** 답변 표와 차트에 실제로 쓴 통계표. 없으면 답변에 넘긴 자료 전체를 씁니다. */
-function usedTables(r: D, charts: D[]) {
+export function usedTables(r: D, charts: D[]) {
   const m = r.modules;
   const contents: Record<string, D> = Object.fromEntries(list(m?.module3?.chart_contents).map((c) => [c.chart_id, c]));
   const used = [

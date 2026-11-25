@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { MODULES, type ModuleKey } from '../adapters/issues';
 import { moduleStyle } from '../adapters/moduleColors';
 import { downloadCsv } from '../runner/csv';
+import { downloadHtmlReport } from '../runner/htmlReport';
 import type { RunItem } from '../runner/useQueryRunner';
 import { QueryDetail } from './QueryDetail';
 import { QueryTable } from './QueryTable';
@@ -56,6 +57,7 @@ function formatStarted(date: Date) {
 export function ResultReport({ items, startedAt: startedTime, owner, extraSkipped = 0, primaryLabel, onPrimary, secondaryLabel, onSecondary, rerunMode = 'run', onRerun }: Props) {
   const [filter, setFilter] = useState<ModuleKey | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const stats = useMemo(() => {
     // 같은 질문을 여러 번 넣어도 통계에서는 한 쿼리로 셉니다.
@@ -99,6 +101,19 @@ export function ResultReport({ items, startedAt: startedTime, owner, extraSkippe
     downloadCsv(`query-test-${startedAt.toISOString().slice(0, 16).replace(/[-:T]/g, '')}.csv`, rows);
   };
 
+  // 질문과 최종 결과(차트 · 답변 · 출처)만 모은 HTML. 필터와 상관없이 실행한 모든 쿼리를 담습니다.
+  const exportHtml = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      await downloadHtmlReport(`query-test-${startedAt.toISOString().slice(0, 16).replace(/[-:T]/g, '')}.html`, items, `${formatStarted(startedAt)} · ${owner} · 쿼리 ${items.length}개`);
+    } catch {
+      window.alert('HTML 파일을 만들지 못했습니다.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="adm-report">
       <header className="adm-report-head">
@@ -108,6 +123,7 @@ export function ResultReport({ items, startedAt: startedTime, owner, extraSkippe
         </div>
         <span className="adm-grow" />
         <button type="button" className="adm-button is-outline" onClick={exportCsv}>CSV 내려받기</button>
+        <button type="button" className="adm-button is-outline" onClick={() => void exportHtml()} disabled={exporting}>{exporting ? 'HTML 만드는 중…' : 'HTML 내려받기'}</button>
         {secondaryLabel && <button type="button" className="adm-button is-outline" onClick={onSecondary}>{secondaryLabel}</button>}
         <button type="button" className="adm-button is-compact" onClick={onPrimary}>{primaryLabel}</button>
       </header>
