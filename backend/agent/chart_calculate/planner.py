@@ -64,6 +64,17 @@ INDICATOR = "지표"                       # 고정 조건에 싣는 참고 값 
 SEX = "성별"                             # [NEW 11-25] 고정 조건에 싣는 참고 값 (행을 거르지 않는다). 지표 대응에서 '남자인구수' 를 인구수로 인정할 때만 쓴다
 ORIGINAL = "원문"                        # [NEW 11-25] 고정 조건에 싣는 참고 값: 사용자의 원 질문 문장. 질문에 그대로 나온 항목 이름을 별칭으로 인정할 때만 쓴다
 _SHARE_TAIL = re.compile(r"\s*(?:구성비|비율|비중)$")   # [NEW 11-25] share 의 지표 '보증부월세비율' → 분자 항목 '보증부월세'
+_SUMMARY_EXACT = {"사례수", "표준편차", "중앙값", "성비"}  # [NEW 11-25 1-8] 조사표의 요약 값 행 (응답 분포의 조각이 아님)
+_SUMMARY_FALSE = ("구성비",)                              # 질문에 있어도 요약 값을 물은 것이 아닌 말 ('구성비' 안의 '성비')
+
+
+def _summary_word(value) -> str | None:
+    """[NEW 11-25 1-8] 값이 요약 값 행이면 그 말 ('사례수' · '평균' …), 아니면 None. 띄어쓰기 · 단위 괄호 무시.
+    '평균' 은 들어 있기만 하면 (평균 · 평균 가구원수 · 평균 매출액 · 가구당 평균인원수)"""
+    bare = re.sub(r"\s+", "", strip_unit(str(value)))
+    if bare in _SUMMARY_EXACT:
+        return bare
+    return "평균" if "평균" in bare else None
 # [NEW 11-25] 성별 값 → 항목 이름에 붙는 수식어 (남자인구수 · 남인구 · 남성 인구)
 SEX_MODIFIERS = {"남자": ("남자", "남", "남성"), "남": ("남자", "남", "남성"), "남성": ("남자", "남", "남성"),
                  "여자": ("여자", "여", "여성"), "여": ("여자", "여", "여성"), "여성": ("여자", "여", "여성")}
@@ -347,6 +358,30 @@ class _Planner:
                               note=f"같은 표의 '{total}' 행을 분모로 씀")
             return d.model_copy(update={"denominator": den.model_copy(update={"operand": operand})})
         return None
+
+    def sum_denominator(self, tag: str, d: "_Args") -> "_Args":
+        """[NEW 11-25 D-2] 비중의 분모가 'A + B' 이면 → 분모가 같은 표의 항목 A · B 를 모두 고르게 한다 (calculate._share 가 더한다).
+        HCX 가 분모 항목을 '남자인구수+여자인구수' 로 적거나(→ '항목 없음'), 분모 설명(basis)은 '남자 인구수 + 여자 인구수' 인데
+        항목은 분자와 같은 '남자인구수' 로 적었다(→ 남자 ÷ 남자 = 100%). 15유형 원그래프 2건.
+        '+' 로 나눈 이름이 2개 이상이고 모두 그 표의 항목 열에 있을 때만 바꾼다 (띄어쓰기 · 단위 괄호 무시). 하나라도 없으면 그대로"""
+        den = d.denominator
+        if den is None or den.scope != "question" or den.operand is None:
+            return d
+        op = den.operand
+        src = op.item if op.item and "+" in op.item else (den.basis if den.basis and "+" in den.basis else None)
+        rec = self.records.get(op.record_id)
+        if not src or rec is None or ITEM_COL not in rec.table.columns:
+            return d
+        col = rec.table.columns.index(ITEM_COL)
+        by_name = {re.sub(r"\s+", "", strip_unit(str(r[col]))): str(r[col]) for r in rec.table.rows}
+        names = [n for n in re.split(r"\s*\+\s*", src) if n.strip()]
+        hits = [by_name.get(re.sub(r"\s+", "", strip_unit(n))) for n in names]
+        if len(names) < 2 or None in hits or len(set(hits)) < 2:
+            return d
+        items = list(dict.fromkeys(hits))
+        self.note(tag, f"비중의 분모 '{src}' → 같은 표의 항목 {items} 의 합")
+        operand = op.model_copy(update={"item": None, "select": {**op.select, ITEM_COL: items}})
+        return d.model_copy(update={"denominator": den.model_copy(update={"operand": operand})})
 
     def _part_axes(self, rec: Record, part: Pick, fixed: dict) -> list[str]:
         """부분(분자)의 값이 들어 있는 열: 항목이 있는 열 + 조건식의 '=' 조건이 적용되는 열. 순서대로, 중복 없이"""
@@ -699,7 +734,36 @@ class _Planner:
         select = self.fix_region(tag, select, fixed.get(REGION), record_id)
         select = self.fix_age(tag, select, fixed.get(AGE), record_id)
         select = self.drop_named_totals(tag, op, select, fixed)
+        select = self.drop_summary_rows(tag, select, fixed, record_id)     # [NEW 11-25 1-8] 사례수 · 평균 같은 요약 값 행
         return self.fill_period(tag, op, select, d), d
+
+    def drop_summary_rows(self, tag: str, select: Select, fixed: dict, record_id: str | None) -> Select:
+        """[NEW 11-25 1-8] 고른 행의 한 열에 요약 값 행(사례수 · 평균 · 표준편차 · 중앙값 · 성비)과 일반 행이 섞이면 → 그 열을 일반 행으로 좁힌다.
+        조사표는 응답 비율(%) 열에 사례수(명) · 평균(점)을 같은 열의 값으로 둔다 (원본 표 989개 중 사례수 106 · 평균 21 · 성비 16).
+        View 에는 행마다 단위가 남지 않아 함께 계산 · 그리면 단위가 섞인다 (합성 사할린 만족도 표: 막대로 대체되며 '사례수 95.9%').
+        빼지 않는 경우: 질문에 그 말이 있음('만족도 평균 점수는?') · 고른 행이 모두 요약 값 · 총계 행(계 · 합계 · 전국 — 기존 규칙에 맡긴다)"""
+        rec = self.records.get(record_id) if record_id else None
+        if rec is None:
+            return select
+        sel = select_rows(rec, select, None)
+        if not sel.rows:
+            return select
+        question = re.sub(r"\s+", "", " ".join(fixed.get(ORIGINAL) or []))
+        for word in _SUMMARY_FALSE:              # '구성비' 의 '성비' 는 성비를 물은 것이 아니다
+            question = question.replace(word, "")
+        out = dict(select)
+        for col in sel.columns:
+            if col in (TIME_COL, VALUE_COL):
+                continue
+            vals = list(dict.fromkeys(str(r[sel.col(col)]) for r in sel.rows))
+            if len(vals) < 2:
+                continue
+            drop = [v for v in vals if (w := _summary_word(v)) and w not in question]
+            regular = [v for v in vals if not _summary_word(v)]
+            if drop and regular:
+                out[col] = [v for v in vals if v not in drop]
+                self.note(tag, f"열 '{col}' 의 요약 값 {drop} 은 분포 · 구성의 조각이 아니라서 뺌 (사례수 · 평균처럼 단위가 다른 행)")
+        return out
 
     def drop_named_totals(self, tag: str, op: str, select: Select, fixed: dict) -> Select:
         """[NEW 11-17] 범주 비교 질문(비교축이 있거나 의도가 순위)의 순위 · 극값은 조건에 적힌 총계(전국 · 계)를 뺀다.
@@ -1237,6 +1301,7 @@ class _Planner:
                     self.withhold(tag, f"최종 선택이 조건 '{bad}' 을 만족하지 않음", f"'{bad}' 조건을 적용할 자료가 없어 계산하지 못했습니다.")
             if tag in self.withheld:
                 return None
+        d = self.sum_denominator(tag, d)                     # [NEW 11-25 D-2] 분모 'A + B' → 항목들의 합
         d = self.same_view_total(tag, picks, d, chart.view_ids, fixed) or d
         if self.denominator_outside(tag, d, chart.view_ids):
             return None
@@ -1291,6 +1356,7 @@ class _Planner:
         picks, d = self.normalize(tag, d.op, d.operands, d, fixed=self.fixed_for(tag, [d.sub_question_id]))
         if tag in self.withheld:
             return []
+        d = self.sum_denominator(tag, d)                     # [NEW 11-25 D-2] 분모 'A + B' → 항목들의 합
         d = self.same_view_total(tag, picks, d, expected, self.fixed_for(tag, [d.sub_question_id])) or d
         if self.denominator_outside(tag, d, expected):
             return []

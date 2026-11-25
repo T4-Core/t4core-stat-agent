@@ -605,13 +605,32 @@ def _extreme(ctx: _Ctx) -> Calc:
 INDICATOR_HINTS = ("항목", "종류", "지표")   # 분류 열이지만 지표를 담는 이름 (DT_1B8000G '종류별', '기본항목별')
 
 
-def _mixed_for_sum(points: list[Point], by: list[str]) -> str | None:
+_TOTAL_TAIL = re.compile(r"[\s_](?:계|합계|총계)$")     # [NEW 11-25] '가구_계' · '가구 계' — 항목 이름 끝의 총계 표시
+
+
+def _item_totals(vals: list[str]) -> list[str]:
+    """[NEW 11-25 D-1] 항목 열 값 중 총계인 것: 계 · 합계 · 총계 · 전체 · 소계, 끝이 '_계' · ' 계', 그리고 다른 항목과 같은 이름에
+    '총' 이 붙은 것 ('총인구수' 와 '남자인구수' · '여자인구수'). 조각과 함께 더하면 두 번 센다"""
+    found = []
+    for v in vals:
+        bare = strip_unit(v).strip()
+        stem = bare[1:] if bare.startswith("총") and len(bare) > 2 else None
+        if (bare in TOTAL_LABELS or _TOTAL_TAIL.search(bare)
+                or (stem and any(stem in strip_unit(o) for o in vals if o != v))):
+            found.append(v)
+    return found
+
+
+def _mixed_for_sum(points: list[Point], by: list[str], unit: str | None = None, share: bool = False) -> str | None:
     """더하면 안 되는 것이 섞였는가. View 구조: 시점 · KOSIS 분류 열들 · 항목(KOSIS 지표) · 값 (rag/ingestion/build_view.py)
 
       항목 열(또는 이름이 항목·종류·지표인 분류 열)에 값이 여럿 → 지표가 섞임. 괄호 단위가 모두 같을 때만 허용
       그 밖의 분류 열에 값이 여럿 → 범주 (지역, 혼인상태 …). 더해도 된다. 단 값에 단위가 붙어 서로 다르면 지표로 본다
       범주 값에 총계(계·합계)가 섞이면 두 번 센다 → 보류
     [CHANGED 11-11] 이전: 열 이름(지역·연령·성별)으로만 범주를 알아봐서 '혼인상태별' 15세미만 + 15세이상을 거부했다 (2차 검수)
+    [NEW 11-25 D-1] share=True (비중 계산에서만): 괄호 단위가 없는 항목은 unit(표의 단위, 하나일 때만 · HCX 가 고른 단위는 넘기지 않는다)으로 본다
+      → '남자인구수 · 여자인구수'(표 단위 명)를 원그래프 조각으로 더할 수 있다. 대신 항목 열의 총계(_item_totals)가 섞이면 막는다.
+      이전: 괄호가 없으면 단위를 모른다고 보고 '서로 다른 지표를 합칠 수 없음' (15유형 원그래프 2건). 합계(aggregate)는 그대로 (share=False)
     """
     cols = sorted({c for p in points for c in p.key if c != TIME_COL and c not in by})
     for c in cols:
@@ -622,8 +641,12 @@ def _mixed_for_sum(points: list[Point], by: list[str]) -> str | None:
         if c == ITEM_COL and all(age_span(v) for v in vals):
             continue                       # [NEW 11-18] 나이(0세 · 1세 …)가 항목 열 값인 표: 지표가 섞인 것이 아니라 나이 구간이다 (F6)
         if c == ITEM_COL or any(h in c for h in INDICATOR_HINTS):
+            if share:
+                units = [u or unit for u in units]
             if None in units or len(set(units)) > 1:
                 return f"서로 다른 지표를 합칠 수 없음: { {c: vals} }"
+            if share and (total := _item_totals(vals)):
+                return f"총계 행이 섞여 두 번 셈: {c} {total} + 나머지 {[v for v in vals if v not in total]}"
         elif any(units) and (None in units or len(set(units)) > 1):
             return f"서로 다른 지표를 합칠 수 없음: { {c: vals} }"
         elif total := sorted(totals_in(c, vals)):
@@ -860,6 +883,11 @@ def _ratio(a: float, b: float):
 
 
 # ── share ────────────────────────────────────────────────────────
+def _table_unit(s: Series) -> str | None:
+    """[NEW 11-25 D-1] 항목 단위를 모를 때 쓸 단위: 계열의 단위가 표에서 온 것일 때만 (HCX 가 고른 단위는 확인용으로 쓰지 않는다 — _incompatible 과 같음)"""
+    return None if s.unit_source == "hcx" else s.unit
+
+
 def _same_row_denominator(part: Series, total: Series, den, on: list[str]) -> str | None:
     """[NEW 11-18] 분모로 가져온 행이 부분과 같은 행인가 (F5, Q05·Q28). View 에 전국 행이 없어 분모 조건(시점만)이 서울 행 하나만 골라
     서울 ÷ 서울 = 100.0% 가 됐다. 요청한 분모(basis · label 의 지역)와 실제 분모 행의 지역이 다를 때만 막는다 —
@@ -910,9 +938,24 @@ def _share(ctx: _Ctx) -> Calc:
         if why := _same_row_denominator(part, total, den, on):
             out.notes.append(why)
             return out
-        totals = {k: (p.value if p else None) for k, p in _join(total.points, on).items()}
+        # [NEW 11-25 D-4] 분모 설명이 합('남자 인구수 + 여자 인구수')인데 분모가 분자와 같은 항목 · 같은 행 → 항상 100% (15유형 T2-pie).
+        #   설명에 '+' 가 없으면 그대로 둔다 (전국 ÷ 전국 = 100% 는 계산 — test_fix_1118_calculation)
+        if "+" in (den.basis or "") and part.item and part.item == total.item and part.fixed == total.fixed:
+            out.notes.append(f"분모 '{den.basis}' 가 합인데 분자와 같은 값('{part.item}')을 분모로 골라 비중이 항상 100%가 됨")
+            return out
+        if {c for p in total.points for c in p.key if c not in on} == {ITEM_COL}:
+            # [NEW 11-25 D-3] 분모 = 여러 항목의 합 (planner.sum_denominator 가 'A + B' 를 항목들로 바꾼다). 시점마다 더한다.
+            #   이전: 짝지을 키마다 값이 여럿이라 '분모 총계 없음'. 항목 말고 다른 열(지역 등)로 여럿이면 그대로 둔다
+            if why := _mixed_for_sum(total.points, on, _table_unit(total), share=True):
+                out.notes.append(f"분모: {why}")
+                return out
+            totals = {k: sum(p.value for p in pts)
+                      for k, pts in _groups(total.points, lambda p: tuple(str(p.key.get(c)) for c in on)).items()}
+        else:
+            totals = {k: (p.value if p else None) for k, p in _join(total.points, on).items()}
     else:   # 분모 범위가 질문에 없음 → 선택한 항목의 합 (같은 시점끼리)
-        if why := _mixed_for_sum(part.points, on):          # [NEW 11-16] 총계 행(전국·계)이 섞이면 두 번 센다 (검수 M3-06)
+        # [NEW 11-16] 총계 행(전국·계)이 섞이면 두 번 센다 (검수 M3-06). [CHANGED 11-25 D-1] 괄호 단위 없는 항목은 표 단위로 · 항목 총계 검사
+        if why := _mixed_for_sum(part.points, on, _table_unit(part), share=True):
             out.notes.append(why)
             return out
         if len({tuple(sorted((c, str(v)) for c, v in p.key.items() if c not in on)) for p in part.points}) < 2:
