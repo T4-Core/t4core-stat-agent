@@ -1,6 +1,7 @@
 """④-2 빈 좌표 판정 — View 표의 열 구조를 차트마다 정해 둔 자리(좌표)에 꽂아 볼 수 있는지 확인한다 (규칙, HCX 호출 없음)
 
-  check_frame(chart, profile, measure) → (통과 여부, 못 맞춘 이유 목록, 맞춘 자리 설명)
+  check_frame(chart, profile, measure, requested) → (통과 여부, 못 맞춘 이유 목록, 맞춘 자리 설명)
+                                                    requested = 사용자가 요청한 차트 [NEW 11-25] · 값 1개면 이유 SINGLE_VALUE
   chart_measure(m, query_bundle)        → (차트에 쓸 measure, 바꾼 이유 | None)
 
   - 계산하지 않는다. 표의 열 종류(시점 · 지역 · 연령 · 성별 · 기타 범주 · 지표)와 개수만 본다
@@ -44,14 +45,21 @@ def _non_negative(p, measure):
     return None if measure in SIGNED_MEASURES else bool(p.get("non_negative"))
 
 
-def _frames(p, measure):
-    """차트 → (자리를 채울 수 있는가, 필요한 자리 설명). 개수는 계산 전 표 기준이고 최소 개수만 본다"""
+SINGLE_VALUE = "값이 1개뿐 (비교할 값이 없음)"     # [NEW 11-25 6-4] 좌표에서 떨어진 이유. 안내(agent/chart_notice.py)가 이 말로 이유를 알아본다
+
+
+def _frames(p, measure, requested=False):
+    """차트 → (자리를 채울 수 있는가, 필요한 자리 설명). 개수는 계산 전 표 기준이고 최소 개수만 본다
+    requested: [NEW 11-25 6-3] 사용자가 이름으로 요청한 차트를 검사하는가. 요청한 산점도 · 버블은 계열(남자 · 여자처럼 정확히 2 · 3개)을
+               지표로 본다 — '시도별 남자 인구수와 여자 인구수의 관계를 산점도로' 는 표의 항목이 남자인구수 · 여자인구수라
+               모듈 2 가 지표 1개(인구수) + 성별 계열 2개로 읽어 산점도를 탈락시켰다 (15유형 T3-scatter). 요청이 없으면 이전과 같다"""
     t = p.get("n_points") or 0
     cats = _cats(p)
     c1 = n_eff(cats[0]) if cats else 0
     cat_n = p.get("n_categories") or 0
     ser_n = max(p.get("n_series") or 1, 1)
     nm = p.get("n_measures") or 0
+    split = ser_n if requested and len(cats) >= 2 else 0                # 요청할 때만: 범주와 다른 나눔의 값 수
     pos = _non_negative(p, measure) is not False                         # 모르면 통과
     sex = _axis(cats, "성별")
     second = len(cats) >= 2 or (cats and t >= 2) or nm >= 2               # 범주 말고 나눌 기준(계열)이 하나 더 있는가
@@ -65,8 +73,8 @@ def _frames(p, measure):
         "pie":         (c1 >= 2 and pos,                         "시점이 아닌 범주 2개 이상 + 음수 없음"),
         "donut":       (c1 >= 2 and pos,                         "시점이 아닌 범주 2개 이상 + 음수 없음"),
         "combo":       (t >= 3 and nm >= 2,                      "시점 3개 이상 + 지표 2개"),
-        "scatter":     (c1 >= 5 and nm >= 2,                     "범주 5개 이상 + 지표 2개"),
-        "bubble":      (c1 >= 2 and nm >= 3,                     "범주 2개 이상 + 지표 3개"),
+        "scatter":     (c1 >= 5 and (nm >= 2 or split == 2),     "범주 5개 이상 + 지표 2개"),
+        "bubble":      (c1 >= 2 and (nm >= 3 or split == 3),     "범주 2개 이상 + 지표 3개"),
         "dumbbell":    (c1 >= 2 and bool(p.get("two_points_per_category")), "범주 2개 이상 + 비교 대상 2개"),
         "radar":       (c1 >= 3 and bool(second),                "범주 3개 이상 + 계열"),
         "map":         (bool(p.get("has_region")),               "지역 2곳 이상"),
@@ -89,13 +97,17 @@ def _meaning(chart, p, measure):
     return None
 
 
-def check_frame(chart, profile, measure=None):
-    """차트 하나 → (통과 여부, 못 맞춘 이유 목록, 필요한 자리 설명)"""
-    frames = _frames(profile, measure)
+def check_frame(chart, profile, measure=None, requested=False):
+    """차트 하나 → (통과 여부, 못 맞춘 이유 목록, 필요한 자리 설명)
+    requested: [NEW 11-25] 사용자가 요청한 차트인가 (_frames 참고)
+    [CHANGED 11-25 6-4] 표의 값이 1개뿐이면 떨어진 이유를 SINGLE_VALUE 로 남긴다 (통과 · 탈락은 그대로). 이전: 차트마다 필요한 자리
+      ('좌표가 맞지 않음: 시점이 아닌 범주 2개 이상 …')만 남아, 안내가 '이 자료로는 원그래프를 그릴 수 없어' 처럼 이유 없이 나갔다"""
+    frames = _frames(profile, measure, requested)
     if chart not in frames:
         return False, ["지원하지 않는 차트"], ""
     ok, need = frames[chart]
-    fails = [] if ok else [f"좌표가 맞지 않음: {need}"]
+    single = profile.get("n_values") is not None and profile["n_values"] <= 1     # 값 수를 모르면(손으로 만든 profile) 이전 문구
+    fails = [] if ok else [SINGLE_VALUE if single else f"좌표가 맞지 않음: {need}"]
     if ok and (why := _meaning(chart, profile, measure)):
         fails.append(why)
     return not fails, fails, need

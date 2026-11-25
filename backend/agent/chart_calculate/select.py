@@ -18,6 +18,8 @@ ITEM_COL = "항목"
 REGION_HINTS = ("행정구역", "지역", "시도", "시군구")
 AGE_HINTS = ("연령", "세별", "나이")          # 연령별, 5세별, 모의 연령(5세계급)별 …
 CATEGORY_HINTS = AGE_HINTS + REGION_HINTS + ("성별",)
+# [MOVED 11-25 6-5] calculate.py → 여기 (계산 · 차트 이름 · 답변 이름이 같이 쓴다. calculate.INDICATOR_HINTS 로도 그대로 읽힌다)
+INDICATOR_HINTS = ("항목", "종류", "지표")   # 분류 열이지만 지표를 담는 이름 (DT_1B8000G '종류별', '기본항목별')
 MISSING_TEXT = {"", "-", "…", "..."}          # KOSIS 가 빈 값을 표시하는 문자
 
 

@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from backend.agent.chart_calculate.display import ratio_unit, result_unit, unit_of
-from backend.agent.chart_calculate.select import ITEM_COL, REGION_HINTS, VALUE_COL, age_span, select_rows
+from backend.agent.chart_calculate.select import INDICATOR_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL, age_span, select_rows  # noqa: F401
 from backend.agent.chart_calculate.validate import TOTAL_LABELS, totals_in
 from backend.core.korean import strip_unit, unit_tail
 from backend.schemas.chart import CalcInput, CalcResult, Operand, Plan, Step
@@ -602,7 +602,7 @@ def _extreme(ctx: _Ctx) -> Calc:
     return out
 
 
-INDICATOR_HINTS = ("항목", "종류", "지표")   # 분류 열이지만 지표를 담는 이름 (DT_1B8000G '종류별', '기본항목별')
+# [MOVED 11-25 6-5] INDICATOR_HINTS → select.py (위 import 로 이 모듈 이름으로도 그대로 읽힌다)
 
 
 _TOTAL_TAIL = re.compile(r"[\s_](?:계|합계|총계)$")     # [NEW 11-25] '가구_계' · '가구 계' — 항목 이름 끝의 총계 표시

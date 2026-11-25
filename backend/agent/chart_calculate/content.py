@@ -24,12 +24,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.agent.chart_calculate.axis import axis_range, group_sums
-from backend.agent.chart_calculate.calculate import INDICATOR_HINTS, TIME_COL, Calc, period_index, run_steps
-from backend.agent.chart_calculate.display import format_value, strip_unit, unit_of
-from backend.core.korean import unit_tail
-from backend.agent.chart_calculate.select import ITEM_COL, REGION_HINTS, VALUE_COL  # noqa: F401  (REGION_HINTS: 예전 위치 호환)
+from backend.agent.chart_calculate.calculate import TIME_COL, Calc, period_index, run_steps
+from backend.agent.chart_calculate.display import format_value, indicator_name, strip_unit, unit_of
+from backend.agent.chart_calculate.select import INDICATOR_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL  # noqa: F401  (REGION_HINTS: 예전 위치 호환)
 from backend.agent.chart_calculate.specs import SPECS, requirements_for
 from backend.agent.chart_calculate.validate import check_chart
+from backend.core.korean import unit_tail
 from backend.core.reasons import humanize
 from backend.schemas.chart import AxisSpec, ChartContent, ChartPlan, ChartValidation, CheckResult, Display, Plan, Step
 from backend.schemas.record import Record
@@ -50,18 +50,11 @@ _NO_AXIS = {"pie", "donut", "treemap", "map", "radar"}
 
 def shown_item(calc: Calc) -> str | None:
     """[NEW 11-25 5단계 5-0] 축 · 범례 · 제목에 쓸 항목 이름 (단위 괄호 포함 원래 값. 쓰는 쪽에서 strip_unit)
-
-    항목 열 값에 단위 괄호가 없고, 지표를 담는 분류 열(이름에 항목 · 종류 · 지표가 든 열. 항목 열 자체는 빼고)의 고정 값 중
-    단위 괄호가 있는 것이 정확히 하나면 그 값을 쓴다.
+    규칙은 display.indicator_name — 갈래의 고정 좌표(calc.fixed)에서 지표형 분류 열의 값을 본다.
       DT_1B8000G: 항목 '출생사망혼인이혼' · 종류별 '조혼인율(천명당)' → '조혼인율(천명당)' (표시는 '조혼인율')
     이전: 항상 항목 열 값 → '출생사망혼인이혼' 이 막대 · 산점도 · 버블의 축 이름과 범례에 나왔다 (15유형 T1-scatter · T2-bubble).
-    단위 괄호가 없는 값('거처종류별: 계')은 지표 이름인지 알 수 없어 쓰지 않는다 (그때는 이전처럼 항목 열 값)"""
-    item = calc.item
-    if item and unit_tail(item):
-        return item
-    hits = [str(v) for c, v in calc.fixed.items()
-            if c != ITEM_COL and any(h in c for h in INDICATOR_HINTS) and unit_tail(str(v))]
-    return hits[0] if len(hits) == 1 else item
+    [CHANGED 11-25 6-5] 규칙을 display.indicator_name 으로 옮겼다 (모듈 6 의 계산 이름도 같이 쓴다)"""
+    return indicator_name(calc.item, calc.fixed)
 
 
 @dataclass
@@ -181,6 +174,21 @@ def _merge_series(cols: list[str], rows: list[list], used: list[str]) -> str | N
     return SERIES_COL
 
 
+RADAR_SPOKES = (3, 8)       # 레이더 축 수 (specs 의 radar 조건 min_categories_3 · max_categories_8 과 같다)
+
+
+def _radar_spokes(cols: list[str], rows: list[list], var: list[str]) -> str:
+    """[NEW 11-25 6-2] 레이더의 축(label)으로 쓸 열. 지표(항목) → 시점이 아닌 범주 → 시점 순서로, 값이 3~8개인 첫 열.
+    나머지 열은 계열(다각형)이 된다. 맞는 열이 없으면 이전과 같다 (항목이 달라지면 항목, 아니면 첫 열 — 검증이 걸러낸다)
+    이전: 항목이 아니면 항상 첫 열 → '2020년과 2024년 서울·부산·대구·인천·광주' 는 시점 2개가 축이 되어 레이더가 실패하고 막대로 대체됐다.
+    지금: 지역 5곳이 축, 2020 · 2024 가 다각형 (15유형 T2-radar). 시점 5개 · 지역 3곳이면 지역 3곳이 축이 된다"""
+    lo, hi = RADAR_SPOKES
+    order = ([ITEM_COL] if ITEM_COL in var else []) + [c for c in var if c not in (ITEM_COL, TIME_COL)] \
+        + ([TIME_COL] if TIME_COL in var else [])
+    fit = next((c for c in order if lo <= len(_distinct(cols, rows, c)) <= hi), None)
+    return fit or (ITEM_COL if ITEM_COL in var else (var[0] if var else ITEM_COL))
+
+
 def _assign(chart_type: str, cols: list[str], rows: list[list]) -> dict[str, str]:
     """long 표의 어느 열을 어느 역할에 연결할지. 필수 역할을 못 채우면 그대로 두고 검증이 걸러낸다"""
     var = _varying(cols, rows)
@@ -207,7 +215,7 @@ def _assign(chart_type: str, cols: list[str], rows: list[list]) -> dict[str, str
             enc["label"] = first
         enc["value"] = VALUE_COL
     elif chart_type == "radar":
-        enc["label"] = ITEM_COL if ITEM_COL in var else first
+        enc["label"] = _radar_spokes(cols, rows, var)
         if series := _merge_series(cols, rows, [enc["label"]]):
             enc["series"] = series
         enc["value"] = VALUE_COL
@@ -278,6 +286,9 @@ def _joined(chart_type: str, branches: list[_Branch]):
     by_role = {b.role: b for b in branches if b.role in roles}
     if chart_type == "dumbbell" and not by_role and len(branches) == 1:
         return _dumbbell_pivot(branches[0])
+    if chart_type in PIVOT_MEASURES and not by_role and len(branches) == 1:     # [NEW 11-25 6-3]
+        if (pivot := _measure_pivot(chart_type, branches[0])) is not None:
+            return pivot
     used = [by_role[r] for r in roles if r in by_role]
     if not used:
         return [], [], {}, {}, ["output 에 역할이 없어 점을 만들 수 없음"]
@@ -328,6 +339,76 @@ def _joined(chart_type: str, branches: list[_Branch]):
         axis_name = used[0].label if time_split else " · ".join(dict.fromkeys(names))
         axis["x"] = _value_axis(axis_name, used[0], [v for b in used for v in col[b.role]], rules.get("x"))
     return cols, rows, enc, axis, warnings
+
+
+PIVOT_MEASURES = {"scatter": 2, "bubble": 3}       # 갈래 하나를 지표 열로 펼칠 때 필요한 값 수 (x · y / x · y · size)
+_SEX_COL = "성별"
+
+
+def _pivot_rank(col: str) -> int:
+    """펼칠 열을 고르는 순서: 항목 → 지표형 분류 열(종류별 · 기본항목별 …) → 성별 → 그 밖의 열"""
+    if col == ITEM_COL:
+        return 0
+    if any(h in col for h in INDICATOR_HINTS):
+        return 1
+    return 2 if col == _SEX_COL else 3
+
+
+def _measure_pivot(chart_type: str, b: _Branch):
+    """[NEW 11-25 6-3] 산점도 · 버블인데 역할(x · y · size)이 나뉜 갈래가 없고, 갈래 하나에 지표가 2 · 3개 섞여 있으면
+    그 열의 값을 지표 열로 펼친다 → (columns, rows, encoding, axis, warnings).
+    펼칠 수 없으면 None → 이전과 같다 ('output 에 역할이 없어 점을 만들 수 없음' → 행 없음 → data_present 실패라 대체 차트도 시도하지 않음)
+      예: '2024년 시도별 남자 인구수와 여자 인구수의 관계를 산점도로' — 항목 = 남자인구수 · 여자인구수, 시도 18곳
+          → [시점, 시도, 남자인구수, 여자인구수] 18행, x = 남자인구수 · y = 여자인구수 · 점 이름 = 시도 (15유형 T3-scatter)
+      이전: '역할이 없어 점을 만들 수 없음' → 막대로 대체 (모듈 2 도 산점도를 고르지 않았다 — chart_type_frames 의 6-3)
+    펼칠 열: 값이 정확히 2 · 3개인 열 (_pivot_rank 순서). 나머지 열 중 값이 달라지는 열(점 이름)이 정확히 하나일 때만 —
+    둘 이상이면(시도 × 연도) 같은 점 이름이 여러 번 나와 어느 점인지 알 수 없다.
+    역할 순서 = 그 열에서 값이 처음 나온 순서 (HCX 가 고른 순서 = 보통 질문에 나온 순서)"""
+    k = PIVOT_MEASURES[chart_type]
+    pts = b.calc.points
+    keys = list(dict.fromkeys(c for p in pts for c in p.key))
+    distinct = {c: list(dict.fromkeys(str(p.key.get(c)) for p in pts if c in p.key)) for c in keys}
+    for col in sorted((c for c in keys if len(distinct[c]) == k), key=_pivot_rank):
+        rest = [c for c in keys if c != col]
+        varying = [c for c in rest if len(distinct[c]) > 1]
+        if len(varying) != 1:
+            continue
+        values = distinct[col]
+        item = shown_item(b.calc)
+        if col == ITEM_COL or any(h in col for h in INDICATOR_HINTS) or not item:
+            names = [strip_unit(v) for v in values]
+        else:                                                      # 성별 열 → '남자 인구수' · '여자 인구수'
+            names = [f"{v} {strip_unit(item)}" for v in values]
+        if len(set(names)) < k:
+            continue
+        table: dict[tuple, dict] = {}
+        warnings: list[str] = []
+        for p in pts:
+            key = tuple(p.key.get(c) for c in rest)
+            cell = table.setdefault(key, {})
+            if str(p.key.get(col)) in cell:
+                warnings.append(f"{b.label}: 결합 키 중복 {dict(zip(rest, key))}")
+            cell[str(p.key.get(col))] = p.value
+        rows = []
+        for key, cell in table.items():
+            vals = [cell.get(v) for v in values]
+            if any(v is None for v in vals):
+                warnings.append(f"한쪽 값이 없어 제외: {dict(zip(rest, key))}")
+                continue
+            rows.append([*key, *vals])
+        cols = rest + names
+        roles = [r for r in SPECS[chart_type].required if r != "label"]
+        enc = {**dict(zip(roles, names)), "label": varying[0]}
+        rules = SPECS[chart_type].axis_rules
+        units = {unit_tail(v) for v in values} - {None}
+        axis = {}
+        for r, n in zip(roles, names):
+            if r in ("x", "y"):
+                axis[r] = _value_axis(n, b, [row[cols.index(n)] for row in rows], rules.get(r))
+                if len(units) > 1:          # 지표마다 단위가 다르면 갈래의 표시 설정(단위 하나)을 축에 붙이지 않는다
+                    axis[r].display_ref = None
+        return cols, rows, enc, axis, warnings
+    return None
 
 
 def _dumbbell_pivot(b: _Branch):
