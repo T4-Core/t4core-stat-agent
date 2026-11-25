@@ -62,8 +62,10 @@ def _is_ratio(text: str) -> bool:
     return any(w in text for w in _RATIO_WORDS)
 
 
-def matches(item: str | None, indicator: str | None, strict: bool = False) -> bool:
-    """항목이 지표에 대응하는가. strict=True 면 수식어 허용 없이 이름이 같을 때만 (View 가 '지표와 맞는 항목 없음' 이라고 한 경우)"""
+def matches(item: str | None, indicator: str | None, strict: bool = False, modifiers=frozenset()) -> bool:
+    """항목이 지표에 대응하는가. strict=True 면 수식어 허용 없이 이름이 같을 때만 (View 가 '지표와 맞는 항목 없음' 이라고 한 경우)
+    modifiers: [NEW 11-25] 질문이 요청한 수식어 (성별: 남자 · 남 · 남성 …). 항목 = 수식어 + 지표 이면 대응으로 본다.
+      '남녀 인구' 를 물었을 때 표의 '남자인구수' 는 인구수의 일부가 아니라 질문이 요청한 값이다. 수식어가 질문에 없으면 지금처럼 다른 지표"""
     if not item or not indicator:
         return True                                   # 비교할 것이 없으면 막지 않는다
     ib, idesc = _split(item, derived=False)
@@ -79,11 +81,13 @@ def matches(item: str | None, indicator: str | None, strict: bool = False) -> bo
             continue                                  # 비율 계열은 같은 이름일 때만 (인구성장률 ≠ 인구수)
         if a.endswith(b) and a[:-len(b)] in _HARMLESS_PREFIX:
             return True
+        if a.endswith(b) and a[:-len(b)] in modifiers:      # [NEW 11-25] 남자 + 인구 ↔ 인구 (질문이 성별을 요청했을 때만)
+            return True
     return False
 
 
-def matches_any(item: str | None, indicators: list[str], strict: bool = False) -> bool:
-    return not indicators or any(matches(item, i, strict) for i in indicators)
+def matches_any(item: str | None, indicators: list[str], strict: bool = False, modifiers=frozenset()) -> bool:
+    return not indicators or any(matches(item, i, strict, modifiers) for i in indicators)
 
 
 # [NEW 11-20] 평균 · 1인당 · 밀도는 개수가 아니다 (평균가구원수 2.3 은 개수 지표로 보면 안 된다)
@@ -131,18 +135,19 @@ def measure_compatible(indicator: str | None, source_unit: str | None) -> bool |
 
 
 def correspondence(item: str | None, source_unit: str | None, indicators: list[str], targets: list[str],
-                   aliases: list[str] | tuple = (), strict: bool = False) -> str | None:
+                   aliases: list[str] | tuple = (), strict: bool = False, modifiers=frozenset()) -> str | None:
     """항목이 요청한 지표에 대응하는 경로: "name" · "target" · "alias". 대응하지 않으면 None
 
       name   항목 이름이 지표와 대응. 측정 호환이 **False** 일 때만 거부한다 (표에 없는 지표는 판정할 수 없어 기존대로 승인 — 회귀 방지)
       target 지표가 개수(가구수)일 때 항목이 대상(1인가구)의 이름 (Q25). 측정 호환이 **False** 이면 거부한다 (가구원수 ↔ 가구수 를 막는다)
       alias  지표가 개수일 때 항목이 원문표현 · 조건 값과 같다 (보증부월세, 국제결혼이주자). 측정 호환이 **True** 일 때만 승인한다.
              (View 의 분류 구조 · 조건의 분류 축 확인은 호출한 쪽이 한다)
-    지표가 비율 · 증가(인구성장률)이면 대상 · 별칭 이름이 맞아도 지표가 아니므로 통과시키지 않는다 (검토 11)"""
+    지표가 비율 · 증가(인구성장률)이면 대상 · 별칭 이름이 맞아도 지표가 아니므로 통과시키지 않는다 (검토 11)
+    modifiers: [NEW 11-25] 질문이 요청한 수식어 (matches 참고). 이름 경로에만 쓴다"""
     if not indicators:
         return "name"
     for i in indicators:
-        if matches(item, i, strict) and measure_compatible(i, source_unit) is not False:
+        if matches(item, i, strict, modifiers) and measure_compatible(i, source_unit) is not False:
             return "name"
     counts = [i for i in indicators if is_count_indicator(i)]
     # 대상 경로는 기존 동작이라 판정할 수 없을 때(None)는 승인을 유지하고, 맞지 않을 때(False)만 거부한다 (회귀 방지: 단위를 모르는 View 의 1인가구 ↔ 가구수).

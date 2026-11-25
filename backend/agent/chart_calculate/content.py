@@ -269,6 +269,17 @@ def _joined(chart_type: str, branches: list[_Branch]):
     names, warnings = [], []
     for b in used:      # 같은 항목을 두 번 쓰면 열 이름이 겹친다 → 역할을 붙여 구분
         names.append(b.label if b.label not in names else f"{b.label}({b.role})")
+    # [NEW 11-25] 덤벨: 갈래마다 시점이 하나씩이고 서로 다르면(start 2015 · end 2024) 시점으로 짝짓지 않는다 (체크리스트 1-5).
+    #   이전: 시점이 결합 키에 들어가 (2015, 서울) 과 (2024, 서울) 이 다른 행이 됐다 → 범주마다 한쪽 값만 있어
+    #   two_points_per_category 에서 떨어지고 막대로 대체됐다 (15유형 테스트 덤벨 질문 3건 모두).
+    #   열 이름은 그 갈래의 시점 → _dumbbell_pivot (갈래 1개에 시점 2개) 과 같은 모양 (범례 2015 · 2024)
+    time_split = False
+    if chart_type == "dumbbell" and TIME_COL in keys:
+        times = [{str(p.key.get(TIME_COL)) for p in b.calc.points} for b in used]
+        if all(len(t) == 1 for t in times) and len({next(iter(t)) for t in times}) == len(used):
+            keys = [c for c in keys if c != TIME_COL]
+            names = [next(iter(t)) for t in times]
+            time_split = True
     tables = []
     for b in used:
         t: dict[tuple, Any] = {}
@@ -295,8 +306,9 @@ def _joined(chart_type: str, branches: list[_Branch]):
     axis = {b.role: _value_axis(n, b, col[b.role], rules.get(b.role))
             for b, n in zip(used, names) if b.role in ("x", "y")}
     if chart_type == "dumbbell":     # [NEW] _dumbbell_pivot 과 출력 모양을 맞춘다: start·end 가 가로 값 축 하나를 나눠 쓴다
-        axis["x"] = _value_axis(" · ".join(dict.fromkeys(names)), used[0], [v for b in used for v in col[b.role]],
-                                rules.get("x"))
+        # [CHANGED 11-25] 시점으로 나눈 덤벨은 열 이름이 시점이라 축 이름은 지표 이름 (_dumbbell_pivot 과 같음)
+        axis_name = used[0].label if time_split else " · ".join(dict.fromkeys(names))
+        axis["x"] = _value_axis(axis_name, used[0], [v for b in used for v in col[b.role]], rules.get("x"))
     return cols, rows, enc, axis, warnings
 
 
