@@ -58,7 +58,8 @@ def table_move(f) -> dict:
     """표 단면 → {"move": 이동 표인가, "codes": {시도간, 시군구간, 전입, 전출, 순이동, 국제}, "od": 전출지×전입지 행렬인가}"""
     names = [f.tbl_nm, *f.items]
     objs = [obj for obj, _, _ in f.dims]
-    vals = [n for _, _, ns in f.dims for n in ns[:300]]
+    # 시나리오 분류 값은 가정 설명('…국제이동-중위 / 국내이동-중위') — 이동 범위 판정에 넣지 않음 (장래추계 순이동률이 국제 표로 잡히던 것)
+    vals = [n for _, kind, ns in f.dims if kind != "scenario" for n in ns[:300]]
     head = norm(" ".join(names))
     blob = norm(" ".join(names + objs + vals))
     move = bool(MOVE_T_RE.search(head)) or any(MOVE_T_RE.search(str(o)) for o in objs)

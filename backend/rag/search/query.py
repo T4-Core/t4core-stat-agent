@@ -37,7 +37,7 @@ NOT_REGION_WORDS = set("다시 동시 역시 당시 실시 표시 제시 명시 
 WANT_AGE_RE = re.compile(r"\d+\s*세|[1-9]0\s*대|연령|나이|몇\s*살|고령|노인|어르신|청년|청소년|영유아|아동|유소년|생산연령|노년")
 WANT_SEX_RE = re.compile(r"남자|여자|남성|여성|성별|남녀|엄마|아빠|남편|아내")
 ANY_REGION_RE = re.compile(r"어느\s*(?:지역|시도|곳|도시)|지역은|지역별|지역들|곳은\s*어디|어디일까|어디인가|어디야|어디인지|행정구역별")
-AXIS_RE = re.compile(r"(읍면동|시군구|시도)\s*(?:별|단위|마다|\s)")
+AXIS_RE = re.compile(r"(읍면동|시군구|시도|자치구|구군)\s*(?:별|단위|마다|\s)")
 # 표를 가르지 못하는 군말 — 긴 설문 문항 이름('… 이야기 나눌 수 있는 사람 수')과 우연히 겹쳐 엉뚱한 표가 올라오는 것을 막음
 FILLER_RE = re.compile(r"알\s*수\s*있는|알고\s*싶어요?|보고\s*싶어요?|확인할\s*수\s*있는|보여\s*주는|보여줘|알려\s*줘|알려주세요|찾아\s*줘|"
                        r"어디서\s*봐|어떻게\s*되나요|어떻게\s*돼|얼마나\s*(?:돼|되나요|될까요?)?|몇\s*(?:명|가구|건|호|살)?(?:이야|이에요|인가요|야|이나)?|"
@@ -142,6 +142,7 @@ def parse_question(question, filters=None, today=None, region_dict=None) -> Quer
     v.want_sex = bool(f.get("성별")) or bool(WANT_SEX_RE.search(q))
     m = AXIS_RE.search(q + " ")
     ax = (m.group(1) if m else None) or str(f.get("비교축") or "")
+    ax = ax.replace("자치구", "시군구").replace("구군", "시군구")
     v.axis = next((g for g in ("읍면동", "시군구", "시도") if g in ax), None)
     if v.axis is None and (ANY_REGION_RE.search(q) or any(w in ax for w in ("지역", "행정구역"))):
         v.axis = "지역"  # 수준은 말하지 않았지만 지역끼리 비교 → 지역 분류가 있는 표

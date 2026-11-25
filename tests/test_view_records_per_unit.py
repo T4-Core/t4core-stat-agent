@@ -80,16 +80,59 @@ def test_build_viewset_per_unit(fake, monkeypatch):
     monkeypatch.setattr(R, "run_query", spy)
     monkeypatch.setattr(V, "detect", lambda views, f, s, uid: {"status": "ok", "n_compared_keys": 0, "differing_points": [],
                                                                    "clusters": [], "views": [], "notes": []})
-    vs = V.build_viewset(dict(VB), overrides={"view_records_per_unit": 3})
+    vs = V.build_viewset(dict(VB), overrides={"view_records_per_unit": 3, "view_main_with_subs": False})  # 설정 파일 값과 무관하게
     assert seen == {"n_views": 3, "fill": True}
     by_unit = {}
     for u in vs["units"]:
         by_unit[u["unit_id"]] = [r["source"]["tbl_id"] for r in V.unit_records(u)]
     assert by_unit == {"q-1": ["A", "D", "E"], "q-2": ["A", "D", "E"]} and len(vs["records"]) == 6
-    V.build_viewset(dict(VB), overrides={"view_records_per_unit": 0, "view_n_views": 3})
+    V.build_viewset(dict(VB), overrides={"view_records_per_unit": 0, "view_n_views": 3, "view_main_with_subs": False})
     assert seen == {"n_views": 3, "fill": False}
 
 
 def test_default_off_in_code():
     from backend.core.settings import Settings
     assert Settings().view_records_per_unit == 0                                          # 켜는 곳은 configs/pipeline.yaml
+
+
+def test_searched_units_main_copy():
+    """역할 단위와 함께 들어간 본 질의 복사본(roles.py) → 그 결과 = 본 질의 방식 검색. 복사본이 없으면 기존처럼 main 을 건너뜀"""
+    vb = {"query_id": "q", "original": "질문", "filters": {"지표": ["x"]}, "search_text": "일반가구 보증부월세",
+          "sub_questions": ["일반가구 보증부월세", "일반가구"],
+          "sub_filters": [{"지표": ["x"]}, {"지표": ["일반가구"], "역할": "분모"}]}
+    units = R.units_of(vb)
+    assert R.main_copy(units) == 1 and R.searched_units(units) == [0, 2]   # main 방식 결과 + 분모
+    assert R.searched_units(units, skip_main=False) == [0, 1, 2]
+    assert R.searched_units(R.units_of(VB)) == [1, 2]              # 복사본 없음 → main 건너뜀 (기존)
+    # 문장이 같아도 역할 단위면 복사본이 아님
+    vb2 = {**vb, "sub_questions": ["일반가구 보증부월세"], "sub_filters": [{"지표": ["x"], "역할": "조건"}]}
+    assert R.searched_units(R.units_of(vb2)) == [1]
+    # 지표마다 나눈 하위 질의(역할 단위 없음)가 우연히 본 질의 문장과 같아도 기존처럼 main 을 건너뜀
+    vb3 = {**vb, "sub_questions": ["일반가구 보증부월세", "총전입"], "sub_filters": [{"지표": ["x"]}, {"지표": ["총전입"]}]}
+    assert R.searched_units(R.units_of(vb3)) == [1, 2]
+
+
+def test_run_query_searches_main_for_copy(fake):
+    seen = []
+    vb = {"query_id": "q", "original": "질문", "filters": {"지표": ["x"]}, "search_text": "x 지표",
+          "sub_questions": ["x 지표", "인구"], "sub_filters": [{"지표": ["x"]}, {"지표": ["인구"], "역할": "분모"}]}
+
+    def fn(q, k, filters=None, question=None, unit=None):
+        seen.append(unit)
+        return fake(q, k)
+    out = R.run_query(vb, 10, 3, search_fn=fn, skip_main=True)
+    # 단위 목록·이름은 그대로 (답변 모듈이 하위 질문과 문장·순서로 짝지음), 복사본만 본 질의 방식으로 검색
+    assert [u["unit_id"] for u in out["units"]] == ["q-1", "q-2"] and seen == ["main", "q-2"]
+
+
+def test_main_copy_needs_same_filters_and_skip():
+    # 문장이 같아도 슬롯(지역 등)이 다르면 복사본이 아님 · main 도 검색하는 설정이면 복사본을 바꿔 검색하지 않음
+    vb = {"query_id": "q", "original": "질문", "filters": {"지표": ["입국"], "지역": ["전국"]}, "search_text": "입국",
+          "sub_questions": ["입국", "인구"], "sub_filters": [{"지표": ["입국"], "지역": ["서울특별시"]}, {"지표": ["인구"], "역할": "분모"}]}
+    assert R.main_copy(R.units_of(vb)) is None
+    vb["sub_filters"][0] = {"지표": ["입국"], "지역": ["전국"]}
+    assert R.main_copy(R.units_of(vb)) == 1
+    seen = []
+    R.run_query(vb, 10, 3, search_fn=lambda q, k, filters=None, question=None, unit=None: seen.append(unit) or [],
+                skip_main=False)
+    assert seen == ["main", "q-1", "q-2"]

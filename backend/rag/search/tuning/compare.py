@@ -35,6 +35,12 @@
 
 하위 질문 검증: 캐시된 질의 분석에도 query_analyzer/subcheck.prune_units 를 다시 적용 (뜻 없는 '수(水)' · 분모처럼 붙은
 '인구' 단위를 뺌). --raw-units 면 캐시 그대로 (arm 'off' 도 그대로)
+
+앱 기준 지표 (app_*): 위 지표는 단위 결과를 한 줄로 합쳐 재지만, 앱(run_chat → build_viewset → run_query)은 하위 질의가 있으면
+본 질의(main)를 검색하지 않고 단위마다 상위 몇 개만 Record 로 넘긴다. 여러 표 질문에서 둘이 갈리므로 앱처럼 단위별로 따로 잰
+값을 함께 낸다 (기존 지표는 바꾸지 않음). 설정은 configs/pipeline.yaml (view_main_with_subs · view_records_per_unit)
+질의 분석 캐시 점검: 캐시 키에 코드 버전이 없어 분석기를 고친 뒤의 --from-run 은 옛 분석으로 잰다 → 줄마다 분석 코드 서명을
+남기고, 지금 서명과 다른·없는 줄 수와 코드 추출만 쓴 문항(HCX 실패 · '범위 밖' 뒤집기)을 report.md 머리에 적는다 (키는 그대로, HCX 를 다시 안 부름)
 """
 from __future__ import annotations
 
@@ -66,9 +72,49 @@ def analyze_units(question, mode="analyze", today=None):
     a = analyze(question, today=today)
     vb = a.get("view_bundle")
     if not vb or vb.get("filters") is None:
-        return [{"unit": "main", "text": question, "search_query": question, "filters": None, "status": a["status"]}]
+        return [{"unit": "main", "text": question, "search_query": question, "filters": None, "status": a["status"],
+                 "notes": a.get("notes", [])}]  # 멈춘 분석(범위 밖 · 되묻기)도 노트를 남김 → 캐시 점검이 읽음
     return [{"unit": uid, "text": text, "search_query": search_query(text, f), "filters": f, "status": a["status"],
              "notes": a.get("notes", []), "assumed": bool(a.get("clarifications"))} for uid, text, f in units_of(vb)]
+
+
+# 질의 분석 캐시 키(mode|today|question)에는 코드 버전이 없다 → 분석기를 고친 뒤의 --from-run 회귀가 옛 분석을 쓰는지 알 수 있게
+# 캐시 줄마다 '분석 코드 서명'을 남기고, 불러올 때 지금 서명과 다른 줄 · HCX 실패로 코드 추출만 쓴 줄을 센다 (키는 그대로 → HCX 를 다시 부르지 않음)
+SIG_PATHS = ("backend/rag/query_analyzer", "backend/rag/search/resolve.py", "backend/rag/view/run.py",
+             "configs/pipeline.yaml", "configs/colloquial.yaml")
+HCX_FAIL_RE = re.compile(r"HCX 슬롯 추출 실패|재작성 단계 오류")
+OOS_FLIP = "범위 밖 판정을 뒤집음"  # 분석기는 이때도 hcx_ok=False · 'HCX 슬롯 추출 실패' 안내를 붙임 (analyze.py rule_state) → 실패와 나눠 셈
+
+
+def analyzer_sig(root=None):
+    """질의 분석 결과를 바꾸는 코드·설정 파일 내용의 해시 (12자). 없는 파일은 건너뜀"""
+    import os
+
+    from backend.core.config import CONFIGS_DIR, ROOT
+    base = Path(root) if root else ROOT
+    h = hashlib.sha1()
+    for rel in SIG_PATHS:
+        p = base / rel
+        if not root and rel.startswith("configs/"):    # 실제로 읽는 설정 (CONFIGS_DIR · PIPELINE_CONFIG — 설정 사본 포함)
+            p = Path(os.environ["PIPELINE_CONFIG"]) if rel == "configs/pipeline.yaml" and os.environ.get("PIPELINE_CONFIG")                 else Path(CONFIGS_DIR) / Path(rel).name
+        for f in sorted(p.rglob("*.py")) if p.is_dir() else [p]:
+            if f.is_file():
+                h.update(rel.encode() if not f.is_relative_to(base) else f.relative_to(base).as_posix().encode())
+                h.update(f.read_bytes())
+    return h.hexdigest()[:12]
+
+
+def code_only(units):
+    """캐시된 단위 → 재작성(HCX) 슬롯 대신 코드 추출 값만 쓴 분석인가: 'hcx_fail' (재작성 호출 실패) ·
+    'oos_flip' (HCX 는 '범위 밖' 이라 했지만 통계 용어가 있어 코드 추출로 검색) ·
+    'error' (분석 전체가 예외 → 원문 검색, 원인이 HCX 인지는 모름) · '' (HCX 슬롯 씀)"""
+    u = (units or [{}])[0]
+    notes = [str(n) for n in u.get("notes") or []]
+    if str(u.get("status") or "").startswith("error:"):
+        return "error"
+    if not any(HCX_FAIL_RE.search(n) for n in notes):
+        return ""
+    return "oos_flip" if any(OOS_FLIP in n for n in notes) else "hcx_fail"
 
 
 # 앞단 수정 켜고 끄기 (engine.DEFAULTS['feas'] 의 새 계수 + 하위 질문 검증). 값 1.0 = 끔
@@ -197,6 +243,7 @@ def analyze_all(rows, mode, today, cache_path: Path, log=print):
             if line.strip():
                 r = json.loads(line)
                 cache[r["key"]] = r
+    sig = analyzer_sig() if mode != "none" else None
     out, n_new, t0 = {}, 0, time.time()
     with cache_path.open("a", encoding="utf-8") as f:
         for i, r in enumerate(rows, 1):
@@ -207,7 +254,7 @@ def analyze_all(rows, mode, today, cache_path: Path, log=print):
                 except Exception as e:  # noqa: BLE001  (분석 실패 → 원문 검색)
                     units = [{"unit": "main", "text": r["question"], "search_query": r["question"], "filters": None,
                               "status": f"error:{e.__class__.__name__}"}]
-                cache[key] = {"key": key, "question": r["question"], "mode": mode, "today": today, "units": units}
+                cache[key] = {"key": key, "question": r["question"], "mode": mode, "today": today, "units": units, "sig": sig}
                 f.write(json.dumps(cache[key], ensure_ascii=False, default=str) + "\n")
                 f.flush()
                 n_new += 1
@@ -217,6 +264,30 @@ def analyze_all(rows, mode, today, cache_path: Path, log=print):
     log(f"[분석] {len(rows)}문항 (새로 {n_new}, 캐시 {len(rows) - n_new}) · 상태 "
         f"{dict(Counter(u[0].get('status') for u in out.values()))}")
     return out
+
+
+def check_cache(rows, analysis, mode, today, cache_path: Path, log=print):
+    """쓴 질의 분석 캐시 줄 점검 → {sig, same, other, unknown, hcx_fail, oos_flip, error} (지금 분석 코드 서명과 같은·다른 줄 수,
+    서명 없는 줄 = 이 기능 전에 만든 줄이라 어느 분석기 버전인지 모름, 코드 추출만 쓴 문항 — HCX 실패 · '범위 밖' 뒤집기 · 분석 예외).
+    mode none 이거나 캐시 파일이 없으면 None"""
+    if mode == "none" or not Path(cache_path).exists():
+        return None
+    by = {}
+    for line in Path(cache_path).read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            c = json.loads(line)
+            by[c["key"]] = c
+    sig = analyzer_sig()
+    used = [by.get(hashlib.sha1(f"{mode}|{today}|{r['question']}".encode()).hexdigest()[:16]) or {} for r in rows]
+    st = {"sig": sig, "same": sum(c.get("sig") == sig for c in used),
+          "other": sum(bool(c.get("sig")) and c.get("sig") != sig for c in used),
+          "unknown": sum(not c.get("sig") for c in used),
+          **{k: sorted(r["qid"] for r in rows if code_only((analysis or {}).get(r["qid"])) == k) for k in ("hcx_fail", "oos_flip", "error")}}
+    if st["other"] or st["unknown"] or st["hcx_fail"] or st["oos_flip"] or st["error"]:
+        log(f"  [캐시 점검] 분석 코드 서명 {sig}: 같음 {st['same']} · 다름 {st['other']} (지금 분석기와 다른 코드로 분석) · "
+            f"서명 없음 {st['unknown']} (버전 확인 불가) · 코드 추출만 쓴 문항: HCX 실패 {len(st['hcx_fail'])}"
+            f" · '범위 밖' 뒤집기 {len(st['oos_flip'])} · 분석 예외 {len(st['error'])}")
+    return st
 
 
 # ── 평가 ─────────────────────────────────────────────────────────
@@ -285,11 +356,43 @@ def label_suspect(pipe, row, gold_ids):
     return " ".join(dict.fromkeys(out))
 
 
-def evaluate_one(pipe, row, units, top_k, pool):
+def app_settings():
+    """앱 경로(run_chat → build_viewset → run_query)의 View 설정 (configs/pipeline.yaml)
+    main_with_subs = 하위 질의가 있을 때 본 질의도 검색하는가 (view_main_with_subs, run.py skip_main)
+    n_rec = 단위마다 답변으로 넘길 Record 수 (viewset.py: view_records_per_unit 이 있으면 그것, 없으면 view_n_views)"""
+    from backend.core.settings import get_settings
+    s = get_settings()
+    return {"main_with_subs": bool(s.view_main_with_subs),
+            "n_rec": int(getattr(s, "view_records_per_unit", 0) or 0) or int(s.view_n_views)}
+
+
+def app_status(units):
+    """앱이 이 분석으로 검색까지 가는가 — ok · out_of_scope(슬롯 없음, viewset.py) · 분석 상태(멈춤, pipeline.run_chat)
+    상태가 없는 단위(손으로 만든 단위)는 ok 로 봄"""
+    st = (units or [{}])[0].get("status") or "ok"
+    if st != "ok":
+        return st
+    return "ok" if any(u.get("filters") is not None for u in units) else "out_of_scope"
+
+
+def app_units(units, app):
+    """앱이 검색하는 단위 번호 — view/run.searched_units 와 같은 규칙 (하위 질의가 있으면 main 을 건너뛰되,
+    본 질의 복사본이 있으면 그 대신 main). main_with_subs 면 전부"""
+    from backend.rag.view.run import searched_units
+    return searched_units([(u.get("unit") or "main", u.get("text") or u.get("search_query"), u.get("filters")) for u in units],
+                          not app["main_with_subs"])
+
+
+def evaluate_one(pipe, row, units, top_k, pool, app=None):
+    """app: app_settings() — 앱 기준 지표(app_*)를 함께. 비우면 지금 설정으로
+    app_* 는 합친 순위가 아니라 앱처럼 단위마다 따로 본다: 앱이 검색하는 단위의 상위 n_rec(Record) · top_k(후보) 안에
+    근거 그룹이 있는가. 앱이 멈추는 문항(app_status ≠ ok)은 0. View 생성 실패·요청 지표 없음으로 건너뛰는 것은 반영 못 함"""
     from backend.rag.search.resolve import unmet
-    best, pool_ids, n_filters = {}, set(), 0
+    app = app or app_settings()
+    best, pool_ids, n_filters, unit_hits = {}, set(), 0, []
     for ui, u in enumerate(units):
         r = pipe.search(u["search_query"], u.get("filters"), top_k, question=row["question"], unit=u.get("unit") or "main")
+        unit_hits.append([h["tbl_id"] for h in r["hits"]])
         for h in r["hits"]:
             k = (h["rank"], ui)
             if h["tbl_id"] not in best or k < best[h["tbl_id"]][0]:
@@ -308,6 +411,15 @@ def evaluate_one(pipe, row, units, top_k, pool):
         res[f"groups@{k}"] = int(all(set(v) & top for v in row["groups"].values()))
     res["pool@k"] = int(bool(acceptable & pool_ids))
     res["pool_groups@k"] = int(all(set(v) & pool_ids for v in row["groups"].values()))
+    # 앱 기준 — 단위별 (main 건너뜀 반영)
+    res["app_status"] = app_status(units)
+    res["app_stop"] = int(res["app_status"] != "ok")
+    keep = app_units(units, app) if not res["app_stop"] else []
+    app_rec = set().union(*[unit_hits[i][:app["n_rec"]] for i in keep])
+    app_cand = set().union(*[unit_hits[i][:top_k] for i in keep])
+    res["app_hit"] = int(bool(acceptable & app_rec))
+    res["app_groups"] = int(bool(keep) and all(set(v) & app_rec for v in row["groups"].values()))
+    res["app_groups_cand"] = int(bool(keep) and all(set(v) & app_cand for v in row["groups"].values()))
     in_corpus = [t for t in acceptable if t in pipe.docs_by_id]
     res["in_corpus"] = int(bool(in_corpus))
     # 정답 표의 조건 불일치 (슬롯이 있는 단위 기준) — 조건표가 정답을 잘못 '못 맞춤'으로 보는지
@@ -376,6 +488,10 @@ def evaluate_one(pipe, row, units, top_k, pool):
                 top = set(ranking[:k])
                 res[f"groups@{k}_aud"] = int(all((set(v) | set((alt or {}).get(g, [])) | set((alt or {}).get("ALL", [])) | extra)
                                                  & top for g, v in row["groups"].items()))
+            res["app_hit_aud"] = int(bool(acc3 & app_rec))
+            res["app_groups_aud"] = int(bool(keep) and all(
+                (set(v) | set((alt or {}).get(g, [])) | set((alt or {}).get("ALL", [])) | extra) & app_rec
+                for g, v in row["groups"].items()))
     return res
 
 
@@ -388,10 +504,14 @@ METRICS = ["hit@1", "hit@3", "hit@5", "hit@10", "groups@5", "groups@10", "mrr", 
            "gold_unmet_any", "sibling_confusion", "near_confusion", "in_corpus", "dense@10", "dense@50", "rwdense@10"]
 ALT_METRICS = ["hit@1_alt", "hit@3_alt", "hit@5_alt", "hit@10_alt", "groups@5_alt", "groups@10_alt", "mrr_alt"]
 AUD_METRICS = ["hit@1_aud", "hit@3_aud", "hit@5_aud", "hit@10_aud", "groups@5_aud", "groups@10_aud", "mrr_aud"]
+APP_METRICS = ["app_stop", "app_hit", "app_groups", "app_groups_cand"]
+APP_AUD_METRICS = ["app_hit_aud", "app_groups_aud"]
 
 
 def aggregate(recs):
     out = {"n": len(recs), **{m: _mean([r.get(m) for r in recs]) for m in METRICS}}
+    if any(r.get("app_stop") is not None for r in recs):
+        out.update({m: _mean([r.get(m) for r in recs]) for m in APP_METRICS + APP_AUD_METRICS})
     if any(r.get("mrr_alt") is not None for r in recs):
         out.update({m: _mean([r.get(m) for r in recs]) for m in ALT_METRICS})
         out["with_alt"] = _mean([int(bool(r.get("alt_tables"))) for r in recs])
@@ -429,6 +549,7 @@ def run(rows, analysis, denses, llm, top_k, pool, log=print, tuned=None, docs=("
       조각을 이어 씀 (llm_variant): traits = 구분 줄 · think = HCX-007 추론 (수준 llm_thinking)"""
     from backend.rag.search.tuning.tune import load_tuned, tuned_path
     per, info = [], {}
+    app = app_settings()  # 앱 기준 지표(app_*) — configs/pipeline.yaml 의 View 설정
     docs = list(docs or ["rule"])
     label_docs = len(docs) > 1 or docs != ["rule"]
     for dense0 in denses:
@@ -472,7 +593,7 @@ def run(rows, analysis, denses, llm, top_k, pool, log=print, tuned=None, docs=("
                             pipe = with_feas(pipe0, feas)
                             units_of_row = analysis if prune else (raw_analysis or analysis)
                         for row in rows:
-                            res = evaluate_one(pipe, row, units_of_row[row["qid"]], top_k, pool)
+                            res = evaluate_one(pipe, row, units_of_row[row["qid"]], top_k, pool, app)
                             per.append({"method": m, "dense": label, "config": name, **{k: row[k] for k in (
                                 "qid", "record_id", "variant", "hop_type", "reasoning_type", "subtype", "survey", "difficulty")},
                                 "split": row.get("split") or (row["difficulty"] if row["difficulty"] in ("dev", "test", "train") else ""),
@@ -627,6 +748,13 @@ def report_md(meta, table, fails, wins, per):
          + (f" · arms {meta['arms']} (첫 arm 이 기준, off = 수정 전)" if meta.get("arms") else ""),
          "- 정답 = golden_table_ids ∪ 근거 그룹의 acceptable_table_ids. Hit@k = 하나라도 상위 k, Groups@k = 모든 근거 그룹이 상위 k",
          ""]
+    ac = meta.get("analysis_cache")
+    if ac:
+        some = lambda q: f" ({' '.join(q[:10])}{' …' if len(q) > 10 else ''})" if q else ""  # noqa: E731
+        L.insert(-1, f"- 질의 분석 캐시 점검: 분석 코드 서명 `{ac['sig']}` 같음 {ac['same']} · 다름 {ac['other']} · 서명 없음(버전 확인 불가) "
+                     f"{ac['unknown']} · 코드 추출만 쓴 문항: HCX 실패 {len(ac['hcx_fail'])}{some(ac['hcx_fail'])}"
+                     f" · '범위 밖' 뒤집기 {len(ac.get('oos_flip') or [])}{some(ac.get('oos_flip') or [])}"
+                     f" · 분석 예외 {len(ac.get('error') or [])}{some(ac.get('error') or [])}")
     for name, i in meta["configs"].items():
         L.append(f"- `{name}`: " + (f"오류 {i['error']}" if "error" in i else f"문서 {i['n_docs']} · {i['seconds']}초"))
     if any("mrr_alt" in t for t in table):  # 엄격 / 완화 나란히
@@ -655,6 +783,28 @@ def report_md(meta, table, fails, wins, per):
                 L.append(f"| {_cell(t['config'])} | {_cell(t['value'])} | {t['n']} → {t['n_aud']} | "
                          + " | ".join(f"{_fmt(t.get(m + '_alt', t.get(m)))} → {_fmt(t[m + '_aud'])}"
                                       for m in ("hit@1", "hit@5", "hit@10", "mrr"))
+                         + " |")
+    if any(t.get("app_stop") is not None for t in table):  # 앱 경로 기준 (단위별 · main 건너뜀)
+        app = meta.get("app") or {}
+        aud = any(t.get("app_hit_aud") is not None for t in table)
+        L += ["", "## 앱 기준 (단위별 — 앱이 검색하는 단위만, 합치지 않음)", "",
+              ("- 앱(run_chat → build_viewset)은 하위 질의가 있어도 본 질의(main)를 함께 검색 (main_with_subs True)"
+               if app.get("main_with_subs") else
+               "- 앱(run_chat → build_viewset)은 하위 질의가 있으면 본 질의(main)를 검색하지 않음 (main_with_subs False)")
+              + f" · 단위마다 상위 {app.get('n_rec')}개 표로 View·Record 를 만듦",
+              f"- app_hit / app_groups = 앱이 검색하는 단위마다 상위 {app.get('n_rec')}개 후보 안에 정답 / 모든 근거 그룹 (Record 의 근사) · "
+              "app_groups_cand = 단위별 후보(top_k) 안 · "
+              "app_stop = 앱이 검색하지 않는 문항 비율 (분석 상태 ≠ ok · 슬롯 없음 — 이 문항의 app_* 는 0)",
+              "- 실제 Record 와 다를 수 있음: View 생성 실패·요청 지표 없음이면 앱은 뒤 후보로 채우고, 충돌 선택으로 Record 를 거름 "
+              "(View 를 만들지 않으므로 반영 못 함). 앱의 후보 수는 view_top_k, 여기서는 --top-k", "",
+              "| 구성 | 값 | n | app_stop | hit@5 | groups@5 | app_hit | app_groups | app_groups_cand |"
+              + (" groups@5_aud | app_groups_aud |" if aud else ""),
+              "|---|---|---|---|---|---|---|---|---|" + ("---|---|" if aud else "")]
+        for t in table:
+            if t["group"] in ("ALL", "variant", "hop_type", "split") and t.get("app_stop") is not None:
+                L.append(f"| {_cell(t['config'])} | {_cell(t['value'])} | {t['n']} | "
+                         + " | ".join(_fmt(t.get(c)) for c in ("app_stop", "hit@5", "groups@5", "app_hit", "app_groups",
+                                                                "app_groups_cand") + (("groups@5_aud", "app_groups_aud") if aud else ()))
                          + " |")
     cols = ["n", "hit@1", "hit@3", "hit@5", "hit@10", "groups@5", "groups@10", "mrr", "dense@10", "dense@50", "rwdense@10",
             "pool@k", "gold_unmet_any", "sibling_confusion", "near_confusion", "in_corpus"]
@@ -758,6 +908,7 @@ def list_runs():
 
 
 NUM_TEXT = {"question", "gold", "top1", "top1_nm", "top5", "fail", "gold_unmet", "alt_tables", "audit_flags", "qid", "record_id",
+            "app_status",
             "variant",
             "hop_type", "reasoning_type", "subtype", "survey", "difficulty", "split", "method", "dense", "config"}
 
@@ -946,6 +1097,7 @@ def main(argv=None):
                 shutil.copyfile(prev_rc, rc)
         LR.use_cache_file(rc)
     analysis = analyze_all(rows, a.analyze, a.today, cache)
+    cache_stats = check_cache(rows, analysis, a.analyze, a.today, cache)
     raw_analysis, n_pruned = analysis, 0
     if not a.raw_units:
         analysis, n_pruned = prune_analysis(rows, analysis)
@@ -966,7 +1118,8 @@ def main(argv=None):
             "dense": a.dense, "dense_docs": a.dense_docs, "ce": ce, "configs": info, "alt": a.alt, "audit": a.audit,
             "llm_variants": a.llm_variants, "llm_thinking": a.llm_thinking, "only_missed": a.only_missed,
             "arms": a.arms, "okf": a.okf, "prune_units": not a.raw_units, "n_pruned": n_pruned,
-            "analysis_status": dict(Counter(u[0].get("status") for u in analysis.values()))}
+            "analysis_status": dict(Counter(u[0].get("status") for u in analysis.values())),
+            "analysis_cache": cache_stats, "app": app_settings()}
     (out / "summary.json").write_text(json.dumps({"meta": meta, "table": table, "fails": fails, "wins": wins,
                                                   "dense_vs_base": dense_vs_base(per)},
                                                  ensure_ascii=False, indent=1), encoding="utf-8")

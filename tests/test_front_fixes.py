@@ -198,7 +198,7 @@ def test_prune_sub_slots_and_validate():
 def test_arms(s):
     from backend.rag.search.tuning.compare import ARMS, arm_settings, evaluate_one, with_feas
     assert arm_settings("all") == ({}, True) and arm_settings("off")[1] is False
-    off = with_feas(s, arm_settings("off")[0])
+    off = with_feas(s, {**arm_settings("off")[0], "rate_miss": 1.0, "count_miss": 1.0})  # 이후에 더한 단위 계수도 끔 (앞단 수정의 몫만 보게)
     assert off.s["feas"]["move_miss"] == 1.0 and s.s["feas"]["move_miss"] == 0.6 and off.ch is s.ch
     assert set(ARMS) >= {"off", "units", "move", "cond", "cycle", "geo", "all"}
     row = {"question": "2017년에 국내에서 다른 시도로 이사 간 총 건수는 얼마나 되나요?", "gold": ["MV_REASON"],
@@ -247,3 +247,14 @@ def test_label_suspect(s):
     assert label_suspect(s, row, ["FR_CHILD_M"]) == "FR_CHILD_T"     # 정답 (남) · 질문에 성별 없음 → (계) 형제
     assert label_suspect(s, {"question": "장안구 남자 외국인 주민 자녀 수"}, ["FR_CHILD_M"]) == ""
     assert label_suspect(s, row, ["FR_CHILD_T"]) == ""
+
+
+def test_prune_units_keeps_main_copy_with_role_units():
+    # roles.py 는 하위 질의가 없던 질문에 역할 단위를 더할 때 본 질의를 첫 하위 단위로 복사한다 (앱이 main 을 건너뛰어도 검색되게)
+    # → 캐시에 하위 질문 검증을 다시 적용해도 그 복사본은 남아야 함 (앱 경로에서는 검증이 역할 단위보다 먼저라 남음)
+    q = "1990년 화성군의 일반가구 중 보증부월세가 차지하는 비율은?"
+    units = [_u("main", "일반가구 가구수 보증부월세", 지표=["일반가구", "가구수"]),
+             _u("k-1", "일반가구 가구수 보증부월세", 지표=["일반가구", "가구수"]),
+             _u("k-2", "일반가구", 지표=["일반가구"], 역할="분모")]
+    out, _ = prune_units(q, units)
+    assert [u["unit"] for u in out] == ["main", "k-1", "k-2"]

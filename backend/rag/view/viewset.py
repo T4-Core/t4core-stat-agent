@@ -255,7 +255,8 @@ def build_viewset(source, *, today=None, top_k=None, n_views=None, overrides=Non
         unit = {"unit_id": uid, "query": u["query"], "search_query": u["search_query"], "filters": u["filters"],
                 "candidates": u["candidates"], "views": u["views"], "notes": u["notes"], "conflict": conf,
                 "selected": None, "keep_unusable": s.view_keep_unusable, "stitched": u.get("stitched") or {},
-                "keep_others": bool(per_unit)}
+                "keep_others": bool(per_unit),
+                "survey_options": u.get("survey_options") or []}  # 여러 조사로 갈리면 조사별 대표 표 (run.py) — 고르면 filters['조사']
         if conf["status"] == "ambiguous":
             choice = on_ambiguous(conf) if on_ambiguous else None
             if choice:

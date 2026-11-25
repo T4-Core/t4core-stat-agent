@@ -53,6 +53,8 @@ class Filters(BaseModel):
     연령: AgeRange | None = Field(None, description="나이 범위 {from, to}")
     지표: list[str] | None = Field(None, description="무엇을 셌는가 (인구수, 출생아수, 고령인구비율 …)")
     비교축: str | None = Field(None, description="비교·순위의 기준 축 (시도, 시군구, 행정구역, 지역 …)")
+    보조축: list[str] | None = Field(None, description="비교축과 함께 나눠 볼 축 (연령 · 성별 …). '자치구별 연령대 구성' → "
+                                                   "비교축 시군구 + 보조축 [연령] — View 가 연령 구간도 펼침")
     조건: list[str] | None = Field(None, description="분류 값으로 찾을 말 (보증부월세, 재판이혼 …)")
     국적: list[str] | None = Field(None, description="국적 분류 값 (베트남, 중국 …)")
     출생연도: list[int] | None = Field(None, description="출생연도(코호트) 분류 값 — 시점과 다름 (1983년생 → [1983])")

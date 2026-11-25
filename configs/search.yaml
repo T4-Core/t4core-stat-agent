@@ -16,4 +16,3 @@
 # concepts: {enabled: true, path: null, add: 3}                         # 개념 카탈로그 (concepts.py build → <CSV 값 사전>/concepts.json)
 # okf: {enabled: true, value_weight: 0.9}       # OKF 개념의 승인된 별칭 → 그 표의 값 표현 (search/okf_terms.py). 비교: compare --okf off on
 
-feas: {cond_miss: 1.0, move_miss: 1.0, move_derived: 1.0}
