@@ -26,7 +26,7 @@ def pick(item, role="value", **kw):
 
 # HCX 가 스키마대로 답했을 때의 모양 (쓰지 않는 칸은 "" · [] · 0)
 REPLY = {
-    "charts": [{"chart_id": "c1", "title": "", "record_id": VID, "series": [], **EMPTY,
+    "charts": [{"chart_id": "c1", "chart_type": "", "title": "", "record_id": VID, "series": [], **EMPTY,
                 "conditions": cond(행정구역별=["전국"], 항목=["혼인건수(건)"], 시점=YEARS)}],
     "answers": [{"sub_question_id": "27077dec-1", "op": "growth_rate", "operands": [pick("혼인건수(건)")],
                  **EMPTY, "from": "2021", "to": "2025"},

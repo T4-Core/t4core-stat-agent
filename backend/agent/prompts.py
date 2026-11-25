@@ -1,4 +1,8 @@
 """답변 프롬프트·출력 스키마 (질의 재작성 프롬프트는 backend/rag/query_analyzer/slots.py)"""
+from typing import get_args
+
+from backend.schemas.chart import ChartType
+
 ANSWER_SCHEMA = {"type": "object", "properties": {
     "answer": {"type": "string"},
     "summary": {"type": "string"},
@@ -51,11 +55,14 @@ _ARGS = {
         "label": {"type": "string"}, "record_id": {"type": "string"}, "item": {"type": "string"},
         "conditions": _CONDITIONS},
         "required": ["scope", "basis", "label", "record_id", "item", "conditions"]}}
+CHART_TYPES = list(get_args(ChartType))
+# [CHANGED 11-25 4단계] charts 에 chart_type (세트의 '차트 후보' 중 질문 의도에 맞는 하나. "" = 1순위 그대로). planner.choose_chart 가 검사한다
 CHART_PLAN_SCHEMA = {"type": "object", "properties": {
     "charts": {"type": "array", "items": {"type": "object", "properties": {
-        "chart_id": {"type": "string"}, "title": {"type": "string"}, "record_id": {"type": "string"}, "conditions": _CONDITIONS,
+        "chart_id": {"type": "string"}, "chart_type": {"type": "string", "enum": ["", *CHART_TYPES]},
+        "title": {"type": "string"}, "record_id": {"type": "string"}, "conditions": _CONDITIONS,
         "series": {"type": "array", "items": _pick(SERIES_ROLES)}, **_ARGS},
-        "required": ["chart_id", "title", "record_id", "conditions", "series", *_ARGS]}},
+        "required": ["chart_id", "chart_type", "title", "record_id", "conditions", "series", *_ARGS]}},
     "answers": {"type": "array", "items": {"type": "object", "properties": {
         "sub_question_id": {"type": "string"}, "op": {"type": "string", "enum": CHART_OPS},
         "operands": {"type": "array", "items": _pick(ANSWER_ROLES)}, **_ARGS},
@@ -90,7 +97,13 @@ CHART_PLAN_SYS = """너는 한국 공식통계(KOSIS) 답변을 위한 계산 �
 [charts] [차트 계획] 또는 [세트] 블록의 chart_id(블록 제목의 c1, c2 …. 하위 질문 ID 가 아니다) 마다 하나씩 (차트가 '없음'인 세트는 넣지 않는다)
 5. record_id 와 conditions 로 그 차트에 그릴 값을 고른다. measure 는 이미 정해져 있으니 바꾸지 않는다.
    지표가 든 열에 값이 여러 개면 conditions 에 그 열을 넣어 필요한 지표만 고른다. 기간을 물었으면 '시점' 을 그 기간으로 좁힌다.
-6. series 는 아래 경우에만 채운다. 그 밖에는 반드시 [] 다 (line, bar, pie 등은 항목이 여러 개여도 []).
+5-1. chart_type 에는 그 세트의 '차트 후보' 중 질문 의도에 가장 맞는 차트 하나를 적는다. 후보에 없는 차트는 적지 않는다.
+   '사용자가 질문에서 차트를 정했다' 고 적힌 세트는 적힌 차트를 그대로 적는다. 판단이 어려우면 첫 후보(1순위)를 적는다.
+   시간에 따른 흐름·추이 → line (누적된 크기를 강조하면 area) / 항목·지역끼리 크기 비교, 순위 → bar
+   전체 중 비중·구성 → pie · donut (조각 5개 이하), 여러 범주의 구성 → stacked_bar / 두 시점의 전후 비교 → dumbbell
+   두 지표의 관계 → scatter, 세 지표 → bubble / 두 기준의 교차 → heatmap / 연령·성별 구조 → pyramid / 단위가 다른 두 지표의 추이 → combo
+   conditions · series 는 고른 chart_type 에 맞게 적는다.
+6. series 는 아래 경우에만 채운다 (고른 chart_type 기준). 그 밖에는 반드시 [] 다 (line, bar, pie 등은 항목이 여러 개여도 []).
    - chart_type 이 combo: 지표마다 하나씩, role y 와 y2
    - chart_type 이 scatter: role x, y / bubble: role x, y, size
    - measure 가 diff 또는 ratio: 두 값을 role a, b 로 적고 join_on 에 짝지을 열(보통 ["시점"])

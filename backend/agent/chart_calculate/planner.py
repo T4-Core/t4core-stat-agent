@@ -42,7 +42,7 @@ from backend.agent.chart_calculate.display import (STANDARD_UNITS, data_digits, 
 from backend.agent.chart_calculate.select import (age_span, AGE_HINTS, CATEGORY_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL, find_item_column,
                                                    select_rows)
 from backend.core.korean import strip_unit
-from backend.schemas.chart import (ChartPlan, ChartRequest, Denominator, Display, Measure, Operand, Plan, PlanOutput,
+from backend.schemas.chart import (ChartPlan, ChartRequest, ChartType, Denominator, Display, Measure, Operand, Plan, PlanOutput,
                                    Role, Select, Step, Withheld)
 from backend.schemas.query import Filters, QueryBundle
 from backend.schemas.record import Record
@@ -258,6 +258,8 @@ class _Args(BaseModel):
 
 class ChartDecision(_Args):
     chart_id: str
+    # [NEW 11-25 4단계] HCX 가 세트의 차트 후보(모듈 2 의 1순위 + 대체 후보) 중 질문 의도로 고른 차트. 비우면 1순위 그대로 (예전 입력 호환)
+    chart_type: ChartType | None = Field(None, description="HCX 가 고른 차트. 후보 밖이거나 사용자가 차트를 지정했으면 쓰지 않는다 (_Planner.choose_chart)")
     title: str | None = Field(None, description="질문의 말로 쓴 차트 제목 (검사를 통과하면 Plan.title)")
     record_id: str | None = Field(None, description="기본 View. operands 가 있으면 비워도 된다 (첫 피연산자의 View)")
     select: Select = Field(default_factory=dict)
@@ -1277,12 +1279,33 @@ class _Planner:
                     display_ref=self.ref(op, [o.unit for o in operands], digits), **self.args(tag, op, d), **extra)
 
     # ── 차트용 ───────────────────────────────────────────────────
+    def choose_chart(self, chart: ChartRequest, d: ChartDecision) -> tuple[ChartType, list[ChartType]]:
+        """[NEW 11-25 4단계] (처음 시도할 차트, 대체 후보 순서). HCX 가 차트 후보 중 질문 의도로 고른 차트(d.chart_type)를 검사한다.
+          비었거나 모듈 2 1순위와 같음 → 그대로
+          사용자가 질문에서 차트를 지정 · 제외함(chart.request) → 쓰지 않는다 (요청 처리와 안내 KOS-41 이 지금 규칙대로 동작하게)
+          후보(1순위 + 대체 후보) 밖 → 쓰지 않는다
+          후보 안의 다른 차트 → 채택. 모듈 2 1순위는 대체 후보의 맨 앞 (고른 차트가 검증에 실패하면 1순위부터 대체)"""
+        tag = chart.chart_id
+        fallbacks = list(chart.fallback_charts or ([chart.fallback_chart] if chart.fallback_chart else []))
+        want = d.chart_type
+        if not want or want == chart.chart_type:
+            return chart.chart_type, fallbacks
+        if chart.request is not None:
+            self.note(tag, f"HCX 가 {want} 를 골랐지만 사용자가 질문에서 차트를 정해 모듈 2 차트 {chart.chart_type} 를 씀")
+            return chart.chart_type, fallbacks
+        if want not in fallbacks:
+            self.note(tag, f"HCX 가 고른 {want} 는 차트 후보 {[chart.chart_type, *fallbacks]} 밖이라 쓰지 않음")
+            return chart.chart_type, fallbacks
+        self.note(tag, f"HCX 가 질문 의도로 {want} 를 고름 (모듈 2 1순위 {chart.chart_type} 는 대체 후보 맨 앞)")
+        return want, [chart.chart_type, *[c for c in fallbacks if c != want]]
+
     def plan(self, chart: ChartRequest, d: ChartDecision) -> Plan | None:
         tag, op = chart.chart_id, chart.measure
         self.scope[tag] = (chart.sub_question_ids[0] if len(chart.sub_question_ids) == 1 else None, tag, op)
         self.withheld.discard(tag)
         fixed = self.fixed_for(tag, chart.sub_question_ids)
-        picks, d2 = self.normalize(tag, op, d.operands, d, chart.chart_type, fixed)
+        chart_type, fallbacks = self.choose_chart(chart, d)  # [NEW 11-25 4단계] HCX 가 고른 차트 (갈래 역할도 이 차트 기준)
+        picks, d2 = self.normalize(tag, op, d.operands, d, chart_type, fixed)
         select, d3 = self.fix_select(tag, op, d.select, d, fixed, d.record_id or (picks[0].record_id if picks else None))
         d = d2 if d.operands else d3
         if tag in self.withheld:
@@ -1330,10 +1353,12 @@ class _Planner:
         title, why = clean_title(d.title, step_op)
         if why:
             self.note(tag, f"HCX 제목 '{d.title}' 버림 ({why}) → 규칙 제목")
+        # [CHANGED 11-25 4단계] chart_type = 처음 시도할 차트 (HCX 가 고른 차트, 없으면 모듈 2 1순위) · 대체 후보는 choose_chart 의 순서.
+        #   이전: chart_type=chart.chart_type (모듈 2 차트), fallback_charts=chart.fallback_charts
+        changed = chart_type != chart.chart_type             # HCX 가 바꾸지 않았으면 대체 순서는 이전과 완전히 같다
         return Plan(chart_id=chart.chart_id, sub_question_ids=chart.sub_question_ids, record_id=record_id,
-                    chart_type=chart.chart_type, fallback_chart=chart.fallback_chart, measure=op, select=select,
-                    steps=steps, output=output, title=title,
-                    fallback_charts=chart.fallback_charts or ([chart.fallback_chart] if chart.fallback_chart else []))
+                    chart_type=chart_type, fallback_chart=(fallbacks[0] if fallbacks else None) if changed else chart.fallback_chart,
+                    measure=op, select=select, steps=steps, output=output, title=title, fallback_charts=fallbacks)
 
     # ── 질문용 ───────────────────────────────────────────────────
     def answer(self, n: int, d: AnswerDecision, charts: list[ChartRequest]) -> list[Step]:

@@ -113,16 +113,29 @@ def plan_node(state: Module3State) -> dict:
     return {"chart_plan": plan, "displays": displays}
 
 
+def _requirements_of(p: Plan, asked: dict) -> list[str] | None:
+    """[NEW 11-25 4단계] 처음 시도하는 차트에 넘길 모듈 2 의 검증 조건.
+    모듈 2 의 requirements 는 그 1순위 차트용이다 (line 이면 '시점 3개 이상'). HCX 가 다른 차트를 고르면 그 차트에는 쓰지 않고
+    차트와 관계없는 값 1개 방지(min_categories_2)만 넘긴다 — 차트별 기본 조건(specs)은 그대로 적용된다"""
+    c = asked.get(p.chart_id)
+    if c is None:
+        return None
+    if c.chart_type == p.chart_type:
+        return c.requirements
+    return [r for r in c.requirements if r == "min_categories_2"]
+
+
 def build_charts_node(state: Module3State) -> dict:
     request, dt, plan, displays = state["request"], state["decide"], state["chart_plan"], state["displays"]
-    reqs = {c.chart_id: c.requirements for c in request.charts}
+    asked = {c.chart_id: c for c in request.charts}
     contents, validation, traces, chart_calcs = [], {}, {}, {}
     for p in plan.plans:
         attempts: list = []
-        content, validation[p.chart_id] = build_chart(p, request.records, reqs.get(p.chart_id), displays, attempts, chart_calcs)
+        reqs = _requirements_of(p, asked)
+        content, validation[p.chart_id] = build_chart(p, request.records, reqs, displays, attempts, chart_calcs)
         if content is not None:
             contents.append(content)
-        traces[p.chart_id] = ChartTrace(plan=p, requirements=requirements_for(p.chart_type, reqs.get(p.chart_id)),
+        traces[p.chart_id] = ChartTrace(plan=p, requirements=requirements_for(p.chart_type, reqs),
                                         attempts=[ChartAttempt(content=c, check=k) for c, k in attempts],
                                         validation=validation[p.chart_id])
     # 모듈 2 가 요청했는데 계획을 세우지 못한 차트도 validation 에 실패로 남긴다.
