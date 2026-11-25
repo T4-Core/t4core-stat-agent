@@ -80,6 +80,7 @@ def summarize(vs: list[RunVerdict], runs: list[dict] | None = None) -> dict:
         "questions": n, "runs": len(vs), "sources": dict(Counter(v.source for v in vs)),
         "conditions": sorted({"/".join(k[:3]) for k in by}),
         "input_hash_changed": [m_["id"] for m_ in merged if m_.get("input_hash_changed")],
+        "judge_rules": dict(sorted(Counter(v.judge_rules for v in vs).items())),
         "by_group": {g: dict(c) for g, c in sorted(groups.items())},
         "e2e": {
             "pass": cnt["통과"], "hold": cnt["보류"], "fail": cnt["미달"],
@@ -133,7 +134,13 @@ def summarize(vs: list[RunVerdict], runs: list[dict] | None = None) -> dict:
                "chart_claim": _metric(vs, "m6_chart_claim")},
         "chart_request": {"outcome": _metric(vs, "request_outcome"), "combo": _metric(vs, "outcome_combo"),
                           "notice": _metric(vs, "notice"), "chart_mode": _metric(vs, "chart_mode"),
-                          "share_denominator": _metric(vs, "share_denominator")},
+                          "share_denominator": _metric(vs, "share_denominator"),
+                          # [NEW] 차트 구조 판정 (judge_rules >= 2 실행만 행이 생긴다)
+                          "chart_outcome": _metric(vs, "chart_outcome"), "chart_requirement": _metric(vs, "chart_requirement"),
+                          "chart_visible": _metric(vs, "chart_visible"), "chart_covers_final": _metric(vs, "chart_covers_final"),
+                          # judge_rules >= 3 실행만 행이 생긴다
+                          "chart_answer_consistent": _metric(vs, "chart_answer_consistent"),
+                          "chart_forbidden_drawn": _metric(vs, "chart_forbidden_drawn")},
         "qa": {"a0": {"positives": a0_pos, "stopped": a0_stop, "tp": a0_tp,
                       "precision": rate(a0_tp, a0_stop), "recall": rate(a0_tp, a0_pos), "blocked_answerable": a0_fp,
                       "n": len(a0)},
@@ -159,6 +166,8 @@ def markdown(s: dict, title: str) -> str:
     lines = [f"# {title}", "", f"- 질문 {s['questions']}개 · 실행 {s['runs']}회 · 출처 {s['sources']} · 조건 {s.get('conditions')}"]
     if s.get("input_hash_changed"):
         lines.append(f"- 경고: 회차마다 입력 해시가 다른 문항 {s['input_hash_changed']}")
+    if s.get("judge_rules"):
+        lines.append(f"- 판정 규칙 버전(실행 수): {s['judge_rules']} (2 이상 차트 구조 판정, 3 이상 차트-답변 일관성 · 차트 금지)")
     lines += ["",
              "## E2E", "", "| 지표 | 값 |", "|---|---|",
              f"| 통과 · 보류 · 미달 | {e['pass']} · {e['hold']} · {e['fail']} ({fmt(e['pass_rate'])} · {fmt(e['hold_rate'])} · {fmt(e['fail_rate'])}) |",
@@ -180,7 +189,9 @@ def markdown(s: dict, title: str) -> str:
                       ("m6", ["first_pass", "final_in_answer", "binding", "claim_unit", "claim_sign", "required_digits",
                               "invisible_citation", "unsupported_causal", "table_complete", "display_round", "result_unit",
                               "direction", "unresolved_placeholder", "unsupported_number", "chart_claim"]),
-                      ("chart_request", ["outcome", "combo", "notice", "chart_mode", "share_denominator"])):
+                      ("chart_request", ["outcome", "combo", "notice", "chart_mode", "share_denominator",
+                                         "chart_outcome", "chart_requirement", "chart_visible", "chart_covers_final",
+                                         "chart_answer_consistent", "chart_forbidden_drawn"])):
         for k in keys:
             d = s[mod][k]
             if "rate" in d and "ok" in d:
@@ -254,6 +265,10 @@ def compare(a_path, b_path) -> str:
              f"| 판정 | **{'회귀' if regress or gf(b) > gf(a) else '회귀 없음'}** |"]
     if hash_warn:
         lines.append(f"\n경고: 같은 조건 안에서 회차마다 입력 해시가 다른 문항 {' '.join(hash_warn)}")
+    ra, rb = ({r for v in d.values() for r in v.get("judge_rules") or [1]} for d in (a, b))
+    if ra != rb:
+        # [NEW] 판정 규칙 버전이 다르면 같은 출력도 판정이 다를 수 있다 (차트 구조 판정은 2 이상에만)
+        lines.append(f"\n경고: 판정 규칙 버전이 다르다 {sorted(ra)} ↔ {sorted(rb)}. 차이 일부는 Generator 변화가 아니라 규칙 변화다")
     return "\n".join(lines) + "\n"
 
 

@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from eval.generator import QUESTIONS_DIR, trace
-from eval.generator.checks import chart_request, m2, m3, m5, m6, qa_semantic
+from eval.generator.checks import chart_request, chart_structure, m2, m3, m5, m6, qa_semantic
 from eval.generator.findings import Finding, failed, unresolved
 from eval.generator.schema import Question, load_set
 from eval.generator.status import expectations, question_expect
@@ -53,6 +53,7 @@ class RunVerdict:
     condition: str = "live"
     input_hash: str | None = None
     group: str = ""
+    judge_rules: int = 1             # [NEW] 실행 기록의 판정 규칙 버전 (없으면 1). 차트 구조 판정은 2 이상에만
 
     def key(self) -> tuple[str, str, str, str]:
         return (self.dataset, self.dataset_version, self.condition, self.id)
@@ -87,7 +88,8 @@ def judge(q: Question, run: dict, review: dict | None = None) -> RunVerdict:
                 method=trace.m6(run).get("method"), hcx_calls=len(run.get("hcx_calls") or []),
                 hcx_failed=sum(1 for c in run.get("hcx_calls") or [] if not c.get("ok", True)),
                 dataset=run.get("dataset") or q.dataset, dataset_version=run.get("dataset_version") or q.dataset_version,
-                condition=condition_of(run), input_hash=run.get("input_hash"), group=q.group)
+                condition=condition_of(run), input_hash=run.get("input_hash"), group=q.group,
+                judge_rules=int(run.get("judge_rules") or 1))
     fs: list[Finding] = []
     tags: list[str] = []
     if not run.get("ok", True):
@@ -150,6 +152,8 @@ def judge(q: Question, run: dict, review: dict | None = None) -> RunVerdict:
     elif not a0_obs.startswith("stop_"):
         fs += m6.display_checks(run) + m6.unit_checks(run) + m3.unit_semantic(run) + m3.asked_indicator(q, run) + m5.check(run) + m6.caveat_checks(q, run)
         fs += chart_request.check(q, run) + chart_request.mode_check(q, run) + m6.format_metrics(run) + m6.visibility_checks(q, run)
+        fs += chart_structure.check(q, run)            # [NEW] judge_rules >= 2 인 실행만 (과거 실행은 빈 목록)
+        fs += chart_structure.consistency(q, run, sub_exps)   # [NEW] ⑤ 차트-답변 모순 · 차트 금지 위반. judge_rules >= 3 인 실행만
         for s in q.sub_questions:
             e, r = exp_by[s.key], res_by[s.key]
             fs += m2.check(s, e, r)
@@ -191,6 +195,7 @@ def judge(q: Question, run: dict, review: dict | None = None) -> RunVerdict:
         fs.append(Finding("completeness", "stage2", owner, row["completeness"] == "met", row["completeness"], s.key))
     # ── 판정 ──
     st1 = failed(fs, "stage1")
+    chart_unmet = any(f.code in chart_structure.STAGE2 and f.stage == "stage2" and f.ok is False for f in fs)
     expected, observed = question_expect(q, sub_exps), _observed_state(subres)
     if st1:
         verdict = "미달"
@@ -204,8 +209,14 @@ def judge(q: Question, run: dict, review: dict | None = None) -> RunVerdict:
     elif any(f.code == "a0_guidance" and f.ok is False for f in fs):
         verdict = "보류"                  # [NEW] v2: A0 에서 바르게 멈췄지만 안내가 멈춘 이유와 다르다 (B16 선택지 · C19 되묻기)
         tags.append("guidance_mismatch")
+    elif chart_unmet:
+        verdict = "보류"                  # [NEW] 요구한 차트를 고지 없이 못 그림 · 차트에 정답 좌표가 빠짐
     else:
         verdict = "통과"
+    if chart_unmet:
+        tags.append("chart_unmet")        # 다른 사유로 보류 · 미달이어도 차트 미충족은 따로 센다
+    if any(f.code == "chart_answer_consistent" and f.ok is False for f in fs):
+        tags.append("chart_inconsistent")  # [NEW] 차트는 있는데 답변은 계산 결과 없음 (1단계라 판정은 미달)
     if any(f.code.startswith("caveat_") and f.ok is False for f in fs):
         tags.append("failed_to_contain")
     if unresolved([f for f in fs if f.stage == "stage1"]):
@@ -252,7 +263,7 @@ def merge(vs: list[RunVerdict]) -> dict:
     worst = min(vs, key=lambda v: ORDER[v.verdict])
     hashes = {v.input_hash for v in vs if v.input_hash}
     return {"id": worst.id, "dataset": worst.dataset, "dataset_version": worst.dataset_version, "condition": worst.condition,
-            "group": worst.group, "input_hash_changed": len(hashes) > 1, "verdict": worst.verdict, "runs": [v.verdict for v in sorted(vs, key=lambda v: v.run)],
+            "group": worst.group, "input_hash_changed": len(hashes) > 1, "judge_rules": sorted({v.judge_rules for v in vs}), "verdict": worst.verdict, "runs": [v.verdict for v in sorted(vs, key=lambda v: v.run)],
             "unstable": len({v.verdict for v in vs}) > 1, "first_failure": worst.first_failure,
             "tags": sorted({t for v in vs for t in v.tags})}
 
