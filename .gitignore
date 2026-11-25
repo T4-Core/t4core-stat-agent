@@ -84,3 +84,4 @@ synthetic_gold_pipeline/outputs/
 synthetic_gold_pipeline/outputs_easy/
 outputs/*/.gitkeep
 runs/
+_scratch/
