@@ -85,7 +85,7 @@ export function SelectPage() {
   return (
     <Frame variant="select">
       <QueryPill className="select-pill" question={run.question} />
-      <Character className="select-sloth" size="S" motion="asking" />
+      <Character className="select-sloth" size="S" motion="judging" />
       <div className="select-heading">
         <h1>비슷한 통계표가 {cards.length}개 있어요. 어떤 걸로 볼까요?{groups.length > 1 ? ` (${unit + 1}/${groups.length})` : ''}</h1>
         <p>{USE_MOCK ? "같은 '1인 가구'라도 조사 방식이 달라 숫자가 조금 달라요." : '같은 항목이라도 통계표마다 조사 방식이 달라 숫자가 다를 수 있어요.'}</p>

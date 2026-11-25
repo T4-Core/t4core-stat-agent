@@ -1,9 +1,8 @@
 // 1. Main: 질문 입력, 지역·시점·대상 선택, 최근 질문, 추천 통계
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { checkHealth, USE_MOCK } from '../api/client';
 import bars from '../assets/figma/bars.svg';
-import bubbleMark from '../assets/figma/bubble-mark.svg';
 import bubble from '../assets/figma/bubble.svg';
 import calendarActive from '../assets/figma/calendar-active.svg';
 import calendar from '../assets/figma/calendar.svg';
@@ -84,7 +83,6 @@ export function MainPage() {
     ...doneRuns.filter((run) => run.createdAt),
     ...['seed-2', 'seed-4'].flatMap((seedId) => doneRuns.filter((run) => run.id === seedId)),
   ].slice(0, 2);
-  const layout = showRecommend ? 'layout-recommend' : '';
 
   const start = (text: string, chartCount = 2) => {
     const finalQuestion = text.trim() || composeQuestion(filters);
@@ -128,15 +126,14 @@ export function MainPage() {
 
   return (
     <Frame variant="main">
-      <Character className="main-sloth" size="M" motion="idle" />
+      <Character className="main-sloth" size="M" motion="wave" />
       <div className="main-bubble">
         <img className="bubble-shape" src={bubble} alt="" />
-        <img className="bubble-tail" src={bubbleMark} alt="" />
         <p>안녕하세요!<br />무엇을 도와드릴까요?</p>
       </div>
 
       {backendDown && <p className="backend-alert" role="alert">백엔드에 연결하지 못했어요. FastAPI 서버가 켜져 있는지 확인해 주세요.</p>}
-      <div className={`main-content ${layout}`} style={{ '--recent-display': showRecommend ? 'none' : 'block' } as CSSProperties}>
+      <div className="main-content">
         <h1 className="main-title">어떤 통계가 궁금하세요?</h1>
         <p className="main-sub">질문을 직접 적거나, 아래에서 지역·시점·대상을 골라 찾아보세요.</p>
 

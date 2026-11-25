@@ -42,3 +42,30 @@ def detector_rows(run: dict, tags: set[str], stage1_failed: bool) -> list[dict]:
     for kind in FREQ_ONLY:
         rows.append({"kind": kind, "warned": kind in warned, "label": None, "known_but_shipped": False})
     return rows
+
+
+# ── [NEW] v2: A0 에서 멈춘 문항의 사용자 안내 정합 ─────────────────
+# 멈춘 것 자체(Unanswerable Detection)와 별개로, 안내가 멈춘 이유에 맞는 종류인지 본다. 숫자 정확성이 아니라 안내 종류의 정합이다
+GUIDANCE = {
+    "empty_view": ("찾지 못", "없어", "없습니다"),
+    "unknown_viewset_status": ("형식", "상태", "확인할 수 없"),
+    "unresolved_conflict": ("충돌", "선택", "어느", "어떤 자료"),
+    "missing_conversation_context": ("알려 주", "알려주", "어떤", "어느", "다시 말"),
+    "out_of_scope": ("범위", "통계 수치를 묻는", "통계 자료", "다룹니다"),
+}
+
+
+def a0_guidance(q, run: dict):
+    """v2 문항만. 기대 사유(하위 질문 hold_reason, 범위 밖 문항은 out_of_scope)의 안내 어휘가 답변에 있는가"""
+    from eval.generator.findings import Finding
+    if q.dataset != "v2":
+        return []
+    reason = "out_of_scope" if q.scope == "out" else next((s.answerable_when[0].hold_reason for s in q.sub_questions
+                                                           if s.answerable_when and s.answerable_when[0].hold_reason), None)
+    words = GUIDANCE.get(reason or "")
+    if not words:
+        return []
+    text = " ".join([trace.answer_text(run)] + trace.user_caveats(run))
+    ok = any(w in text for w in words)
+    return [Finding("a0_guidance", "stage2", "QA", ok, f"기대 사유 {reason}: {'안내 일치' if ok else '안내 종류가 다름'}",
+                    detail={"reason": reason, "words": list(words)})]

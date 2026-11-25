@@ -4,8 +4,9 @@
   build_chart(plan, records, requirements)
     1. plan.steps 실행 (calculate.run_steps)
     2. 원래 차트로 구성 → 검증 (validate.check_chart)
-    3. ② 가 실패하고 fallback_chart 가 있으면 대체 차트로 다시 구성 → 대체 차트의 기본 조건으로 다시 검증
-    4. 통과한 것이 있으면 그 ChartContent, 없으면 None. 과정은 ChartValidation 에 남긴다
+    3. ② 가 실패하면 대체 후보(fallback_charts, 없으면 fallback_chart)를 앞에서부터 통과할 때까지 구성 → 그 차트의 기본 조건으로 검증
+       [CHANGED 11-24] 이전: 대체 차트 하나만 시도했다. 계산(1)은 다시 하지 않으므로 후보가 늘어도 비용은 구성 · 검사뿐이다
+    4. 통과한 것이 있으면 그 ChartContent, 없으면 None. 과정은 ChartValidation 에 남긴다 (fallbacks = 시도한 대체 차트 전부)
 
   행 구조 (명세 5장)
     long    행 하나 = 값 하나.   [분류 열…, 항목, 값]            line bar area stacked_bar combo pie donut …
@@ -454,13 +455,23 @@ def build_chart(plan: Plan, records: list[Record], requirements: list[str] | Non
         return content, result
 
     content, original = attempt(plan.chart_type, requirements_for(plan.chart_type, requirements))
-    fallback = None
+    order = [t for t in dict.fromkeys([*([plan.fallback_chart] if plan.fallback_chart else []), *plan.fallback_charts])
+             if t != plan.chart_type]
+    # [NEW 11-24] 값 1개짜리 차트를 막는 안전망(min_categories_2)은 대체 차트에도 건다. 후보가 여럿이면 1조각 원그래프 같은 차트가 통과할 수 있다
+    guard = [r for r in (requirements or []) if r == "min_categories_2"]
+    tried: list[CheckResult] = []
     # ① 실패(데이터 없음)는 차트를 바꿔도 해결되지 않는다 → 대체 차트를 시도하지 않는다 (명세 7장)
-    if not original.passed and plan.fallback_chart and "data_present" not in original.failed:
-        content, fallback = attempt(plan.fallback_chart, requirements_for(plan.fallback_chart))
-    ok = (fallback or original).passed
+    if not original.passed and "data_present" not in original.failed:
+        for chart_type in order:
+            content, check = attempt(chart_type, requirements_for(chart_type, guard))
+            tried.append(check)
+            if check.passed:
+                break
+    fallback = tried[-1] if tried else None
+    ok = original.passed or bool(fallback and fallback.passed)
     return (content if ok else None), ChartValidation(
-        original=original, fallback=fallback, final_chart_type=content.chart_type if ok else None, content_built=ok)
+        original=original, fallback=fallback, fallbacks=tried, final_chart_type=content.chart_type if ok else None,
+        content_built=ok)
 
 
 def build_charts(chart_plan: ChartPlan, records: list[Record], requirements: dict[str, list[str]] | None = None,

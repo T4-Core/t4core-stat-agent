@@ -3,10 +3,14 @@
   live   : 질문 → analyze → build_viewset → run_modules_with_qa(vs, analysis, mods=기록 래퍼) → 최종 result 조립 (run_chat 과 같은 순서)
   replay : 저장한 ViewSet + analysis → run_modules_with_qa (--no-qa 면 직렬 run_modules, QA on/off 비교 전용)
   oracle : 저장한 Module6Request 에서 M3 유래 5개 필드만 검증된 M3 출력으로 바꿔 run_module6 (Pipeline · Oracle 짝 실행)
+  [NEW] isolated : v2 inputs/<ID>.json 의 격리 ViewSet + query_bundle → run_modules_with_qa (질의 분석 · 검색 없음)
+  [NEW] m3_only  : v2 oracle_m3_inputs/<ID>.json 의 Module3Request → run_module3 만 (모듈 3 단독 계산 · 보류 정확도)
 
   python -m eval.generator.run --mode live --set core34 [--only Q05,Q11] [--runs 2] [--tag 이름] [--no-draw]
   python -m eval.generator.run --mode replay --from <EVAL_RUNS_DIR>/<tag>/runs.jsonl.gz [--no-qa] [--tag 이름]
   python -m eval.generator.run --mode oracle --from <runs.jsonl.gz> --only Q05 [--runs 2]
+  python -m eval.generator.run --mode isolated --v2 <데이터셋 경로> [--only R01,B01] [--runs 2]
+  python -m eval.generator.run --mode m3_only  --v2 <데이터셋 경로> [--only R01] [--runs 2]
 
 결과: EVAL_RUNS_DIR/<tag>/runs.jsonl.gz (질문 · 회차마다 RunRecord 한 줄, trace.py) · manifest.json · run.log
 HCX 키와 .env 는 읽지 않는다 (core.llm 이 스스로 읽는다). 질문은 하나씩 차례로 (HCX 동시 호출 제한).
@@ -45,6 +49,7 @@ class Recorder:
         self.attempts: dict[str, int] = {}
         self.qa_timing: dict[str, float] = {"check": 0.0, "meaning_issues": 0.0, "unanswerable": 0.0}
         self.module_seconds: dict[str, float] = {}
+        self.m6_shown_tokens: list[str] | None = None      # [NEW] M6 프롬프트에 실린 자리표시자 (근거 가시성 검사)
 
     def chat(self, real):
         def wrapped(messages, schema=None, **kw):
@@ -68,6 +73,8 @@ class Recorder:
             if req_arg is not None:
                 req = a[0] if a else kw.get(req_arg)
                 self.requests[name] = _dump(req)
+                if name == "m6":
+                    self.m6_shown_tokens = shown_tokens_of(req)
             t0 = time.time()
             try:
                 return fn(*a, **kw)
@@ -82,6 +89,18 @@ class Recorder:
                 "module3": self.module("m3", base["module3"], "request"),
                 "module5": self.module("m5", base["module5"], None),
                 "module6": self.module("m6", base["module6"], "request")}
+
+
+def shown_tokens_of(req) -> list[str] | None:
+    """모듈 6 코드를 바꾸지 않고, 같은 Facts 로 프롬프트 결과 줄의 자리표시자를 다시 계산한다"""
+    try:
+        from backend.agent.answer_compose.facts import Facts
+        from backend.agent.answer_compose.write import shown_tokens
+        from backend.schemas.answer import Module6Request
+        r = req if isinstance(req, Module6Request) else Module6Request.model_validate(req)
+        return sorted(shown_tokens(Facts(r)))
+    except Exception:  # noqa: BLE001  (기록 실패가 실행을 멈추지 않는다. 검사는 메시지 추출로 대신한다)
+        return None
 
 
 @contextmanager
@@ -145,7 +164,8 @@ def run_generator(vs: dict, analysis: dict | None, *, qa: bool, draw: bool, max_
 def record(base: dict, rec: Recorder, t0: float, **kw) -> dict:
     out = {**base, **kw, "seconds": round(time.time() - t0, 1), "hcx_calls": rec.calls,
            "qa_timing": {k: round(v, 3) for k, v in rec.qa_timing.items()}, "module_seconds": rec.module_seconds,
-           "module_attempts": rec.attempts, "requests": rec.requests or None, "source": "full"}
+           "module_attempts": rec.attempts, "requests": rec.requests or None, "source": "full",
+           "m6_shown_tokens": rec.m6_shown_tokens}
     mods = out.get("modules")
     if mods and out.get("viewset") is not None:
         out["records"] = out["viewset"].get("records") or []
@@ -227,6 +247,61 @@ def oracle_one(src: dict, condition: str, run_no: int) -> dict | None:
         return record(base, rec, t0, ok=False, error=f"{type(e).__name__}: {str(e)[:500]}")
 
 
+# [NEW] 운영 pipeline(backend/agent/pipeline.py)이 Generator 앞에서 상태로 반환하는 ViewSet 상태.
+# 계약 밖 값(v2 B14 unknown_status)은 여기 없으므로 Generator A0 계약 검사로 간다
+PIPELINE_STATUSES = ("needs_selection", "needs_clarification", "out_of_scope")
+
+
+def isolated_one(case_id: str, question: str, inp: dict, run_no: int, *, input_hash: str, version: str,
+                 draw: bool, max_rows: int) -> dict:
+    """v2 격리 입력. analysis 는 입력의 query_bundle 로 만든다 (메모 없음 → A0 의 사전 밖 지표 검사는 건너뛴다)"""
+    rec, t0 = Recorder(), time.time()
+    vs = inp["viewset"]
+    qb = inp["query_bundle"]
+    analysis = {"status": "ok", "notes": [], "view_bundle": qb, "sub_questions": qb.get("sub_questions") or [],
+                "filters": qb.get("filters"), "sub_filters": qb.get("sub_filters")}
+    base = {"id": case_id, "set": "v2", "run": run_no, "mode": "isolated", "condition": "isolated", "path": "qa",
+            "question": question, "dataset": "v2", "dataset_version": version, "input_hash": input_hash,
+            "m6_visible_record_ids": inp.get("m6_visible_record_ids")}
+    if vs.get("status") in PIPELINE_STATUSES:
+        # [CHANGED] 이전: 상태와 관계없이 Generator 에 넣어 QA A0 가 enum 위반으로 멈췄다 (B16 · C19 · M04, 서비스에 없는 경로)
+        from backend.agent.pipeline import OUT_OF_SCOPE_RESULT
+        st = vs["status"]
+        if st == "out_of_scope":
+            analysis["status"] = "out_of_scope"
+        return record(base, rec, t0, ok=True, analysis=analysis, viewset=vs, pipeline_status=st,
+                      result=dict(OUT_OF_SCOPE_RESULT) if st == "out_of_scope" else None)
+    try:
+        mods = run_generator(vs, analysis, qa=True, draw=draw, max_rows=max_rows, rec=rec)
+        return record(base, rec, t0, ok=True, analysis=analysis, viewset=vs, modules=mods, result=assemble_result(mods, vs))
+    except BaseException as e:  # noqa: BLE001
+        return record(base, rec, t0, ok=False, analysis=analysis, viewset=vs, error=f"{type(e).__name__}: {str(e)[:500]}",
+                      traceback=traceback.format_exc()[-2500:])
+
+
+def m3_only_one(case_id: str, question: str, req: dict, run_no: int, *, input_hash: str, version: str) -> dict:
+    """v2 Module3Request → run_module3. 판정은 모듈 3 항목(연산 · 계산 · 보류)만 본다 (verdict: condition=m3_only)"""
+    from backend.agent.chart_calculate.pipeline import run_module3
+    from backend.schemas.chart import Module3Request
+    rec, t0 = Recorder(), time.time()
+    base = {"id": case_id, "set": "v2", "run": run_no, "mode": "m3_only", "condition": "m3_only", "path": "m3",
+            "question": question, "dataset": "v2", "dataset_version": version, "input_hash": input_hash}
+    qb = req["query_bundle"]
+    vs = {"status": "ok", "query_id": qb.get("query_id"), "original": qb.get("original"), "records": req["records"],
+          "units": [], "view_bundle": qb}
+    try:
+        with patched(rec):
+            out = run_module3(Module3Request.model_validate(req), chat=llm.chat).model_dump(mode="json", by_alias=True)
+        rec.requests["m3"] = req
+        mods = {"charts": req.get("charts") or [], "chart_plan": out.get("chart_plan") or {}, "module3": out, "answer": {},
+                "drawn": [], "notes": [], "qa": {}, "render_status": {}, "request_outcomes": [], "chart_notices": []}
+        return record(base, rec, t0, ok=True, analysis={"status": "ok", "notes": [], "view_bundle": qb}, viewset=vs,
+                      modules=mods, result={"answer": "", "caveats": []})
+    except BaseException as e:  # noqa: BLE001
+        return record(base, rec, t0, ok=False, viewset=vs, error=f"{type(e).__name__}: {str(e)[:500]}",
+                      traceback=traceback.format_exc()[-2500:])
+
+
 def _load_oracle(qid: str) -> dict | None:
     p = ORACLE_DIR / "m3" / f"{qid}.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
@@ -247,7 +322,8 @@ def manifest(args, set_path: Path | None) -> dict:
         except Exception:  # noqa: BLE001
             return None
     agent = ROOT / "backend" / "agent"
-    return {"tag": args.tag, "mode": args.mode, "set": args.set, "runs": args.runs, "qa": not args.no_qa, "draw": not args.no_draw,
+    return {"tag": args.tag, "mode": args.mode, "set": "v2" if args.v2 else args.set, "runs": args.runs, "qa": not args.no_qa,
+            "draw": not args.no_draw, "dataset": getattr(args, "dataset_meta", None),
             "git_sha": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
             "model": llm.CHAT_MODEL, "prompts": _sha([agent / "prompts.py"]),
             "m2_code": _sha(list((agent / "chart_decision" / "chart_decision_module").glob("*.py"))),
@@ -257,7 +333,9 @@ def manifest(args, set_path: Path | None) -> dict:
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["live", "replay", "oracle"], default="live")
+    ap.add_argument("--mode", choices=["live", "replay", "oracle", "isolated", "m3_only"], default="live")
+    ap.add_argument("--v2", help="v2 데이터셋 경로 (isolated · m3_only). 없으면 EVAL_V2_DIR")
+    ap.add_argument("--slots", type=Path, help="[NEW] isolated 입력 슬롯 overlay (eval/generator/questions/v2_slots.json)")
     ap.add_argument("--set", default="core34", choices=list(SETS))
     ap.add_argument("--only", default="")
     ap.add_argument("--runs", type=int, default=2)
@@ -269,9 +347,30 @@ def main(argv=None):
     ap.add_argument("--today")
     a = ap.parse_args(argv)
     only = {x.strip() for x in a.only.split(",") if x.strip()}
+    ds, slots = None, None
+    if a.mode in ("isolated", "m3_only"):
+        from eval.generator import v2 as V2
+        try:
+            root = V2.dataset_dir(a.v2)
+            ds = V2.load(root)                        # 해시가 manifest 와 다르면 실행하지 않는다
+        except (V2.DatasetError, OSError) as e:
+            raise SystemExit(f"[{a.mode}] 데이터셋 오류: {e}")
+        a.v2 = str(root)
+        a.dataset_meta = {"name": ds["name"], "version": ds["version"], "path": rel(root),
+                          "cases_sha256": V2.sha256(root / "cases.json")}
+        if a.slots:
+            if a.mode != "isolated":
+                raise SystemExit("[slots] isolated 전용")
+            sl = V2.load_slots(a.slots)
+            if errs := V2.slot_errors(root, sl["slots"], {c.id for c in ds["cases"]}):
+                raise SystemExit(f"[slots] 슬롯 오류: {errs[:5]}")
+            slots = sl["slots"]
+            # 입력이 달라지므로 별도 데이터셋 버전으로 기록한다 (compare 가 원래 isolated 와 섞지 않는다)
+            ds["version"] = ds["version"] + "+slots"
+            a.dataset_meta.update(version=ds["version"], slots={"path": rel(sl["path"]), "sha256": sl["sha256"], "cases": len(slots)})
     out_dir = EVAL_RUNS_DIR / a.tag
     out_dir.mkdir(parents=True, exist_ok=True)
-    set_path = QUESTIONS_DIR / SETS[a.set]
+    set_path = None if ds else QUESTIONS_DIR / SETS[a.set]
     man = manifest(a, set_path)
     man_id = f"{a.tag}@{(man['git_sha'] or '')[:7]}"
     (out_dir / "manifest.json").write_text(json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -291,7 +390,25 @@ def main(argv=None):
         print(line, flush=True)
 
     try:
-        if a.mode == "live":
+        if ds is not None:
+            for run_no in range(1, a.runs + 1):
+                for c in ds["cases"]:
+                    if only and c.id not in only:
+                        continue
+                    path = V2.input_path(root, c.id, a.mode)
+                    if not path.exists():
+                        log.write(f"skip {c.id}: {a.mode} 입력 없음\n")    # m3_only 는 A0 에서 멈추는 5문항의 입력이 없다
+                        continue
+                    inp, h = json.loads(path.read_text(encoding="utf-8")), V2.sha256(path)
+                    if a.mode == "isolated" and slots:
+                        slot = slots.get(c.id)
+                        inp, h = V2.apply_slots(inp, slot), V2.slot_hash(h, slot)
+                    if a.mode == "isolated":
+                        emit(isolated_one(c.id, c.question, inp, run_no, input_hash=h, version=ds["version"],
+                                          draw=not a.no_draw, max_rows=a.max_rows))
+                    else:
+                        emit(m3_only_one(c.id, c.question, inp, run_no, input_hash=h, version=ds["version"]))
+        elif a.mode == "live":
             qs = [q for q in load_questions(a.set).questions if not only or q.id in only]
             for run_no in range(1, a.runs + 1):
                 for q in qs:

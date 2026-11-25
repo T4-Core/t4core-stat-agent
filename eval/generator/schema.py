@@ -11,9 +11,13 @@ Expect = Literal["answer", "hold"]
 class Coord(BaseModel):
     """원본 행 좌표. region · period · item 외의 차원은 열 이름을 키로 그대로 둔다 (예: 성별: 남자)"""
     model_config = ConfigDict(extra="allow")
-    region: str | None = None
-    period: str | None = None
+    # [CHANGED] 이전: region · period 는 str 하나. v2 claim binding 은 허용 지역 · 기간 목록이다 (S04 기간 2023 · 2024)
+    region: str | list[str] | None = None
+    period: str | list[str] | None = None
     item: str | None = None
+
+    def regions(self) -> list[str]:
+        return [self.region] if isinstance(self.region, str) else list(self.region or [])
 
     def dims(self) -> dict[str, Any]:
         return dict(self.model_extra or {})
@@ -54,6 +58,8 @@ class ValueSpec(BaseModel):
     key: dict[str, Any] | None = Field(None, description="목록 결과에서 이 값의 점 key (예: {시점: 2022})")
     atol: float | None = None
     rtol: float | None = None
+    digits: int | None = Field(None, description="[NEW] 요구 소수 자릿수 (v2 display.digits · 질문의 '소수 셋째 자리')")
+    scale: float = Field(1.0, description="[NEW] 표시 배율 (v2 display.scale). 요구 정밀도 = 0.5 × 10^-digits × scale")
 
 
 class SubQuestion(BaseModel):
@@ -64,6 +70,7 @@ class SubQuestion(BaseModel):
     m3: M3Spec = Field(default_factory=M3Spec)
     values: list[ValueSpec] = Field(default_factory=list)
     direction: Literal["up", "down"] | None = None
+    match_index: int | None = Field(None, description="[NEW] v2: 입력 query_bundle.sub_questions 의 순번(1부터). 있으면 내용 대신 순번으로 대응")
 
 
 class RequestedName(BaseModel):
@@ -97,6 +104,15 @@ class Question(BaseModel):
     expect_text: str = Field("", description="기존 questions.py 의 expect 문장 (원문 보존)")
     verified: bool = Field(False, description="원본 View 와 대조해 제3자가 확인했는가")
     notes: str = ""
+    # [NEW] v2 데이터셋 문항 (schema_v2.to_question 이 채운다). core34 · ext-chart-request 는 기본값
+    dataset: str = "core34"
+    dataset_version: str = "1.0"
+    strict_final: bool = Field(False, description="FINAL 값이 답변에 없으면 보류 (v2: 기대 claim 은 모두 답변에 있어야 한다)")
+    citation_labels: list[str] | None = Field(None, description="답변이 인용할 수 있는 근거 라벨 (v2 evidence_aliases). None = 검사 안 함")
+    chart_mode: str | None = Field(None, description="v2 required_chart.mode (required · forbidden · fallback · per_subquestion · optional)")
+    chart_types: list[str | None] = Field(default_factory=list, description="v2 required_chart.acceptable_types")
+    chart_notice: bool = False
+    v2: dict[str, Any] | None = Field(None, description="v2 원본 Case (보고서 묶음 · 짝 문항 · 커버리지용)")
 
 
 class QuestionSet(BaseModel):

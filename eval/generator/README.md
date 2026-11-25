@@ -15,19 +15,27 @@ python -m eval.generator.report storage/runs/eval_generator/1123_base/runs.jsonl
 python -m eval.generator.report storage/runs/eval_generator/1123_base/runs.jsonl.gz --set core34 --review review.csv
 # 4) 수정 전후 비교
 python -m eval.generator.report --compare <이전>/runs_report/verdicts.jsonl <이후>/runs_report/verdicts.jsonl
+# 5) v2 보완 데이터셋 (외부 경로, questions/README.md 참고)
+python -m eval.generator.v2 check --dataset <v2 경로>
+python -m eval.generator.run --mode isolated --v2 <v2 경로> --runs 2 --tag v2_isolated
+python -m eval.generator.run --mode isolated --v2 <v2 경로> --slots eval/generator/questions/v2_slots.json --runs 2 --tag v2_isolated_slots
+python -m eval.generator.report storage/runs/eval_generator/v2_isolated/runs.jsonl.gz --v2 <v2 경로>
 ```
 
 ## 구성
 
 | 파일 | 역할 |
 |---|---|
-| `run.py` | live · replay · oracle 실행기. ViewSet · analysis · 모듈 요청 전체 · HCX 호출 · QA 검사 시간 기록 |
+| `run.py` | live · replay · oracle · isolated · m3_only 실행기. ViewSet · analysis · 모듈 요청 전체 · HCX 호출 · QA 검사 시간 기록 |
 | `verdict.py` | 질문 단위 판정 (0단계 범위 → A0 → 1단계 출력 정확성 → 2단계 완전성), 회차 병합 |
 | `report.py` | 지표 집계 · 보고서 · 판정 시트 · 쌍 비교 |
 | `status.py` | 기대 상태(조건 술어 · A0 기대 라벨) |
 | `subq.py` | 기대 하위 질문 ↔ 출력 하위 질문 대응 |
 | `resolve.py` | 좌표 · CalcInput → 원본 행, `operands_valid` |
-| `binding.py` | numeric_match · semantic_ok |
+| `claim.py` | 답변 문장의 claim 추출 (숫자 + 단위 + 부호 + 방향어 + 지역 · 연도 레이블, 한국어 수량 합산) |
+| `binding.py` | claim 기준 numeric_match · 단위 · 부호 · semantic_ok (binding 기대가 없으면 N/A) |
+| `schema_v2.py` · `v2.py` | v2 데이터셋 스키마 · 내부 Question 변환, 경로 · 해시 검증, probe 실행 기록 · fixture, 입력 슬롯 overlay 적용 · 검증 |
+| `questions/v2_slots.json` | v2 isolated 입력 슬롯 overlay (oracle 질의 분석 형식) |
 | `display_ref.py` | 기대 표시값 (팀 `format_value`와 독립 구현) |
 | `reason_codes.py` | 보류 사유 문장 → 사유 코드 |
 | `chart_extract.py` | 차트 유형별 figure · ChartContent 정규형 비교 |

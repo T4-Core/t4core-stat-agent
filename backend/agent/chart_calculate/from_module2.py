@@ -7,8 +7,8 @@
     query_bundle QueryBundle 또는 그 dict
 
   TODO(임시): 모듈 2 와 필드 이름·값을 아직 맞추지 않았다. 안 맞으면 터지거나 조용히 사라지는 것만 막는다.
-    ① fallback_charts(목록) → ChartRequest.fallback_chart(하나). 첫 값만 쓰고, 버린 값은 reason 에 남긴다
-       (모듈 3 은 대체 차트를 하나만 시도한다 — content.build_chart)
+    ① fallback_charts(목록) → ChartRequest.fallback_charts(전체) + fallback_chart(첫 값, 예전 입력 호환)
+       [CHANGED 11-24] 모듈 3 은 대체 차트를 통과할 때까지 순서대로 시도한다 — content.build_chart
     ② measure 가 None → 'raw' 로 두고 reason 에 남긴다 / '범위 밖' → 차트 없음(chart_type None)
     ③ sub_question_ids 의 'main'(하위 질문이 없을 때) → '{query_id}-1'. 모듈 3 은 이 ID 로 시점·지역 같은 고정 조건을 찾는다.
        안 바꾸면 그 차트에는 고정 조건이 조용히 적용되지 않는다. 하위 질문이 있을 때는 'main' 이 나오지 않으므로 건드리지 않는다.
@@ -47,14 +47,13 @@ def to_chart_request(c: dict[str, Any], main_id: str | None = None) -> ChartRequ
     elif measure is None:
         measure, reason = "raw", _note(reason, "모듈 2 가 measure 를 정하지 못해 raw 로 둠")
 
+    # [CHANGED 11-24] 이전: 첫 후보만 fallback_chart 로 쓰고 나머지는 reason 에 '쓰지 않음' 으로 남겼다 → 이제 모두 fallback_charts 로 넘긴다
     fallbacks = list(c.get("fallback_charts") or [])
     fallback = c.get("fallback_chart") or (fallbacks[0] if fallbacks else None)
-    if len(fallbacks) > 1:
-        reason = _note(reason, f"대체 차트 {fallbacks[1:]} 는 쓰지 않음")
 
     return ChartRequest(chart_id=c["chart_id"], sub_question_ids=sub_ids,
                         chart_type=chart_type, measure=measure, requirements=list(c.get("requirements") or []),
-                        fallback_chart=fallback, reason=reason, view_ids=list(c.get("view_ids") or []),
+                        fallback_chart=fallback, fallback_charts=fallbacks, reason=reason, view_ids=list(c.get("view_ids") or []),
                         # [NEW 11-20 KOS-41] 차트 지정 요청과 모듈 2 경고. 경고는 진단용으로만 두고 plan_warnings 에 합치지 않는다
                         request=c.get("request"), m2_warnings=list(c.get("warnings") or []))
 

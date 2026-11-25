@@ -29,11 +29,19 @@ def _pick(sub_filter, filters, key):
     return _as_list((sub_filter or {}).get(key)) or _as_list((filters or {}).get(key))
 
 
+def axis_word(w):
+    """비교축 말 → 축 이름. [NEW 11-24] 사전에 없으면 끝의 '별' 을 떼고 다시 찾는다 ('지역별' → 지역, '연도별' → 시점).
+    그래도 없으면 '별' 을 뗀 말 그대로 (열 이름에 그 말이 든 열과 맞춘다: '가구원수별' → 가구원수)"""
+    w = str(w).strip()
+    base = w[:-1] if len(w) > 1 and w.endswith("별") else w
+    return AXIS_WORDS.get(w) or AXIS_WORDS.get(base) or base
+
+
 def requested_axes(sub_filter, filters):
     """질문이 요청한 나눔 (순서 유지). 시점은 비교축에 연도·시점이 있을 때만 들어간다"""
     axes = []
     for w in _pick(sub_filter, filters, "비교축"):
-        a = AXIS_WORDS.get(str(w).strip(), str(w).strip())
+        a = axis_word(w)
         if a and a not in axes:
             axes.append(a)
     sexes = {s for s in _pick(sub_filter, filters, "성별") if s not in TOTAL_WORDS}
@@ -84,7 +92,8 @@ def classify_dims(dims, sub_filter, filters, intents=None):
             dropped.append({**d, "kind": "extra"})
 
     # 안전장치: 요청한 나눔이 표의 어느 열에도 맞지 않으면, 비교·순위·구성비 질문은 그 밖 열을 범주로 남긴다
-    if not kept and set(intents or []) & set(CATEGORY_INTENTS):
+    # [CHANGED 11-24] 시점이 아닌 비교축을 요청했을 때도 (의도가 '값 조회' 여도 '지역별 ○○' 는 범주로 나눠 달라는 뜻)
+    if not kept and (set(intents or []) & set(CATEGORY_INTENTS) or [a for a in req if a != TIME]):
         back = [d for d in dropped if d["kind"] == "extra"]
         if back:
             kept = [{k: v for k, v in d.items() if k != "kind"} for d in back]

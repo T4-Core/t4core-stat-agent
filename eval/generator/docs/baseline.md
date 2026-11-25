@@ -88,9 +88,10 @@
 | M5 | Chart-Data Fidelity (재렌더링) | 100% (57/57, 겹쳐 그린 차트 3 제외) | 100% (28/28, 1 제외) | 100% (17/17, 1 제외) |
 | M5 | Spec Lint | 100% | 100% | 100% |
 | M6 | First-pass (`method == hcx`) | 65.2% (43/66) | 63.6% (21/33) | 54.5% (18/33) |
-| M6 | binding (semantic_ok) | 100% (81/81) | 100% (46/46) | 100% (49/49) |
+| M6 | binding (semantic_ok) | N/A (binding 기대 없음 · numeric_match만 확인) | N/A | N/A |
 | M6 | Unsupported Number (자리표시자 검사) | 95.5% | 90.9% | 81.8% |
 
+- binding: `core34` 기대값에는 좌표(binding)가 없다. 이전 집계의 binding 100%는 binding 기대가 없을 때 성공으로 센 값이라 검증 결과가 아니다. 숫자 일치(`numeric_match`)만 확인된 것으로 읽는다. 좌표 검증은 v2 데이터셋(claim마다 binding)에서 잰다.
 - Hold Recall은 기대 hold 중 '보류 · 누락 + 고지'만 성공으로 센다. 근거 있는 대체 값(Q14 · Q26 · Q32 등)은 보류가 아니라 분모에서 실패로 남는다.
 - Hold Reason 실패: Q34 기대 `missing_operand`(국적 행 없음)인데 사유가 '한 해뿐'(기존 F10). 5회차에서 해소.
 - First-pass가 5회차에 낮아진 것은 자리표시자 검사 강화(5회차 수정분)로 재시도가 늘어난 결과다(재시도 9회). 최종 실패(template · none)는 6회로 1 · 2회차 15회보다 적다.
@@ -140,7 +141,7 @@
 | M3 Operation · Operand · Execution | 100% (45/45) · 100% (6/6) · 100% (96/96) |
 | M3 Hold Recall · False-hold · Hold Reason | 64.7% (11/17) · 3.9% (2/51) · 7/11 |
 | M5 Render Success · Fidelity · Lint | 100% (31/31) · 100% (31/31) · 100%. 재렌더링 37개 중 겹쳐 그린 차트 6 제외. `skipped/no_chart_content` 47 |
-| M6 First-pass · binding · 결과 단위 · 표시 반올림 | 54.5% · 100% (96/96) · 100% (49/49) · 100% (32/32) |
+| M6 First-pass · binding · 결과 단위 · 표시 반올림 | 54.5% · N/A (binding 기대 없음 · numeric_match만 확인) · 100% (49/49) · 100% (32/32) |
 | QA 상태 분포 (품질 지표 아님) | ok 41 · warned 23 · partial 2 · n/a 2 (범위 밖) |
 | QA 재시도율 · 중단 | 5.9% · 0 |
 | QA A0 | 기대 `continue` 66, 관측 중단 0 → 답할 수 있는 질문을 막은 회차 0. 양성 사례가 없어 Precision · Recall N/A |

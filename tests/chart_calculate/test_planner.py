@@ -42,7 +42,8 @@ def test_spec_scenario_plan_and_displays():
     assert dumped["plans"][0] == {
         "chart_id": "c1", "sub_question_ids": ["q-1"], "record_id": VID, "chart_type": "line", "fallback_chart": "bar",
         "measure": "raw", "select": {**NATION, "항목": ["혼인건수(건)"], "시점": YEARS},
-        "steps": [{"step_id": "s1", "op": "raw", "display_ref": "d1"}]}
+        "steps": [{"step_id": "s1", "op": "raw", "display_ref": "d1"}],
+        "fallback_charts": ["bar"]}                                     # [NEW 11-24] fallback_chart 만 받으면 그 하나가 후보 목록
     assert dumped["plans"][1]["steps"] == [{"step_id": "s1", "op": "raw", "display_ref": "d2"}]
     # 질문용 증감률은 명세 예시대로 from·to(2021→2025) 두 시점 (2026-11-16 결정 D-1. 11-11 에는 시점마다 직전 대비였다)
     assert dumped["answer_steps"][0] == {

@@ -3,9 +3,7 @@ import { USE_MOCK } from '../api/client';
 import type { ChartSpec, Filters, ResultView, RunRecord, StatTable, TableChoice } from './types';
 
 export const SIDO = ['전국', '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주'];
-export const SEOUL_MAIN = ['전체', '종로구', '중구', '용산구', '성동구', '광진구', '동대문구', '중랑구', '성북구', '강북구', '도봉구'];
-export const SEOUL_MORE = ['노원구', '은평구', '서대문구', '마포구', '양천구', '강서구', '구로구', '금천구', '영등포구', '동작구', '관악구', '서초구', '강남구', '송파구', '강동구'];
-export const YEARS = Array.from({ length: 15 }, (_, index) => 2010 + index);
+export const YEARS = Array.from({ length: 16 }, (_, index) => 2010 + index); // 2010 ~ 2025
 export const TARGET_GROUPS = [
   { label: '가구', items: ['전체 가구', '1인 가구', '다문화 가구', '한부모 가구', '고령자 가구'] },
   { label: '인구', items: ['전체 인구', '남성', '여성', '청년', '고령', '외국인'] },
@@ -114,7 +112,8 @@ export function formatRegion(filters: Filters) {
   const [first, ...rest] = filters.regions;
   if (!first) return '';
   if (rest.length > 0) return `${first} 외 ${rest.length}`;
-  return filters.district !== '전체' && first === '서울' ? `서울 ${filters.district}` : first;
+  // 시군구까지 골랐으면 붙여서 보여줍니다. 예) '부산 해운대구', '경기 수원시 장안구'
+  return filters.district !== '전체' ? `${first} ${filters.district}` : first;
 }
 
 export function formatTime(filters: Filters) {

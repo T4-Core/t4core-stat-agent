@@ -4,6 +4,7 @@
 (노트북 chart_type_decision.ipynb에서 옮김 — 로직은 노트북과 같다)
 """
 from .chart_type_chart_picker import attach_requirements, pick_chart
+from .chart_type_frames import chart_measure
 from .chart_type_matcher import match_units
 from .chart_type_measure import decide_measure
 from .chart_type_profiler import profile_data
@@ -54,8 +55,12 @@ def decide_charts(query_bundle, view_input, use_llm=True):
     for m in targets:
         block, exclude, why = blocks[m["chart_id"]]
         info = _request_info(m, query_bundle)                              # [NEW 11-20 KOS-41] 차단 판정과 관계없이 요청을 먼저 해석
+        measure, swap = chart_measure(m, query_bundle)                     # [NEW 11-24] 결과 1개인 차이 계산 → 비교한 값(raw)을 그림
+        if swap:
+            errors.append({"node": "chart_select", "chart_id": m["chart_id"], "level": "info", "reason": swap})
         base = {"chart_id": m["chart_id"], "sub_question_ids": [m["sub_question_id"]],
-                "view_ids": [m["filtered_view"]["record"]["id"]], "measure": m["measure"], "_ms": [m], "request": info}
+                "view_ids": [m["filtered_view"]["record"]["id"]], "measure": measure, "_ms": [m], "request": info,
+                "measure_note": swap}
         if block:                                                         # View 가 질문에 맞지 않음 → 차트 없음 (표만)
             record_selection(info, None, block=block)
             plans.append({**base, "chart_type": None, "fallback_charts": []})
@@ -63,7 +68,7 @@ def decide_charts(query_bundle, view_input, use_llm=True):
                            "reason": f"차트 없음(표만): {block}"})
             continue
         codes, excl = requested_codes(info)
-        r = pick_chart(m["measure"], m["profile"], use_llm=use_llm, exclude=exclude, exclude_why=why,
+        r = pick_chart(measure, m["profile"], use_llm=use_llm, exclude=exclude, exclude_why=why,
                        requested=codes, excluded=excl)
         record_selection(info, r)
         errors += _request_warning(m["chart_id"], r)
@@ -75,6 +80,8 @@ def decide_charts(query_bundle, view_input, use_llm=True):
         attach_requirements(p)
         p["reason"] = make_reason([m["sub_filter"] for m in p["_ms"]], query_bundle,
                                   [m["sub_question"] for m in p["_ms"]])
+        if p.get("measure_note"):
+            p["reason"] = f"{p['reason']} · {p['measure_note']}"
         p["warnings"] = chart_warnings(errors, [m["chart_id"] for m in p["_ms"]])     # 사용자용 경고 (고도화 4단계)
         charts.append({k: p[k] for k in CHART_KEYS})
 

@@ -51,12 +51,8 @@ SPLIT_SLOTS = ["성별", "연령", "지역"]             # 요청한 나눔으�
 SPLIT_CHARTS = {"성별": ["pyramid"],               # 그 나눔이 표에 없으면 후보에서 빼는 차트
                 "연령": ["pyramid"],
                 "지역": ["map"]}
-# [값 1개 → 표만] 차트에 올릴 값이 MIN_CHART_VALUES 보다 적으면 차트 없음 (표만). 막대 1개짜리 차트를 만들지 않는다
-#   SCALAR_MEASURES: 시점을 접어 범주마다 값 1개를 내는 계산 (2015→2018 증감 = 값 1개). 값 수 = 시점이 아닌 범주 수 × 계열 수
-#   raw: 값 수 = 범주 수 × 계열 수.  그 밖의 measure(share · rank · diff · ratio · index)는 미리 세지 않는다
-SCALAR_MEASURES = ("change", "growth_rate", "aggregate")
-SCALAR_MAX_POINTS = 2      # 시점이 이 이하일 때만 '범주마다 값 1개' 로 센다 (3개 이상이면 해마다의 증감일 수 있어 세지 않음)
-MIN_CHART_VALUES = 2
+# [CHANGED 11-24] '값 1개 → 표만' 차단(SCALAR_MEASURES · SCALAR_MAX_POINTS · MIN_CHART_VALUES)은 없앴다.
+#   차이 계산의 결과가 1개면 비교한 값들을 그리고, 값이 정말 1개인 표는 빈 좌표 판정에서 탈락한다 (chart_type_frames.py)
 
 # ── 사용자용 경고 (고도화 4단계): errors 중 이 노드에서 나온 warning 만 chart_plan.charts[].warnings 로 넘긴다
 #    profile 노드의 메모('요청하지 않은 나눔 … 제외' 등)는 개발자용이라 errors 에만 둔다
@@ -140,7 +136,8 @@ MEASURE_TO_CHARTS = {
     "growth_rate": ["bar", "line", "combo", "map", "heatmap", "scatter"],
     "cagr":        [],                                   # 차트 없음 → 표만
     "index":       ["line", "radar"],
-    "share":       ["donut", "pie", "stacked_bar", "treemap", "pyramid", "area", "map"],
+    "share":       ["donut", "pie", "stacked_bar", "treemap", "pyramid", "area", "map",
+                    "bar"],                              # [NEW 11-24] 항목이 많아 원형이 탈락할 때 막대로 (임시 — 뺄 때는 이 줄만 지운다)
     "diff":        ["dumbbell", "bar"],
     "ratio":       ["bar"],
     "rank":        ["bar"],
@@ -148,11 +145,12 @@ MEASURE_TO_CHARTS = {
     "aggregate":   ["bar", "area"],
 }
 
-# 차트별 requirements (데이터가 지켜야 할 조건 이름)
+# 차트별 requirements (데이터가 지켜야 할 조건 이름) — 모듈 3 에 넘겨 계산 뒤에 판정한다
+# [CHANGED 11-24] 모듈 2 는 이 조건으로 후보를 거르지 않는다 (빈 좌표 판정은 chart_type_frames.py). 이전 profile 추정 판정(REQ_CHECKS)은 없앴다
 CHART_REQUIREMENTS = {
     "line":        ["time_axis_required", "min_points_3"],
     "area":        ["time_axis_required", "min_points_3"],
-    # [값 1개 → 표만] min_categories_2: 모듈 2 가 미리 세지 못한 경우의 안전망. 모듈 3 이 계산한 차트 내용으로 판정한다
+    # min_categories_2: 값 1개짜리 막대를 만들지 않는 안전망. 모듈 3 이 계산한 차트 내용으로 판정한다
     #   (대체 차트는 모듈 3 이 자기 기본 조건으로 검증하므로 dumbbell 에는 붙이지 않는다 — 붙여도 효과 없음)
     "bar":         ["max_categories_20", "min_categories_2"],
     "stacked_bar": ["non_negative", "parts_sum_to_total", "min_categories_2"],
@@ -167,29 +165,6 @@ CHART_REQUIREMENTS = {
     "treemap":     ["non_negative", "parts_sum_to_total", "min_categories_2"],
     "scatter":     ["two_measures_required", "min_points_5"],
     "dumbbell":    ["two_points_per_category"],
-}
-
-# requirement → profile 검사. 반환: (통과 여부, 확인한 값 설명)
-REQ_CHECKS = {
-    "time_axis_required":        lambda p: (p["has_time"],                f'시점 {p["n_points"]}개 (2개 이상 필요)'),
-    "min_points_3":              lambda p: (p["n_points"] >= 3,           f'점 {p["n_points"]}개 (3개 이상 필요)'),
-    "min_points_5":              lambda p: (p["n_categories"] >= 5,       f'범주 {p["n_categories"]}개 (5개 이상 필요)'),   # scatter의 점 = 범주
-    "max_categories_20":         lambda p: (p["n_categories"] <= 20,      f'범주 {p["n_categories"]}개 (20개 이하 필요)'),
-    "max_categories_5":          lambda p: (p["n_categories"] <= 5,       f'범주 {p["n_categories"]}개 (5개 이하 필요)'),
-    "min_categories_3":          lambda p: (p["n_categories"] >= 3,       f'범주 {p["n_categories"]}개 (3개 이상 필요)'),
-    # [값 1개 → 표만] 모듈 2 에서는 범주 × 계열로만 본다 (값 1개가 뻔한 경우는 block_reason 이 먼저 막는다)
-    "min_categories_2":          lambda p: (p["n_categories"] * max(p["n_series"], 1) >= 2,
-                                            f'값 {p["n_categories"] * max(p["n_series"], 1)}개 (2개 이상 필요)'),
-    "max_categories_8":          lambda p: (p["n_categories"] <= 8,       f'범주 {p["n_categories"]}개 (8개 이하 필요)'),
-    "category_axis_required":    lambda p: (len(p["dims"]) >= 1,          f'나누는 기준 {len(p["dims"])}개 (1개 이상 필요)'),
-    "two_series_required":       lambda p: (p["n_series"] == 2,           f'계열 {p["n_series"]}개 (정확히 2개 필요)'),
-    "non_negative":              lambda p: (p["non_negative"],            "값 0 이상" if p["non_negative"] else "음수 값 있음"),
-    "parts_sum_to_total":        lambda p: (p["has_total"],               "합계 행 있음" if p["has_total"] else "합계 행 없음"),
-    "two_measures_required":     lambda p: (p["n_measures"] >= 2,         f'지표 {p["n_measures"]}개 (2개 이상 필요)'),
-    "three_measures_required":   lambda p: (p["n_measures"] >= 3,         f'지표 {p["n_measures"]}개 (3개 이상 필요)'),
-    "region_dimension_required": lambda p: (p["has_region"],              f'지역 {p["n_regions"]}곳 (2곳 이상 필요)'),
-    "two_dimensions_required":   lambda p: (p["n_dims"] >= 2,             f'차원 {p["n_dims"]}개 (2개 이상 필요)'),
-    "two_points_per_category":   lambda p: (p["two_points_per_category"], "비교 대상 2개" if p["two_points_per_category"] else "비교 대상이 2개가 아님"),
 }
 
 # ── ⑥ reason (노트북 8번) ──

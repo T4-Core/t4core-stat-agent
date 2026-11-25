@@ -3,6 +3,8 @@
 템플릿 "{지표} {비교축}별 {의도}"로 차트를 고른 이유 문장을 만든다.
 (노트북 chart_type_decision.ipynb에서 옮김 — 로직은 노트북과 같다)
 """
+import re
+
 from .chart_type_measure import end_intent
 from .chart_type_rules import REASON_TEMPLATE
 
@@ -22,7 +24,8 @@ def make_reason(sub_filters, query_bundle, sub_questions=()):
         return list(dict.fromkeys(x for x in xs if x))
 
     indicators = uniq(x for f in sub_filters for x in as_list(f.get("지표")))
-    axes = uniq(x for f in sub_filters for x in as_list(f.get("비교축")))
+    # [CHANGED 11-24] 템플릿이 '별' 을 붙이므로 비교축 끝의 '별' 은 뗀다. 이전: 비교축 '지역별' → '지역별별' (성별 → 성 → 성별)
+    axes = uniq(re.sub(r"별$", "", str(x).strip()) for f in sub_filters for x in as_list(f.get("비교축")))
     intents = uniq(as_list(query_bundle.get("intent")))
     if not intents:                                            # intent가 비면 하위질문 끝 키워드로
         intents = uniq(end_intent(q) for q in sub_questions)

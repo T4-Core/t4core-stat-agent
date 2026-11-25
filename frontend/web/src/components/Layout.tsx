@@ -1,6 +1,7 @@
 // 모든 화면의 공통 틀: 1440x900 시안을 창 크기에 맞춰 비율 유지로 표시합니다.
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
+import settingsIcon from '../assets/figma/settings.svg';
 import { useRuns } from '../store/history';
 
 const STAGE_WIDTH = 1440;
@@ -13,12 +14,11 @@ const ADMIN_URL = import.meta.env.VITE_ADMIN_URL?.trim()
 function AdminEntry() {
   // 답변을 기다리는 중이면 결과를 잃지 않도록 새 탭으로 엽니다.
   const waiting = useRuns().some((run) => run.status === 'pending');
-  if (!ADMIN_URL) return <span className="header-spacer" aria-hidden="true" />;
+  // 관리자 주소가 없으면(배포 설정 누락) 톱니바퀴 모양만 보여주고 누를 수 없게 둡니다.
+  if (!ADMIN_URL) return <img className="admin-entry" src={settingsIcon} alt="" width={40} height={40} />;
   return (
     <a className="admin-entry" href={ADMIN_URL} target={waiting ? '_blank' : undefined} rel={waiting ? 'noreferrer' : undefined} aria-label="관리자 페이지로 이동" title="관리자 페이지">
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-        <path d="M9 9a3.25 3.25 0 1 0 0-6.5A3.25 3.25 0 0 0 9 9ZM3 15.5c.6-2.9 3-4.5 6-4.5s5.4 1.6 6 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <img src={settingsIcon} alt="" width={40} height={40} />
     </a>
   );
 }
@@ -54,7 +54,7 @@ export function Frame({ variant, active = 'agent', children }: { variant: FrameV
   return (
     <>
       <div className={`frame frame-${variant}`} />
-      <header className={`app-header header-${variant}`}>
+      <header className="app-header">
         <Link className="logo" to="/" aria-label="T4core 처음으로">
           <span className="logo-box"><span /></span>
           <span className="logo-text">T4core</span>
