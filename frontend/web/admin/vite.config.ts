@@ -6,7 +6,7 @@ import { defineConfig, loadEnv } from 'vite';
 const adminRoot = fileURLToPath(new URL('.', import.meta.url));
 const frontendRoot = fileURLToPath(new URL('..', import.meta.url));
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, adminRoot, '');
   const backendUrl = env.BACKEND_URL || 'http://localhost:8000';
   const apiBasePath = env.VITE_API_BASE_PATH || '/api/v1';
@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
   const proxy = { [apiBasePath]: target, '/health': target };
 
   return {
+    base: command === 'build' ? '/admin/' : '/',
     root: adminRoot,
     envDir: adminRoot,
     // 3D 캐릭터 파일은 기존 화면의 public 폴더에 있습니다.
