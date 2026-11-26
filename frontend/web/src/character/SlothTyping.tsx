@@ -2,6 +2,7 @@
 // 공통 부분(모델·뼈대·장면·정리)은 slothRig.ts 에 있고, 여기에는 노트북과 타이핑 동작만 있습니다.
 import * as THREE from 'three';
 import { useSloth, type Rig, type SlothMotion } from './slothRig';
+import { TAP_PERIOD, TYPING_SPEED } from './typingTiming';
 
 // ── 노트북(모델 좌표 기준, 무릎 위) ─────────────────────
 function buildLaptop() {
@@ -52,7 +53,7 @@ function buildLaptop() {
 
 // ── 모션: 두 손 번갈아 키보드 톡톡 ──────────────────────
 // TAP_PERIOD: 한 손이 키를 한 번 누르는 간격(초). 두 손이 번갈아 치므로 이 시간의 절반마다 한 번씩 톡.
-const TAP_PERIOD = 1.6;
+// 값은 typingTiming.ts 에 있습니다. (답변 생성 중 화면이 같은 박자로 단계를 넘깁니다)
 const qType = new THREE.Quaternion();
 const v1 = new THREE.Vector3(), v2 = new THREE.Vector3();
 
@@ -85,7 +86,7 @@ const TYPING: SlothMotion = {
   target: [0, 0.85, 0.15],
   turnY: 0.3, // 원본처럼 살짝 옆을 보도록
   elbowBlend: 0.025, // 50:50 으로 섞이면 팔꿈치를 펼 때 소매가 납작하게 찌그러지므로 좁게
-  speed: 0.6, // 원본 기본 속도의 0.6배
+  speed: TYPING_SPEED, // 원본 기본 속도의 0.6배
   reducedTime: 3, // 동작 줄이기: 키보드 위 정지 자세
   decorate: (body) => body.add(buildLaptop()),
   pose,

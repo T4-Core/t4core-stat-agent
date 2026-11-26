@@ -1,6 +1,12 @@
 /* 실제 백엔드 응답에서만 나타나는 상태 (되묻기, 안내, 긴 답변, 차트 없음) */
 .backend-alert { position: absolute; left: 293px; top: 362px; width: 820px; padding: 7px 14px; border-radius: 10px; background: #fff4e5; color: #8a5a12; font-size: 12.5px; font-weight: 500; text-align: center; z-index: 6; }
 .plotly-chart { overflow: hidden; }
+/* 차트 제목이 길면 말줄임 */
+.mini-chart-card h3, .modal-chart h3, .thumb-card > span:first-child { min-width: 0; }
+.mini-chart-title, .modal-chart-title, .thumb-title { min-width: 0; overflow: hidden; font-weight: inherit; text-overflow: ellipsis; white-space: nowrap; }
+.modal-chart h3 small { flex: none; }
+.modal-each aside { max-height: 610px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+.modal-each aside .thumb-card { width: 100%; }
 .chart-failed { display: flex; align-items: center; justify-content: center; color: var(--text-500); font-size: 13px; }
 .answer-plain { display: contents; }
 .answer-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-right: 5px; scrollbar-width: thin; scrollbar-color: var(--line-300) transparent; }

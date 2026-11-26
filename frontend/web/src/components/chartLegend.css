@@ -1,0 +1,11 @@
+/* 항목이 여러 개인 차트: 그림 오른쪽에 범례(색 + 이름). 항목이 많으면 범례만 스크롤됩니다.
+   사용자 화면과 관리자 콘솔이 함께 쓰므로 차트 컴포넌트가 직접 불러옵니다. */
+.figure-chart { display: flex; align-items: center; gap: 8px; }
+.figure-chart .plotly-chart { flex: none; }
+.chart-legend { display: flex; flex: none; flex-direction: column; gap: 6px; margin: 0; padding: 0; overflow-y: auto; list-style: none; color: var(--text-700, #3f4a48); font-weight: 500; scrollbar-width: thin; scrollbar-color: var(--line-300, #cfd8d6) transparent; }
+.chart-legend li { display: flex; align-items: center; gap: 6px; min-width: 0; line-height: 1.3; }
+.chart-legend span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend-swatch { display: inline-block; flex: none; }
+.legend-swatch.box { width: 9px; height: 9px; border-radius: 2px; }
+.legend-swatch.line { width: 14px; height: 3px; border-radius: 2px; }
+.legend-swatch.dot { width: 10px; height: 10px; margin: 0 2px; border-radius: 50%; }
