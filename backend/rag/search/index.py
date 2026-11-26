@@ -201,11 +201,31 @@ class DenseRetriever:
 
     def __init__(self, embedder, name="dense", cache=True, views=None):
         self.name, self.emb, self.cache, self.views = name, embedder, cache, views
+        self.set_ids = []
 
-    def _embed(self, corpus, vname, texts):
+    def _embed(self, corpus, vname, texts, own=None):
         keys = (corpus.signature(), self.emb.id) if vname == "rule" else \
             (corpus.signature(), self.emb.id, vname, hashlib.sha1("\x1f".join(texts).encode()).hexdigest()[:16])
         f = _cache_file("dense", *keys)  # rule 은 예전 캐시 키 그대로 (이미 만든 임베딩을 다시 씀)
+        from backend.db.conn import vector_store
+        if self.cache and vector_store() == "pgvector":   # db-server pgvector 에 묶음째 (backend/db/vectors.py)
+            from backend.db.vectors import VectorDbUnavailable, doc_store
+            try:
+                M, sid = doc_store().load_or_create(keys, corpus.signature(), self.emb.id, vname, texts, own,
+                                                    [d.id for d in corpus.docs()], lambda: self.emb.embed_docs(texts))
+            except VectorDbUnavailable:
+                if not f.exists():                         # 파일 캐시도 없으면 HCX 로 전부 다시 하지 않고 멈춤
+                    raise
+                import logging
+                logging.getLogger("t4core.vectors").warning("벡터 DB 에 닿지 않아 파일 캐시로: %s", f)
+                self.set_ids.append(None)
+                return pickle.loads(f.read_bytes())
+            self.set_ids.append(sid)
+            if not f.exists():                             # 벡터 DB 가 꺼졌을 때를 위한 파일 사본
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(pickle.dumps(M))
+            return M
+        self.set_ids.append(None)
         if self.cache and f.exists():
             return pickle.loads(f.read_bytes())
         M = self.emb.embed_docs(texts)
@@ -219,20 +239,35 @@ class DenseRetriever:
         self.n = len(docs)
         views = self.views or [("rule", [d.text for d in docs])]
         self.view_names = [n for n, _ in views]
-        self.Ms, self.owners = [], []
+        self.Ms, self.owners, self.set_ids = [], [], []
         for n, items in views:
             flat, own = [], []
             for i, t in enumerate(items):
                 for x in (t if isinstance(t, (list, tuple)) else [t]):
                     flat.append(str(x))
                     own.append(i)
-            self.Ms.append(self._embed(corpus, n, flat))
+            self.Ms.append(self._embed(corpus, n, flat, own))
             self.owners.append(None if len(flat) == self.n and own == list(range(self.n)) else np.asarray(own))
         self.M = self.Ms[0]
         return self
 
+    def _raw_scores(self, k, q):
+        """묶음 k 의 행마다 내적. pgvector 묶음이면 db-server 에서 계산 (실패하면 메모리 행렬로)"""
+        sid = self.set_ids[k] if k < len(self.set_ids) else None
+        if sid is not None:
+            from backend.db.vectors import doc_store, score_in_db
+            if score_in_db():
+                try:
+                    s = doc_store().scores(sid, q)
+                    if s.shape[0] == self.Ms[k].shape[0]:
+                        return s
+                except Exception as e:  # noqa: BLE001
+                    import logging
+                    logging.getLogger("t4core.vectors").warning("pgvector 점수 계산 실패 (메모리로): %s", e)
+        return self.Ms[k] @ q
+
     def _view_scores(self, k, q):
-        s = self.Ms[k] @ q
+        s = self._raw_scores(k, q)
         own = self.owners[k]
         if own is None:
             return s

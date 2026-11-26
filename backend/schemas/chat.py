@@ -65,6 +65,9 @@ class ChatRequest(BaseModel):
     selections: dict[str, list[str]] | None = Field(None, description="되묻기 응답 (슬롯 → 값). previous 와 함께")
     view_selections: list[SelectionItem] | None = Field(None, description="충돌 선택 (selection_token + option_id). previous 와 함께")
     save: bool = Field(False, description="true 면 ANSWERS_DIR 에 결과 JSON 저장")
+    session_id: str | None = Field(None, max_length=100, pattern=r"^[A-Za-z0-9_.:-]{8,100}$", description=(
+        "멀티턴 세션 id (REDIS_URL 이 있을 때). 주면 응답을 서버에 두어 GET /api/v1/sessions/{id} 로 다시 받을 수 있고, "
+        "이어서 할 때 previous 없이 selections · view_selections 만 보내도 된다 (previous 가 있으면 그것이 먼저)"))
     pipeline: str = Field("default", description="default | 개인 폴더 파이프라인 이름 (GET /api/v1/system/pipelines)")
     answer_mode: Literal["default", "modules"] = Field("default", description=(
         "default = 답변 HCX 1회 (agent/answer.py) · modules = 모듈 2→3→5→6 (차트 계획·계산·그림·답변 문장). "
@@ -85,6 +88,7 @@ class ChatResponse(BaseModel):
     modules: dict[str, Any] | None = Field(None, description=(
         "answer_mode=modules 결과: charts · chart_errors · chart_plan(모듈 2) · module3 · drawn(모듈 5) · answer(모듈 6) · notes"))
     saved: str | None = None
+    session_id: str | None = Field(None, description="요청의 session_id (세션 저장을 켰을 때)")
     trace: list[dict] | None = Field(None, description="플러그인 파이프라인 단계 기록 (있으면)")
 
 

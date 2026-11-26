@@ -3,6 +3,7 @@ import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { recoverInterrupted } from './store/agent';
 import './styles/tokens.css';
 import './styles/global.css';
 import './styles/main.css';
@@ -11,6 +12,8 @@ import './styles/result.css';
 import './styles/history.css';
 import './styles/live.css';
 import './styles/clarify.css';
+
+void recoverInterrupted();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

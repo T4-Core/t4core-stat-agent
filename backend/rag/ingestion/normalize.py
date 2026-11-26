@@ -685,6 +685,15 @@ _norm_locks, _norm_guard = {}, __import__("threading").Lock()
 
 def ensure_normalized(con, tbl_id, force=False):
     # 지연 정규화: resolve 가 고른 표만 이 시점에 정규화. 캐시(원본보다 새 parquet)가 있으면 프로필만 읽음
+    # STAT_BACKEND=postgres: PostgreSQL 에 올린 표면 그 프로필 (값도 PostgreSQL 에서 — data_engine/stat_store.py).
+    #   없는 표는 아래 parquet·원본으로. 원본 폴더(catalog.csv)가 없는 서버면 None (= 원본 없음)
+    from backend.data_engine import stat_store
+    if stat_store.use_postgres() and not force:
+        prof = stat_store.pg_profile(tbl_id)
+        if prof is not None:
+            return prof
+        if not (KOSIS_DATA_DIR / "catalog.csv").exists():
+            return None
     row = next(load_targets([tbl_id]).itertuples())
     with _norm_guard:
         lock = _norm_locks.setdefault(tbl_id, __import__("threading").Lock())

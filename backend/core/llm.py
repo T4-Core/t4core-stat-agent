@@ -5,7 +5,8 @@ HCX(HyperCLOVA X) 클라이언트 — 대화와 CLOVA 임베딩 v2(bge-m3)
   chat(..., thinking="low")          HCX-007 추론(low·medium·high). 추론은 구조화 출력과 함께 못 써서(HCX 문서) schema 를
                                      요청에 넣지 않고 응답 글에서 JSON 을 뽑음. maxCompletionTokens 는 추론 토큰을 포함 →
                                      effort 별 기본값(5120·10240·20480). 오래 걸려 시간 제한 180초·시간 초과 재시도 1회
-  embed_one / embed_many             임베딩 (캐시: config.EMBED_CACHE, 같은 문장은 한 번만 호출)
+  embed_one / embed_many             임베딩 (캐시: config.EMBED_CACHE sqlite, VECTOR_STORE=pgvector 면 db-server.
+                                     같은 문장은 한 번만 호출)
 
 429·5xx·네트워크 끊김은 점점 길게 기다리며 재시도하고, 400 등 요청 오류는 바로 올린다.
 """
@@ -173,6 +174,9 @@ class _EmbedCache:
             row = self.db.execute("SELECT v FROM emb WHERE k=?", (self.key(text),)).fetchone()
         return np.frombuffer(row[0], dtype=np.float32) if row else None
 
+    def get_many(self, texts):
+        return [self.get(t) for t in texts]
+
     def put(self, text, vec):
         with self.lock:
             self.db.execute("INSERT OR REPLACE INTO emb VALUES (?, ?)",
@@ -184,9 +188,15 @@ _cache = None
 
 
 def embed_cache():
+    """VECTOR_STORE=pgvector 면 db-server 의 vec.embedding_cache (backend/db/vectors.py), 아니면 sqlite (EMBED_CACHE)"""
     global _cache
     if _cache is None:
-        _cache = _EmbedCache(EMBED_CACHE)
+        from backend.db.conn import vector_store
+        if vector_store() == "pgvector":
+            from backend.db.vectors import PgEmbedCache
+            _cache = PgEmbedCache(EMBED_MODEL)
+        else:
+            _cache = _EmbedCache(EMBED_CACHE)
     return _cache
 
 
@@ -203,7 +213,7 @@ def embed_one(text):
 
 def embed_many(texts, workers=4, progress=print):
     """1건마다 캐시에 저장 → 중단·실패해도 다시 실행하면 남은 것만 호출"""
-    out = [embed_cache().get((t or "")[:EMBED_MAX_CHARS]) for t in texts]
+    out = embed_cache().get_many([(t or "")[:EMBED_MAX_CHARS] for t in texts])
     todo = [i for i, v in enumerate(out) if v is None]
     progress(f"임베딩: 전체 {len(texts)}, 캐시 {len(texts) - len(todo)}, 새로 호출 {len(todo)}")
     done, failed, lock, t0 = [0], [], threading.Lock(), time.time()
