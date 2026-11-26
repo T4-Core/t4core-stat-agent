@@ -15,10 +15,29 @@ DB 구조와 결정 사항은 [docs/AWS_DB.md](../docs/AWS_DB.md)에 있다. 이
 
 돈다. 서버가 답변할 때 쓰는 **검색 대상 표 1,092개의 값은 모두 backend-server 의 PostgreSQL 에 들어간다** (`stats load --all`). 팀 PC 를 꺼도 서버는 혼자 답한다 (`tests/test_db_aws.py` 가 원본 CSV · parquet 를 지운 상태에서 같은 질문의 답이 같은지 확인한다).
 
+<<<<<<< HEAD
 | | 원본 CSV (`kosis_data/raw`) | PostgreSQL `kosis` |
 |---|---|---|
 | 담긴 것 | KOSIS 응답 그대로 (이름·단위 글자가 행마다 반복) + 검색 대상이 아닌 표까지 (`estimate` 가 selected 몫을 보여 줌) | selected 표의 **모든 값** (코드 사전으로 정리) |
 | 서버가 쓰나 | 안 씀 — 정규화 · CSV 값 사전 · 수집을 다시 할 때만 | 질문마다 씀 |
+=======
+### 벡터 DB EC2
+
+`deploy/vector/.env.example`을 같은 폴더의 `.env`로 복사하고 `VECTOR_PG_PASSWORD`를 설정한다. SG는 5432 인바운드를 백엔드 EC2에서만 허용한다.
+
+```sh
+docker compose --env-file deploy/vector/.env -f deploy/vector/compose.yml up -d
+docker compose --env-file deploy/vector/.env -f deploy/vector/compose.yml exec -T vector \
+  psql -U t4core_vector -d t4core_vector -c "select extversion from pg_extension where extname='vector';"
+```
+
+`initdb/`의 SQL은 데이터 폴더가 비어 있을 때만 실행된다. 기존 데이터 폴더를 재사용해 조회 결과가 없으면 `CREATE EXTENSION vector;`를 직접 실행한다. `VECTOR_PG_USER`나 `VECTOR_PG_DB`를 바꿨다면 위 명령의 값도 바꾼다.
+
+### 백엔드·프론트엔드 EC2
+
+1. 백엔드 EC2의 저장소 경로에 `kosis_data` 원본 CSV와 메타데이터, Parquet, 표 색인, CSV 색인을 준비한다. 백엔드 실행 사용자에게 결과를 기록할 경로의 쓰기 권한을 준다.
+2. 백엔드 EC2에서 환경설정을 작성하고 FastAPI와 PostgreSQL을 기동한다.
+>>>>>>> develop
 
 원본은 "데이터를 다시 만들 때의 재료"라 갱신 작업을 하는 곳에만 있으면 된다. 전부 서버에 두고 싶으면:
 
@@ -34,7 +53,11 @@ DB 구조와 결정 사항은 [docs/AWS_DB.md](../docs/AWS_DB.md)에 있다. 이
 | 5 | front-server | Docker · nginx | 10분 (이미지 빌드) |
 | 6 | 브라우저 | 확인 체크리스트 | 5분 |
 
+<<<<<<< HEAD
 ---
+=======
+4. nginx를 경유한 `/health`, 사용자 화면, `/admin/`을 확인한다. 서비스 DB 로그인과 벡터 DB EC2의 pgvector 연산은 각각 SQL로 검증한다.
+>>>>>>> develop
 
 ## 1. 팀 PC — 패치와 데이터 준비
 

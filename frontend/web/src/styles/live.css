@@ -32,16 +32,6 @@
 .confirm-dialog button { height: 38px; padding: 0 16px; border: 1px solid var(--line-200); border-radius: 10px; background: #fff; color: var(--primary-900); font-size: 13.5px; font-weight: 600; }
 .confirm-dialog button.primary { border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
 
-.clarify-card { position: absolute; left: 310px; top: 300px; display: flex; flex-direction: column; gap: 18px; width: 820px; max-height: 480px; padding: 24px 26px; overflow-y: auto; border: 1px solid var(--line-300); border-radius: 18px; background: #fff; box-shadow: var(--shadow-composer); }
-.clarify-card fieldset { margin: 0; padding: 0; border: 0; }
-.clarify-card legend { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 0; color: var(--text-700); font-size: 13.5px; }
-.clarify-card legend b { color: var(--text-900); font-weight: 700; }
-.clarify-card legend small { color: var(--text-500); font-size: 12px; }
-.clarify-card fieldset > div { display: flex; flex-wrap: wrap; gap: 8px; }
-.clarify-card .target-chip { height: 32px; padding: 0 13px; font-size: 13px; }
-.clarify-card footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line-100); }
-.clarify-card .panel-button { height: 36px; padding: 0 16px; font-size: 13px; }
-
 .notice { position: absolute; left: 320px; top: 520px; width: 800px; text-align: center; }
 .notice h1 { color: var(--text-900); font-size: 22px; font-weight: 600; }
 .notice p { margin-top: 12px; color: var(--text-700); font-size: 15px; font-weight: 500; line-height: 24px; word-break: keep-all; }
