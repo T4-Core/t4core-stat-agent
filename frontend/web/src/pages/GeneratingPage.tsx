@@ -15,7 +15,7 @@ import { routeForRun, useRun } from '../store/history';
 const STEPS = ['질문 이해하기', '알맞은 통계표 찾기', '데이터 불러오기', '차트와 답변 만들기'];
 const TITLES = ['질문을 이해하고 있어요…', '알맞은 통계표를 찾고 있어요…', '통계표에서 숫자를 찾고 있어요…', '차트와 답변을 만들고 있어요…'];
 /** 단계마다 머무는 타이핑 횟수: 질문 이해하기 1번, 통계표 찾기 2번, 데이터 불러오기 2번 (마지막 단계는 응답이 올 때까지) */
-const LOOPS = [1, 4, 3];
+const LOOPS = [1, 2, 2];
 
 export function GeneratingPage() {
   const { id } = useParams();
