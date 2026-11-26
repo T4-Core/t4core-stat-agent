@@ -18,6 +18,8 @@ export function sendChat(input: ChatInput, signal?: AbortSignal): Promise<ChatRe
     answer_mode: 'modules', // 차트 그림과 근거 표까지 받는 모드
     auto_select: false, // 표마다 값이 다르면 사용자에게 선택을 묻기
     draw: true,
+    // 시점·지역·대상이 빠지면 가정으로 진행하지 않고 되묻기로 멈춤 (서버 기본값 soft)
+    overrides: { clarify_mode: 'strict' },
   };
   return postJson<ChatResponse>('/chat', body, signal);
 }

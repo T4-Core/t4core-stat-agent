@@ -10,6 +10,7 @@ import './styles/flow.css';
 import './styles/result.css';
 import './styles/history.css';
 import './styles/live.css';
+import './styles/clarify.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
