@@ -38,7 +38,11 @@ type RawChat = {
   question?: string;
   status?: string;
   notes?: RawCaveat[];
-  analysis?: { view_bundle?: RawBundle | null; clarifications?: { slot: string; reason?: string; multi?: boolean; options?: { option_id: string; value: string; label?: string }[] }[] } | null;
+  analysis?: {
+    view_bundle?: RawBundle | null;
+    slots?: Record<string, { raw?: string; value?: unknown }[]>;
+    clarifications?: { slot: string; reason?: string; multi?: boolean; options?: { option_id: string; value: string; label?: string }[] }[];
+  } | null;
   views?: { view_bundle?: RawBundle | null; units?: RawUnit[]; pending?: RawPending[] } | null;
   records?: RawRecord[];
   result?: { answer?: string; caveats?: RawCaveat[]; sources?: string[]; insufficient?: boolean; unverified_numbers?: string[] } | null;
@@ -325,6 +329,20 @@ export function toClarifications(response: ChatResponse): ClarificationGroup[] {
     multi: item.multi !== false,
     options: (item.options ?? []).map((option) => ({ id: option.option_id, value: option.value, label: option.label || option.value })),
   }));
+}
+
+/** 되묻기 화면의 '이미 확인한 조건' (질문에서 읽은 지역·시점·대상). 시점은 '2015~2020' 처럼 연도만 */
+export function toKnownSlots(response: ChatResponse): Partial<Record<'지역' | '시점' | '대상', string>> {
+  const slots = raw(response).analysis?.slots ?? {};
+  const words = (name: string) => unique((slots[name] ?? []).map((item) => item.raw || slotText(item.value)).filter(Boolean));
+  const region = words('지역');
+  const target = [...words('대상'), ...words('지표')];
+  const time = yearsText((slots.시점 ?? []).map((item) => (typeof item.value === 'number' ? item.value : Number(item.value))));
+  return {
+    ...(region.length > 0 && { 지역: region.length > 1 ? `${region[0]} 외 ${region.length - 1}` : region[0] }),
+    ...(time && { 시점: time }),
+    ...(target.length > 0 && { 대상: target[0] }),
+  };
 }
 
 function slotText(value: unknown): string {
