@@ -1,0 +1,45 @@
+name: t4core-backend
+
+services:
+  backend:
+    image: "${BACKEND_IMAGE:-t4core-backend:latest}"
+    build:
+      context: ../..
+      target: runtime
+    env_file: .env
+    environment:
+      STORAGE_DIR: /app/storage
+      KOSIS_DATA_DIR: /app/storage/kosis_data
+      DATABASE_URL: "postgresql://${PG_USER}:${PG_PASSWORD}@postgres:5432/${PG_DB}"
+    volumes:
+      - "${STORAGE_HOST_DIR:-/srv/t4core/storage}:/app/storage"
+      - "${KOSIS_HOST_DIR:-${STORAGE_HOST_DIR:-/srv/t4core/storage}/kosis_data}:/app/storage/kosis_data:ro"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: "${PG_USER}"
+      POSTGRES_PASSWORD: "${PG_PASSWORD}"
+      POSTGRES_DB: "${PG_DB}"
+    volumes:
+      - "${PG_HOST_DIR:-/srv/t4core/pgdata}:/var/lib/postgresql/data"
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    shm_size: "256mb"
+    restart: unless-stopped
