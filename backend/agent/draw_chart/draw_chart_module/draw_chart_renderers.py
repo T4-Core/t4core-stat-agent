@@ -392,6 +392,12 @@ def _points(df, content, displays, with_size=False):
             marker=marker, customdata=custom, hovertemplate=tmpl + "<extra></extra>"))
     layout = {"xaxis": {"title": axis_title(content.axis.get("x"), dx), "tickformat": tick_format(dx)},
               "yaxis": {"title": axis_title(content.axis.get("y"), dy), "tickformat": tick_format(dy)}}
+    if z_col:     # [NEW 11-25] 원 크기가 무슨 값인지 (범례에는 계열만 나와 크기의 뜻을 알 수 없었다)
+        dz = display_for(content, displays)
+        size_name = f"{z_col}({unit_text(dz)})" if unit_text(dz) else z_col
+        layout["annotations"] = [{"text": f"원 크기: {size_name}", "xref": "paper", "yref": "paper", "x": 1, "y": 1.02,
+                                  "xanchor": "right", "yanchor": "bottom", "showarrow": False,
+                                  "font": {"size": 12, "color": "#555"}}]
     return traces, layout, warns
 
 

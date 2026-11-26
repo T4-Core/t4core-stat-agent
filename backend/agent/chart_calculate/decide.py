@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from backend.agent.chart_calculate.planner import AnswerDecision, ChartDecision, Decision, sub_question_ids  # noqa: F401
 from backend.agent.chart_calculate.select import VALUE_COL
 from backend.agent.prompts import CHART_PLAN_SCHEMA, CHART_PLAN_SYS
-from backend.schemas.chart import ChartRequest, Measure
+from backend.schemas.chart import ChartRequest, ChartType, Measure
 from backend.schemas.query import Filters, QueryBundle
 from backend.schemas.record import Record
 
@@ -28,6 +28,7 @@ MAX_TOKENS = 4000       # [CHANGED 11-11] 이전: 2000 — 범주마다 계산�
 _AGGS = {"sum", "mean"}
 _KINDS = {"max", "min"}
 _ORDERS = {"desc", "asc"}
+_CHART_TYPES = set(get_args(ChartType))      # [NEW 11-25 4단계] HCX 가 고를 수 있는 차트 이름
 
 
 def _year_runs(years: list[str]) -> str:
@@ -107,6 +108,21 @@ def build_prompt(bundle: QueryBundle, records: list[Record], charts: list[ChartR
     return "\n".join(lines)
 
 
+def chart_candidates(c: ChartRequest) -> list[str]:
+    """[NEW 11-25 4단계] 모듈 2 가 넘긴 차트 후보: 1순위(chart_type) + 대체 후보 (순서 그대로, 중복 없이)"""
+    rest = c.fallback_charts or ([c.fallback_chart] if c.fallback_chart else [])
+    return list(dict.fromkeys([x for x in [c.chart_type, *rest] if x]))
+
+
+def _candidates_line(c: ChartRequest) -> str:
+    """세트의 '차트 후보' 줄. 사용자가 질문에서 차트를 정했으면(request) 그 차트를 그대로 적게 한다 (planner.choose_chart 도 바꾸지 않는다)"""
+    if c.request is not None:
+        return f"차트 후보: 사용자가 질문에서 차트를 정했다 → charts 의 chart_type 에 {c.chart_type} 를 그대로 적는다"
+    cands = chart_candidates(c)
+    return ("차트 후보 (질문 의도에 가장 맞는 하나를 charts 의 chart_type 에): "
+            + " · ".join(f"{x}(1순위)" if i == 0 else x for i, x in enumerate(cands)))
+
+
 def _set_prompt(bundle: QueryBundle, records: list[Record], charts: list[ChartRequest]) -> str:
     """[NEW] 세트 형식: 세트 = (질문, 차트 유형, View). 세트마다 블록 하나에 질문 · 차트 · **그 세트의 View 만** 담는다.
     세트에 속하지 않는 View(하위 질문이 있을 때의 main View 등)는 나오지 않는다.
@@ -125,6 +141,8 @@ def _set_prompt(bundle: QueryBundle, records: list[Record], charts: list[ChartRe
                          + (f"  [고정 조건] {fixed_of[sid]}" if fixed_of.get(sid) else ""))
         lines.append(f"차트: {c.chart_type} (measure={c.measure})" if c.chart_type
                      else "차트: 없음 (질문용 계산만)" if c.view_ids else "차트: 없음")
+        if c.chart_type:
+            lines.append(_candidates_line(c))                 # [NEW 11-25 4단계] HCX 가 질문 의도로 고를 차트 후보
         if not c.view_ids:
             lines.append(f"자료: (없음 — {c.reason or '모듈 2 가 View 를 정하지 못함'}) → 이 세트는 계산하지 않는다")
             continue
@@ -182,8 +200,13 @@ def parse_decision(raw: Any) -> tuple[Decision, list[str]]:
     notes, charts, answers = [], [], []
     for c in raw.get("charts") or []:
         try:
+            ct = c.get("chart_type") or None              # [NEW 11-25 4단계] HCX 가 고른 차트 ("" = 1순위 그대로)
+            if ct is not None and ct not in _CHART_TYPES:
+                notes.append(f"HCX 가 고른 차트 '{ct}' 는 지원하지 않는 이름이라 버림 ({c.get('chart_id')})")
+                ct = None
             charts.append(ChartDecision.model_validate({
-                "chart_id": c.get("chart_id"), "title": c.get("title") or None, "record_id": c.get("record_id") or None,
+                "chart_id": c.get("chart_id"), "chart_type": ct, "title": c.get("title") or None,
+                "record_id": c.get("record_id") or None,
                 "select": _select(c.get("conditions")), "operands": _picks(c.get("series")), **_args(c)}))
         except (ValidationError, AttributeError) as e:
             notes.append(f"HCX 차트 결정을 버림 ({_short(e)})")

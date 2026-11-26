@@ -6,10 +6,28 @@
 """
 import re
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
 
 from backend.schemas.chart import Display
 
+from backend.agent.chart_calculate.select import INDICATOR_HINTS, ITEM_COL
 from backend.core.korean import UNIT_TAIL as _UNIT, strip_unit, unit_tail  # noqa: F401  [MOVED 11-17] core/korean.py
+
+
+def indicator_name(item: str | None, coords: dict[str, Any] | None) -> str | None:
+    """[NEW 11-25 6-5] 화면에 쓸 지표 이름 (단위 괄호 포함 원래 값. 쓰는 쪽에서 strip_unit)
+
+    항목 열 값에 단위 괄호가 없고, 같은 행의 지표형 분류 열(이름에 항목 · 종류 · 지표가 든 열. 항목 열 자체는 빼고) 값 중
+    단위 괄호가 있는 것이 정확히 하나면 그 값을 쓴다. 아니면 항목 값 그대로.
+      DT_1B8000G: 항목 '출생사망혼인이혼' · 종류별 '조혼인율(천명당)' → '조혼인율(천명당)'
+    단위 괄호가 없는 값('거처종류별: 계')은 지표 이름인지 알 수 없어 쓰지 않는다.
+    차트의 축 · 범례 · 제목(모듈 3 content.shown_item, 5-0)과 답변의 계산 이름(모듈 6 facts.item)이 같은 규칙을 쓴다.
+    이름만 바꾼다 — 행을 찾는 데는 항목 값을 그대로 쓴다"""
+    if item and unit_tail(item):
+        return item
+    hits = [str(v) for c, v in (coords or {}).items()
+            if c != ITEM_COL and any(h in c for h in INDICATOR_HINTS) and unit_tail(str(v))]
+    return hits[0] if len(hits) == 1 else item
 
 # 단위 종류별 digits 기본값 (명세 4장 표). 표에 없는 단위는 OTHER_DIGITS
 COUNT_UNITS = {"명", "건", "가구", "개", "호"}

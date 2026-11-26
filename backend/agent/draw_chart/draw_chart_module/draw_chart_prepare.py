@@ -63,6 +63,16 @@ def skip_reason(plan_chart, validation) -> str:
     return "모듈 3에서 차트 내용을 만들지 못함 (원래·대체 차트 모두 구성 실패)"
 
 
+def _first_tried(v) -> str | None:
+    """[NEW 11-25] ChartValidation(dict 또는 객체)의 original.chart_type = 모듈 3 이 처음 시도한 차트"""
+    if v is None:
+        return None
+    o = v.get("original") if isinstance(v, dict) else getattr(v, "original", None)
+    if o is None:
+        return None
+    return o.get("chart_type") if isinstance(o, dict) else getattr(o, "chart_type", None)
+
+
 def build_jobs(chart_plan, chart_contents, displays, load_errors, validation=None, calcs=None) -> list[DrawJob]:
     """ChartPlan 차트 순서대로 DrawJob을 만든다. validation은 모듈 3 출력의 {chart_id: ChartValidation dict} (없어도 된다)
     calcs: CalcResult[] → 차트와 record 가 겹치는 강조 대상만 job.calcs 에 (draw_chart_highlight)"""
@@ -92,8 +102,11 @@ def build_jobs(chart_plan, chart_contents, displays, load_errors, validation=Non
                                  if k.display_ref in displays and k.display_ref not in job.displays})
             job.source_links, warns = source_links_of(c.record_ids)
             job.warnings += list(c.warnings) + warns
-            if job.planned_type and job.planned_type != c.chart_type:
-                job.warnings.append(f"대체됨: {job.planned_type} → {c.chart_type}")
+            # [CHANGED 11-25 4단계] 기준 = 모듈 3 이 처음 시도한 차트 (validation.original). 모듈 3 의 HCX 가 질문 의도로 고른 차트는
+            #   대체가 아니다 — 검증에 실패해 바뀐 것만 '대체됨'. validation 이 없으면 이전처럼 모듈 2 차트(planned_type)
+            first = _first_tried(validation.get(cid)) or job.planned_type
+            if first and first != c.chart_type:
+                job.warnings.append(f"대체됨: {first} → {c.chart_type}")
         jobs.append(job)
     colors = color_map([j.content for j in jobs if j.content is not None])     # 질문 전체에서 이름 → 색 (c1 · c2 · 합친 차트가 같은 색)
     for j in jobs:

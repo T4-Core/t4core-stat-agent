@@ -7,7 +7,7 @@
 import re
 from typing import Any
 
-from backend.agent.chart_calculate.display import data_digits, format_value, make_display, strip_unit
+from backend.agent.chart_calculate.display import data_digits, format_value, indicator_name, make_display, strip_unit
 from backend.core.korean import _YEAR, josa, key_text  # noqa: F401  [MOVED 11-17] core/korean.py (예전 import 경로 유지)
 from backend.agent.chart_calculate.planner import SOURCE_DIGITS_OPS
 from backend.agent.chart_calculate.select import ITEM_COL, VALUE_COL, find_item_column, to_number
@@ -180,21 +180,28 @@ class Facts:
 
     def fixed_text(self, r: CalcResult) -> str:
         """계산 전체에서 하나로 고정된 대상: '전국', '서울특별시 남자 20~29세'. 입력 key 에 없는 열만 (key 에 있는 것은 문장이 이미 쓴다).
-        총계 행('계' · '전체')은 의미가 없어 뺀다"""
+        총계 행('계' · '전체')은 의미가 없어 뺀다.
+        [CHANGED 11-25 6-5] 계산 이름(item)으로 쓴 지표 열 값('종류별: 조혼인율(천명당)')도 뺀다 — 이름과 겹쳐
+          '조혼인율(천명당) 조혼인율 조회값' 이 된다"""
         if not r.inputs:
             return ""
         in_key = {c for i in r.inputs for c in (i.key or {})}
         per = [self.coords(i) for i in r.inputs]
+        name = self.item(r)
         fixed = {c: v for c, v in per[0].items()
-                 if c not in in_key and c != "시점" and v not in TOTAL_LABELS and all(p.get(c) == v for p in per)}
+                 if c not in in_key and c != "시점" and v not in TOTAL_LABELS and all(p.get(c) == v for p in per)
+                 and strip_unit(str(v)) != name}
         return key_text(fixed)
 
     # ── 이름 ──
     def item(self, r: CalcResult) -> str:
-        """계산 대상 항목 이름 (단위 괄호 없이). 입력에서 못 찾으면 연산 이름"""
+        """계산 대상 항목 이름 (단위 괄호 없이). 입력에서 못 찾으면 연산 이름
+        [CHANGED 11-25 6-5] 항목 값이 표 묶음 이름('출생사망혼인이혼')이면 같은 행의 지표 열 값('조혼인율(천명당)')을 쓴다
+          (display.indicator_name — 차트의 축 · 범례와 같은 규칙). 이전: 답변 프롬프트가 'a2 | 출생사망혼인이혼 조회값',
+          계산 표 제목이 '조혼인율(천명당) 출생사망혼인이혼 조회값 결과' 였다 (15유형 T1-scatter)"""
         for i in r.inputs:
             if i.item:
-                return strip_unit(i.item)
+                return strip_unit(indicator_name(i.item, self.coords(i)) or i.item)
         st = self.steps.get(r.step_id)           # [NEW 11-16] 입력이 없는 실패 계산은 계산 계획의 피연산자 항목에서 (검수 M6-08)
         for o in (st.operands or []) if st else []:
             if o.item:

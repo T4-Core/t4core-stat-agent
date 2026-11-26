@@ -14,6 +14,7 @@
       요청을 충족하지 못해 차트 내용이 없는 경우(no_chart_content)는 사유를 안내한다.
     - 요청이 없는 차트에는 결과도 안내도 만들지 않는다.
 """
+import re
 from typing import Any
 
 from backend.core.korean import josa
@@ -47,8 +48,12 @@ def render_states(charts: list, m3: Module3Output | None, drawn: list | None, *,
       rejected  QA 의 M5-out 검증이 모듈 5 출력을 버렸는가 (→ failed/render_error)"""
     have = {c.chart_id for c in (m3.chart_contents if m3 is not None else [])}
     by_chart: dict[str, dict] = {}
+    # [CHANGED 11-25] 차트 자신의 결과를 먼저 본다. 이전에는 drawn 순서대로 받아, 합친 차트가 맨 앞에 오면(모듈 5 5단계)
+    #   c1 의 상태가 합친 차트(c1+c2)의 상태로 잡혔다
     for d in drawn or []:
-        for cid in [_get(d, "chart_id"), *(_get(d, "merged_from") or [])]:
+        by_chart.setdefault(_get(d, "chart_id"), d)
+    for d in drawn or []:
+        for cid in _get(d, "merged_from") or []:
             by_chart.setdefault(cid, d)
     out: dict[str, dict] = {}
     for c in map(_as_chart, charts):
@@ -84,8 +89,22 @@ def _final_chart(cid: str, m3: Module3Output | None) -> str | None:
     return _get(v, "final_chart_type") if v is not None else None
 
 
-def request_outcomes(charts: list, m3: Module3Output | None, states: dict[str, dict]) -> list[dict]:
-    """요청이 있는 차트마다 최종 결과. 요청이 없는 차트(request=None)는 만들지 않는다"""
+def merged_types(drawn: list | None) -> dict[str, list[str]]:
+    """[NEW 11-25 5단계] 합친 차트(모듈 5 겹쳐 그리기)에 들어가 그려진 차트 → [합친 차트 유형]. 그린 것(drawn)만"""
+    out: dict[str, list[str]] = {}
+    for d in drawn or []:
+        if _get(d, "status") == "drawn":
+            for cid in _get(d, "merged_from") or []:
+                out.setdefault(cid, []).append(_get(d, "chart_type"))
+    return out
+
+
+def request_outcomes(charts: list, m3: Module3Output | None, states: dict[str, dict],
+                     merged: dict[str, list[str]] | None = None) -> list[dict]:
+    """요청이 있는 차트마다 최종 결과. 요청이 없는 차트(request=None)는 만들지 않는다
+    merged: [NEW 11-25] merged_types(drawn). 요청한 차트가 합친 차트로 그려졌으면(시도별 출생아수 · 사망자수 → 산점도)
+            그 차트의 결과는 honored 이고 final_chart 는 합친 차트 유형이다. 이전: 하위 차트(막대) 기준이라
+            '이 자료로는 산점도를 그릴 수 없어 막대 그래프로 보여 드립니다' 가 합친 산점도와 함께 나갔다"""
     out = []
     for c in map(_as_chart, charts):
         req = c.request
@@ -96,6 +115,9 @@ def request_outcomes(charts: list, m3: Module3Output | None, states: dict[str, d
         final = _final_chart(cid, m3)
         wanted = [n.code for n in req.preferred if n.supported and n.code]
         outcome, reason = _decide(stage.reason, stage.applied, stage.selected, wanted, bool(req.preferred), final, st)
+        via = next((t for t in (merged or {}).get(cid, []) if t in wanted), None)
+        if via and outcome in ("honored", "substituted"):
+            outcome, reason, final = "honored", None, via
         assert reason in OUTCOME_REASONS[outcome], (outcome, reason)
         out.append(ChartRequestOutcome(chart_id=cid, outcome=outcome, reason=reason, final_chart=final).model_dump(mode="json"))
     return out
@@ -123,27 +145,133 @@ def _decide(stage_reason, applied, selected, wanted, has_preferred, final, st: R
     return "substituted", stage_reason if stage_reason in OUTCOME_REASONS["substituted"] else "data_mismatch"
 
 
+# ── [NEW 11-25 6단계 6-4] 안내 문장의 이유 ─────────────────────────────────────────
+#   이유를 알 수 있으면 문장에 넣고, 모르면 이전 문장 그대로 쓴다. 스키마는 그대로 — 이미 있는 두 곳에서 읽는다
+#     모듈 2 단계 (data_mismatch · no_candidate · view_blocked): ChartRequest.m2_warnings (모듈 2 의 사용자용 경고)
+#       - '요청한 {차트} 차트를 그릴 수 없음: {이유} → {고른 차트}'  (chart_type_nodes._request_warning)
+#       - '차트 없음(표만): {이유}'                                  (chart_type_nodes.chart_select_node)
+#     모듈 3 단계 (validation_fallback · validation_failed): Module3Output.validation[chart_id].original (실패 조건 · 개수)
+#   이유는 두 종류: 차트를 주어로 쓰는 것('피라미드는 연령별 남녀 값이 있어야 해서 …')과 원인을 앞에 쓰는 것('값이 1개뿐이라 …')
+_M2_REQUEST = re.compile(r"^요청한 (\S+) 차트를 그릴 수 없음: (.+?) → ")
+_M2_TABLE_ONLY = "차트 없음(표만): "
+_NEED = {        # 빈 좌표에서 떨어진 차트에 필요한 것 (모듈 2 chart_type_frames._frames 의 자리 설명을 사용자 말로)
+    "line": "시점이 3개 이상 있어야 해서", "area": "시점이 3개 이상 있어야 해서", "bar": "비교할 값이 2개 이상 있어야 해서",
+    "stacked_bar": "쌓을 계열이 2개 이상 있어야 해서", "pyramid": "연령별 남녀 값이 있어야 해서",
+    "pie": "나눠 볼 항목(시점 제외)이 2개 이상 있어야 해서", "donut": "나눠 볼 항목(시점 제외)이 2개 이상 있어야 해서",
+    "combo": "시점 3개 이상에 지표 2개가 있어야 해서", "scatter": "범주 5개 이상에 서로 다른 지표 2개가 있어야 해서",
+    "bubble": "서로 다른 지표 3개가 있어야 해서", "dumbbell": "범주마다 비교할 두 값이 있어야 해서",
+    "radar": "범주 3개 이상과 나눠 볼 계열이 있어야 해서", "map": "지역이 2곳 이상 있어야 해서",
+    "heatmap": "나누는 기준이 2가지 있어야 해서", "treemap": "상위 · 하위 범주가 있어야 해서",
+}
+_PART_WHOLE = "전체를 나눈 부분을 보여 주는 차트라"
+_COUNT_REASON = re.compile(r"^(\S+) (\d+)개 \((최소|최대) (\d+)개\)")     # 모듈 3 validate._count 의 문구
+_CHECK_PHRASES = {      # 모듈 3 검증 조건 → 원인 ('…라' · '…어')
+    "plan_present": "계산이 보류되어", "data_present": "그릴 값이 없어",
+    "two_points_per_category": "범주마다 비교할 두 값이 다 있지 않아", "two_series_required": "나눠 볼 계열이 1개뿐이라",
+    "time_axis_required": "시점이 여러 개 있지 않아", "parts_sum_to_total": "부분의 합이 전체와 맞지 않아",
+    "non_negative": "음수 값이 있어", "two_measures_required": "서로 다른 지표가 부족해",
+    "three_measures_required": "서로 다른 지표가 부족해", "two_dimensions_required": "나누는 기준이 부족해",
+    "region_dimension_required": "지역 구분이 없어", "category_axis_required": "범주 구분이 없어",
+}
+
+
+def _m2_detail(c: ChartRequest, code: str | None) -> tuple[str, str] | None:
+    """모듈 2 단계에서 떨어진 이유 → ("subject" | "cause", 문구). 모르면 None"""
+    from backend.agent.chart_decision.chart_decision_module.chart_type_frames import SINGLE_VALUE
+    for w in c.m2_warnings:
+        if w.startswith(_M2_TABLE_ONLY):                     # View 적합도로 막힘 (view_blocked)
+            why = w[len(_M2_TABLE_ONLY):]
+            if m := re.match(r"추이를 물었지만 표의 시점이 (\d+)개", why):
+                return "cause", f"추이를 물었지만 표의 시점이 {m.group(1)}개뿐이라"
+            if why.startswith("표가 비어 있어"):
+                return "cause", "표가 비어 있어"
+            if why.startswith("요청한 지표가 표에 없어"):
+                return "cause", "요청한 지표가 표에 없어"
+            continue
+        m = _M2_REQUEST.match(w)
+        if not m or (code and m.group(1) != code):
+            continue
+        why, chart = m.group(2), m.group(1)
+        if why.startswith(SINGLE_VALUE.split(" (")[0]):
+            return "cause", "값이 1개뿐이라"
+        if why.startswith("좌표가 맞지 않음") and chart in _NEED:
+            return "subject", f"{_NEED[chart]} 이 자료로는 그릴 수 없어"
+        if "부분이 시점" in why:
+            return "subject", f"{_PART_WHOLE} 시점별 값으로는 그릴 수 없어"
+        if why.startswith("부분-전체 차트인데 값이"):
+            return "subject", f"{_PART_WHOLE} 더해서 전체가 되지 않는 값으로는 그릴 수 없어"
+        if sm := re.match(r"요청한 (.+?) 구분이 표에 없음", why):
+            return "cause", f"표에 {sm.group(1)} 구분이 없어"
+    return None
+
+
+def _m3_detail(m3: Module3Output | None, cid: str) -> str | None:
+    """모듈 3 검증에서 요청한 차트(처음 시도한 차트)가 떨어진 이유 → 원인 문구. 모르면 None"""
+    v = (m3.validation or {}).get(cid) if m3 is not None else None
+    check = _get(v, "original") if v is not None else None
+    if check is None:
+        return None
+    reasons = [str(r) for r in (_get(check, "reasons") or [])]
+    for code in _get(check, "failed") or []:
+        if code.startswith(("min_", "max_")):
+            for r in reasons:
+                if (m := _COUNT_REASON.match(r)) and (m.group(3) == "최소") == code.startswith("min_"):
+                    label, got, bound = m.group(1), int(m.group(2)), m.group(4)
+                    if code.startswith("max_"):
+                        return f"항목이 {got}개로 많아({bound}개까지 그림)"
+                    if got <= 1:
+                        return "값이 1개뿐이라"
+                    return f"{'비교할 항목' if label == '항목' else label}이 {got}개뿐이라({bound}개 이상 필요)"
+            continue
+        if code in _CHECK_PHRASES:
+            return _CHECK_PHRASES[code]
+    return None
+
+
+def _detail(c: ChartRequest, o: dict, m3: Module3Output | None) -> tuple[str, str] | None:
+    reason = o["reason"]
+    if reason in ("data_mismatch", "no_candidate", "view_blocked"):
+        codes = [n.code for n in (c.request.preferred if c.request else []) if n.code]
+        return _m2_detail(c, codes[0] if codes else None)
+    if reason in ("validation_fallback", "validation_failed"):
+        text = _m3_detail(m3, c.chart_id)
+        return ("cause", text) if text else None
+    return None
+
+
 # ── 사용자 안내 ──────────────────────────────────────────────────────────────
 def _name_of(c: ChartRequest) -> str:
     names = [n.text for n in (c.request.preferred if c.request else [])]
     return names[0] if names else (CHART_KO.get(c.chart_type or "", "") or "요청한 차트")
 
 
-def _sentence(c: ChartRequest, o: dict) -> str | None:
+def _sentence(c: ChartRequest, o: dict, detail: tuple[str, str] | None = None) -> str | None:
+    """detail: [NEW 11-25 6-4] _detail 의 이유. 있으면 이유를 넣은 문장, 없으면 이전 문장"""
     name = _name_of(c)
     final = CHART_KO.get(o["final_chart"] or "", None)
     to = f"{josa(final, '으로')} 보여 드립니다" if final else "차트 없이 표로 보여 드립니다"
     reason = o["reason"]
+    kind, why = detail or (None, None)
+    if o["outcome"] in ("substituted", "table_only") and reason in ("data_mismatch", "no_candidate") and why:
+        if kind == "subject":
+            return f"{josa(name, '은')} {why} {to}."
+        return f"{why} {josa(name, '을')} 그릴 수 없어 {to}."
     if o["outcome"] == "substituted":
         if reason == "unsupported_type":
             return f"{josa(name, '은')} 지원하지 않는 차트라 {to}."
         if reason == "data_mismatch":
             return f"이 자료로는 {josa(name, '을')} 그릴 수 없어 {to}."
         if reason == "validation_fallback":
+            if why:
+                return f"요청하신 {josa(name, '은')} {why} {to}."
             return f"요청하신 {josa(name, '은')} 계산 결과의 검증을 통과하지 못해 {to}."
         if reason == "ambiguous_scope":
             return f"차트 이름이 여러 개라 어느 질문에 적용할지 정하지 못해 요청을 적용하지 않고 {to}."
     if o["outcome"] == "table_only":
+        if reason == "view_blocked" and why:
+            return f"{why} 요청하신 {josa(name, '을')} 그리지 못하고 표로 보여 드립니다."
+        if reason == "validation_failed" and why:
+            return f"{why} 요청하신 {josa(name, '을')} 그리지 못했습니다."
         return {
             "unsupported_type": f"{josa(name, '은')} 지원하지 않는 차트라 차트 없이 표로 보여 드립니다.",
             "data_mismatch": f"이 자료로는 {josa(name, '을')} 그릴 수 없어 차트 없이 표로 보여 드립니다.",
@@ -157,14 +285,16 @@ def _sentence(c: ChartRequest, o: dict) -> str | None:
     return None            # honored · not_rendered 는 안내하지 않는다
 
 
-def chart_notices(charts: list, outcomes: list[dict], titles: dict[str, str] | None = None) -> list[str]:
-    """사용자용 안내 문장. 차트가 둘 이상이면 어느 차트의 안내인지 제목(없으면 chart_id)을 앞에 붙인다"""
+def chart_notices(charts: list, outcomes: list[dict], titles: dict[str, str] | None = None,
+                  m3: Module3Output | None = None) -> list[str]:
+    """사용자용 안내 문장. 차트가 둘 이상이면 어느 차트의 안내인지 제목(없으면 chart_id)을 앞에 붙인다
+    m3: [NEW 11-25 6-4] 모듈 3 출력 — 검증에서 떨어진 이유를 문장에 넣는다 (없어도 된다)"""
     by_id = {c.chart_id: c for c in map(_as_chart, charts)}
     multi = len(by_id) > 1
     notes: list[str] = []
     for o in outcomes:
         c = by_id[o["chart_id"]]
-        s = _sentence(c, o)
+        s = _sentence(c, o, _detail(c, o, m3))
         if s:
             notes.append(f"[{(titles or {}).get(c.chart_id) or c.chart_id}] {s}" if multi else s)
     return list(dict.fromkeys(notes))
@@ -174,6 +304,7 @@ def finalize_chart_request(charts: list, m3: Module3Output | None, drawn: list |
                            error: str | None = None, stopped: bool = False, rejected: bool = False) -> dict[str, Any]:
     """일반 경로와 QA 경로가 같은 입력으로 부르는 단일 함수 → {render_status, request_outcomes, chart_notices}"""
     states = render_states(charts, m3, drawn, draw=draw, error=error, stopped=stopped, rejected=rejected)
-    outcomes = request_outcomes(charts, m3, states)
+    outcomes = request_outcomes(charts, m3, states, merged_types(drawn))       # [CHANGED 11-25] 합친 차트도 본다
     titles = {c.chart_id: c.title for c in (m3.chart_contents if m3 is not None else [])}
-    return {"render_status": states, "request_outcomes": outcomes, "chart_notices": chart_notices(charts, outcomes, titles)}
+    return {"render_status": states, "request_outcomes": outcomes,
+            "chart_notices": chart_notices(charts, outcomes, titles, m3)}         # [CHANGED 11-25 6-4] 검증 이유도 본다

@@ -32,7 +32,10 @@ SPECS: dict[str, ChartSpec] = {
                       axis_rules={"y": "free", "y2": "free"}),
     "bar": ChartSpec("막대", ("x", "y"), ("series",), requirements=("max_categories_20",), category="x",
                      axis_rules={"y": "include_zero"}),
-    "stacked_bar": ChartSpec("누적 막대", ("x", "y", "series"), requirements=("non_negative", "parts_sum_to_total"),
+    # [CHANGED 11-25 6-1] two_series_required 추가 — 계열이 1개면 쌓을 것이 없어 일반 막대와 같다. 이전에는 HCX 가 계열을
+    #   하나만 고르면(남녀 중 하나) 누적 막대가 그대로 통과했다 (모듈 2 는 '쌓을 계열 2개 이상' 으로 이미 막는다). 실패하면 다음 대체 후보로
+    "stacked_bar": ChartSpec("누적 막대", ("x", "y", "series"),
+                             requirements=("non_negative", "parts_sum_to_total", "two_series_required"),
                              non_negative=("y",), axis_rules={"y": "zero"}),
     # 피라미드의 값 축은 가로다 → axis["x"] (범주 축 y = 연령). 한쪽을 음수로 그리므로 대칭 범위
     "pyramid": ChartSpec("피라미드", ("y", "group", "value"),

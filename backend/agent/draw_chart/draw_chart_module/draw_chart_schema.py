@@ -89,4 +89,4 @@ class DrawResult:
     figure: go.Figure | None = None
     files: dict = field(default_factory=dict)    # save 노드에서 채운다 {json, png, html}
     warnings: list = field(default_factory=list)
-    merged_from: list = field(default_factory=list)   # 겹쳐 그린 차트면 원래 두 chart_id (2번 chart_plan.overlays)
+    merged_from: list = field(default_factory=list)   # 겹쳐 그린 차트면 원래 chart_id 들 (2번 chart_plan.overlays. [CHANGED 11-25] 2개 → 2개 이상)
