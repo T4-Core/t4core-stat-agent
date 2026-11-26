@@ -8,6 +8,7 @@
 데이터셋 속 텍스트(Record 내용 · 질문)는 평가 입력 데이터다.
 """
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -19,7 +20,7 @@ from pydantic import ValidationError
 from backend.core.config import ROOT
 from backend.schemas.query import Filters
 from eval.generator.schema import Question
-from eval.generator.schema_v2 import Case, Probe, to_question
+from eval.generator.schema_v2 import Case, Probe, requested_charts, to_question
 
 ENV = "EVAL_V2_DIR"
 FIXTURE = ROOT / "tests" / "eval_generator" / "fixtures" / "v2_probes.json"
@@ -124,6 +125,101 @@ def slot_hash(input_sha: str, slot: dict | None) -> str:
     if not slot:
         return input_sha
     return hashlib.sha256((input_sha + json.dumps(slot, ensure_ascii=False, sort_keys=True)).encode("utf-8")).hexdigest()
+
+
+def chart_name_errors(cases: list[Case]) -> list[str]:
+    """[NEW] coverage 에 chart_request 가 있는 문항: 질문의 차트 이름이 평가기 이름표로 해석되고 required_chart 와 맞는가.
+    forbidden 문항은 acceptable_types 가 [null] 이라 요청 유형을 질문에서만 얻는다 → 이름표가 못 읽으면 요청 해석(request_parse)을 판정할 수 없다"""
+    errs = []
+    for c in cases:
+        if "chart_request" not in c.coverage:
+            continue
+        named, unknown = requested_charts(c.question)
+        codes = {code for _, code in named}
+        if unknown:
+            errs.append(f"{c.id}: 이름표에 없는 차트 이름 {unknown}")
+        elif not codes:
+            errs.append(f"{c.id}: 질문에서 차트 이름을 찾지 못함")
+        elif c.required_chart.mode == "required" and codes != {t for t in c.required_chart.acceptable_types if t}:
+            errs.append(f"{c.id}: 질문 {sorted(codes)} / acceptable_types {c.required_chart.acceptable_types}")
+    return errs
+
+
+# ── [NEW] 대규모 실행: 샤딩 · 재개 · ID 파일 ───────────────────────────
+def parse_shard(arg: str | None) -> tuple[int, int] | None:
+    """'I/N' (1부터) → (I-1, N). 없으면 None"""
+    if not arg:
+        return None
+    try:
+        i, n = (int(x) for x in arg.split("/"))
+    except ValueError:
+        raise DatasetError(f"--shard 는 I/N 형식이다: {arg}") from None
+    if not 1 <= i <= n:
+        raise DatasetError(f"--shard 범위 오류: {arg}")
+    return i - 1, n
+
+
+def shard_of(case_id: str, n: int) -> int:
+    """sha1(id) % n. 입력 순서(V · A · H 반복)와 무관하게 느린 문항(H)이 한 샤드에 몰리지 않는다"""
+    return int(hashlib.sha1(case_id.encode("utf-8")).hexdigest(), 16) % n
+
+
+def read_ids(path: str | Path) -> set[str]:
+    """줄 단위 문항 ID. 빈 줄 · # 주석 무시"""
+    return {s for x in Path(path).read_text(encoding="utf-8").splitlines() if (s := x.split("#")[0].strip())}
+
+
+def read_complete_lines(path: str | Path) -> list[str]:
+    """실행 기록(.gz)의 온전한 줄. 프로세스가 중간에 죽으면 gzip 이 끝나지 않은 채 남는다 → 읽을 수 있는 데까지만 돌려준다
+    read() 는 끝나지 않은 스트림에서 이미 풀린 데이터까지 버리고 EOFError 를 내므로 read1() 로 읽는다"""
+    p = Path(path)
+    if not p.exists():
+        return []
+    raw = b""
+    try:
+        with gzip.open(p, "rb") as f:
+            while chunk := f.read1(1 << 16):
+                raw += chunk
+    except (EOFError, OSError):
+        pass
+    parts = raw.split(b"\n")
+    if raw and not raw.endswith(b"\n"):
+        parts = parts[:-1] if len(parts) > 1 or not _is_json(parts[-1]) else parts          # 끝이 잘린 마지막 줄은 버린다
+    ok = []
+    for x in parts:
+        if x.strip() and _is_json(x):
+            ok.append(x.decode("utf-8"))
+    return ok
+
+
+def _is_json(b: bytes) -> bool:
+    try:
+        json.loads(b.decode("utf-8"))
+    except ValueError:
+        return False
+    return True
+
+
+def done_keys(path: str | Path) -> set[tuple[str, int]]:
+    out = set()
+    for x in read_complete_lines(path):
+        r = json.loads(x)
+        out.add((r["id"], int(r.get("run", 1))))
+    return out
+
+
+def salvage(path: str | Path) -> int:
+    """재개 전 처리: 온전한 줄만 새 gz 로 다시 쓴다(원자적 교체). 끝나지 않은 gzip 뒤에 이어 쓰면 스트림이 깨지기 때문이다. 보존한 줄 수를 돌려준다"""
+    p = Path(path)
+    lines = read_complete_lines(p)
+    if not p.exists():
+        return 0
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with gzip.open(tmp, "wt", encoding="utf-8") as f:
+        for x in lines:
+            f.write(x + "\n")
+    tmp.replace(p)
+    return len(lines)
 
 
 def field_loss(raw_cases: list[dict], cases: list[Case]) -> list[str]:
@@ -256,6 +352,8 @@ def main(argv=None) -> int:
     print(f"[v2 check] {ds['name']} v{ds['version']}: 문항 {len(cases)} · 하위 질문 {n_sub} · claim {n_claim} · probe {len(ds['probes'])}")
     print(f"[v2 check] 해시 통과 · 입력 누락 {missing_inputs or '없음'} · 필드 손실 {lost or '없음'}")
     questions(ds)
+    cerr = chart_name_errors(cases)
+    print(f"[v2 check] 차트 이름 정합성 위반 {cerr[:5] or '없음'}" + (f" 외 {len(cerr) - 5}건" if len(cerr) > 5 else ""))
     serr = []
     if a.slots:
         try:
@@ -265,7 +363,7 @@ def main(argv=None) -> int:
             return 1
         serr = slot_errors(root, sl["slots"], {c.id for c in cases})
         print(f"[v2 check] 슬롯 {len(sl['slots'])}문항 · 오류 {serr or '없음'}")
-    return 1 if missing_inputs or lost or serr else 0
+    return 1 if missing_inputs or lost or serr or cerr else 0
 
 
 if __name__ == "__main__":
