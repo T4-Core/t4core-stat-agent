@@ -1,4 +1,4 @@
-// 실행 결과: 상단 통계, 모듈별 문제, 쿼리 목록, 하단 상세 (Figma 05, 05-1)
+// 실행 결과: 상단 통계, 모듈별 문제, 쿼리 목록, 쿼리 줄 아래에 펼치는 상세 (Figma 05, 05-1)
 import { useMemo, useState } from 'react';
 import { MODULES, type ModuleKey } from '../adapters/issues';
 import { moduleStyle } from '../adapters/moduleColors';
@@ -88,7 +88,6 @@ export function ResultReport({ items, startedAt: startedTime, owner, extraSkippe
 
   const modules = useMemo(() => moduleCounts(mergeByQuery(items)), [items]);
   const visible = filter ? items.filter((item) => item.result?.issues.some((issue) => issue.module === filter)) : items;
-  const detail = selected === null ? null : items.find((item) => item.position === selected) ?? null;
   const startedAt = new Date(startedTime);
   const percent = stats.finished > 0 ? Math.round((stats.answered / stats.finished) * 100) : 0;
 
@@ -158,9 +157,12 @@ export function ResultReport({ items, startedAt: startedTime, owner, extraSkippe
         </div>
       </section>
 
-      <QueryTable items={visible} selected={selected} onSelect={(position) => setSelected(selected === position ? null : position)} />
-
-      {detail && <QueryDetail key={detail.position} item={detail} onClose={() => setSelected(null)} rerunMode={rerunMode} onRerun={onRerun} />}
+      <QueryTable
+        items={visible}
+        selected={selected}
+        onSelect={(position) => setSelected(selected === position ? null : position)}
+        renderDetail={(item) => <QueryDetail key={item.position} item={item} onClose={() => setSelected(null)} rerunMode={rerunMode} onRerun={onRerun} />}
+      />
     </div>
   );
 }

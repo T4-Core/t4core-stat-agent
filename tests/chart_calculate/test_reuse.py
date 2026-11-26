@@ -66,9 +66,12 @@ def test_different_operation_is_calculated_separately():
 
 
 def test_other_set_is_not_reused():
-    """차트가 다른 하위 질문의 세트면 계산이 같아 보여도 재사용하지 않는다"""
+    """차트가 다른 하위 질문의 세트면 계산이 같아 보여도 재사용하지 않는다
+    [CHANGED 11-25] 이전: answer_reuse == {} — 이제 HCX 가 답하지 않은 차트 쪽 하위 질문(27077dec-2)은 1-9 가 a2 로 채우고
+    a2 는 자기 세트의 차트(c1.s1)를 재사용한다. 이 테스트가 보는 것은 다른 세트의 a1 이 재사용되지 않는 것"""
     out = run_module3(_request(subs=("27077dec-2",)), _decision([_raw_answer()]))
-    assert out.chart_plan.answer_reuse == {}
+    assert "a1" not in out.chart_plan.answer_reuse
+    assert out.chart_plan.answer_reuse == {"a2": "c1.s1"}
 
 
 def test_same_metric_but_different_rows_warns_and_runs_separately():

@@ -18,6 +18,8 @@ ITEM_COL = "항목"
 REGION_HINTS = ("행정구역", "지역", "시도", "시군구")
 AGE_HINTS = ("연령", "세별", "나이")          # 연령별, 5세별, 모의 연령(5세계급)별 …
 CATEGORY_HINTS = AGE_HINTS + REGION_HINTS + ("성별",)
+# [MOVED 11-25 6-5] calculate.py → 여기 (계산 · 차트 이름 · 답변 이름이 같이 쓴다. calculate.INDICATOR_HINTS 로도 그대로 읽힌다)
+INDICATOR_HINTS = ("항목", "종류", "지표")   # 분류 열이지만 지표를 담는 이름 (DT_1B8000G '종류별', '기본항목별')
 MISSING_TEXT = {"", "-", "…", "..."}          # KOSIS 가 빈 값을 표시하는 문자
 
 
@@ -42,6 +44,46 @@ def _with_description(wanted: str, have: set[str]) -> str:
         return wanted                      # 나이 · 연령 구간은 정확히 맞아야 한다 ('65세' 를 '65세 이상' 으로 바꾸지 않는다. 검토 12)
     hits = [v for v in have if v.startswith(wanted) and v[len(wanted):len(wanted) + 1] in ("(", "（")]
     return hits[0] if len(hits) == 1 else wanted
+
+
+# [NEW 11-25] 정식 행정구역 이름 (옛 · 새 공식 명칭). 줄임말('서울' · '강원')은 맞추지 않는다 —
+#   '이름 앞부분만 맞는다고 같은 지역으로 보지 않는다' (tests/chart_calculate/test_fix_1118_safety_nets.py)
+_FULL_REGION = re.compile(r"(특별시|광역시|특별자치시|특별자치도|도|시)$")
+
+
+def _same_region(col: str, wanted: str, have: set[str]) -> str | None:
+    """[NEW 11-25 B-1] 지역 열에서 같은 시도의 다른 표기 (강원특별자치도 ↔ 강원도, 전북특별자치도 ↔ 전라북도, 세종특별자치시 ↔ 세종시 …).
+    표준화는 검색 · View 쪽 사전(backend.rag.ingestion.normalize.std_geo_name — View 를 만들 때 지역을 알아보는 사전)을 그대로 쓴다.
+    같은 질문 안에서도 표마다 시도 이름이 달라(출생아수 표는 강원특별자치도, 사망자수 표는 강원도) HCX 가 한쪽 이름을 다른 표에 적으면
+    '시군구별에 없는 값' 으로 계산이 비었다 (15유형 테스트 버블 2 · 산점도 1). 표준 이름이 같은 값이 표에 하나뿐일 때만 바꾼다"""
+    if not any(h in col for h in REGION_HINTS) or not _FULL_REGION.search(wanted.strip()):
+        return None
+    from backend.rag.ingestion.normalize import std_geo_name     # pandas · duckdb 를 불러오므로 값이 없을 때만 (모듈 로딩에 영향 없게)
+    std = std_geo_name(wanted)
+    hits = [v for v in have if _FULL_REGION.search(v.strip()) and std_geo_name(v) == std]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _default_scenario(col: str, wanted: str, have: set[str]) -> str | None:
+    """[NEW 11-25 B-2] 장래추계 시나리오 열에서 기본 시나리오를 앞부분만 적은 값 ('중위' → '중위 추계(기본 추계: 출산율-중위 / …)').
+    기본 시나리오 판단은 검색 · View 쪽 기준(normalize.SCENARIO_DEFAULT_RE · SCENARIO_RE — View 가 기본 시나리오를 고를 때 쓰는 것)을 그대로 쓴다.
+    조건 값과 표의 값이 둘 다 기본 시나리오이고, 표에 기본 시나리오 값이 하나뿐일 때만 바꾼다"""
+    from backend.rag.ingestion.normalize import SCENARIO_DEFAULT_RE, SCENARIO_RE
+    if not SCENARIO_RE.search(col) or not SCENARIO_DEFAULT_RE.search(wanted.strip()):
+        return None
+    hits = [v for v in have if SCENARIO_DEFAULT_RE.search(v.strip())]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _match_value(col: str, wanted: str, have: set[str]) -> str:
+    """조건 값 → 표에 적힌 값. 표에 그대로 있으면 그 값 (대부분). 없을 때만: 설명 괄호 → 같은 시도의 다른 표기 → 기본 시나리오
+    [NEW 11-25] 이전: 설명 괄호(_with_description)만 맞췄다"""
+    if wanted in have:
+        return wanted
+    got = _with_description(wanted, have)
+    if got != wanted:
+        return got
+    return _same_region(col, wanted, have) or _default_scenario(col, wanted, have) or wanted
 
 
 def is_category(col: str) -> bool:
@@ -133,7 +175,7 @@ def select_rows(record: Record, select: dict[str, list] | None = None, item: str
             continue
         i = cols.index(name)
         have = {str(r[i]) for r in rows}
-        wanted = [_with_description(str(w), have) for w in wanted]
+        wanted = [_match_value(name, str(w), have) for w in wanted]      # [CHANGED 11-25] 이전: _with_description 만
         if absent := [w for w in wanted if str(w) not in have]:
             sel.errors.append(f"{name}에 없는 값: {absent}")
         conds[i] = {str(w) for w in wanted}

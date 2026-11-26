@@ -109,7 +109,7 @@ run_module5(chart_plan=…, module3_output=…, out_dir=…, save=True)
 | `charts[].measure` · `reason` | 그리지 못한 이유 | `"범위 밖"`이면 표만 |
 | `charts[].sub_question_ids` | 결과에 그대로 | |
 | `charts[].warnings` | 차트 아래 경고 | 모듈 2가 남긴 사용자용 경고 |
-| `overlays[]` | ④ save | 겹쳐 그릴 두 차트 · mode(`combo`/`lines`/`bars`) · axes |
+| `overlays[]` | ④ save | 합쳐 그릴 차트들(2개 이상) · mode(`combo`/`lines`/`bars`/`scatter`/`bubble`/`radar`) · axes |
 
 ### 3-2. `module3_output` (모듈 3 출력 `Module3Output`)
 
@@ -394,17 +394,20 @@ flowchart TD
 flowchart TD
     A["draw 결과 모으기<br/>→ chart_plan 순서로 정렬"] --> O{"overlays 있음?"}
     O -->|없음| S
-    O -->|있음| C{"두 차트 모두 drawn이고<br/>x 값이 같음?"}
+    O -->|있음| C{"차트 모두 drawn이고 짝이 맞음?<br/>(선·막대·콤보: x 값이 같음<br/>산점도·버블·레이더: 범주 이름으로 짝지음)"}
     C -->|아니오| W["첫 차트 경고:<br/>c1+c2 겹쳐 그리기 생략: 이유"]
-    C -->|예| M["합친 ChartContent 만들기<br/>combo: 큰 값 막대(y) + 작은 값 선(y2)<br/>lines: 선 2개 / bars: 묶음 막대"]
-    M --> D["같은 draw_chart로 그리기<br/>색 = 원래 두 차트 색"]
-    D --> I["두 차트 뒤에 c1+c2 추가<br/>(원래 차트는 그대로)"]
+    C -->|예| M["합친 ChartContent 만들기<br/>combo: 큰 값 막대(y) + 작은 값 선(y2)<br/>lines: 선 N개 / bars: 묶음 막대<br/>scatter · bubble · radar"]
+    M --> D["같은 draw_chart로 그리기<br/>색 = 원래 차트 색"]
+    D --> I["결과 맨 앞에 c1+c2… 추가<br/>(원래 차트는 그대로)"]
     W --> S
     I --> S["저장 (save=True)<br/>json → png 일괄 → 질문 HTML"]
 ```
 
 - 겹쳐 그릴지는 모듈 2가 정한다 (`overlays`). 모듈 5는 **그릴 수 있는지만** 다시 확인한다.
 - 합친 차트의 축 범위는 원래 차트 값 기준이라 지우고 다시 정한다 (막대는 0부터).
+- [CHANGED 11-25] 합친 차트는 결과 목록의 **맨 앞**에 둔다 → 답변 화면의 첫 차트. 이전: 두 차트 뒤
+- [NEW 11-25] 산점도 · 버블 · 레이더(사용자가 요청한 관계 차트)는 범주 이름으로 짝짓는다. 지역 이름은 검색 쪽 표준화로 맞추고
+  ('강원도' ↔ '강원특별자치도'), 모든 차트에 값이 있는 범주만 그린다 (뺀 범주는 경고).
 
 ---
 
@@ -420,6 +423,7 @@ flowchart TD
 | 합계출산율이 `1`로 뭉개짐 | `drawn` + 자릿수를 늘림 + 경고 |
 | 순위 · 최댓값 질문 | 1위 · 최댓값 막대에 테두리 + 주석 |
 | overlay 중 한 차트가 skipped | 합친 차트 없음 + 첫 차트 경고 "c1+c2 겹쳐 그리기 생략: …" |
+| 산점도를 요청했는데 지표마다 다른 표 (모듈 2 `overlays` scatter) | 맨 앞에 c1+c2 산점도 + 원래 막대 2개. 요청 결과는 honored (안내 문장 없음) |
 | 입력 스키마 오류 | 그 차트만 `failed`, `load_errors`에 위치와 이유 |
 
 ---

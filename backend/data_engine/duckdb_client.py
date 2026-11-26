@@ -4,6 +4,8 @@ DuckDB 조회 — Record.source(좌표)로 정규화 parquet 의 수치를 다�
   source = {"file", "prd_se", "itm_id": [...], "dims": {"c1": {"codes": [...]} | {"depth": d, "exclude_total": true}},
             "period": {"in": [...]} | {"from": .., "to": ..}}
 
+STAT_BACKEND=postgres 면 PostgreSQL(kosis 스키마)에서 같은 열로 읽는다 (data_engine/stat_store.py).
+
 source.period.in 은 연도("2025")로 기록된다. 연간표는 prd_de 와 그대로 비교하고,
 월·분기·반기표는 parquet 의 year 열로 거른다 (prd_de = "202501" 이라 그대로 비교하면 0행).
 """
@@ -36,12 +38,18 @@ def one(con, sql):
 def load_record_data(record_or_source, con=None, limit=None):
     """Record(dict) 또는 source(dict) → 정렬된 DataFrame"""
     src = record_or_source.get("source", record_or_source)
-    path = Path(VIEW_OUT_DIR) / src.get("file", "")
-    if not path.exists():
-        raise FileNotFoundError(f"좌표 파일을 찾을 수 없음: {path}")
+    from backend.data_engine import stat_store
+    prof = stat_store.pg_profile_by_key(src.get("table_key")) if stat_store.use_postgres() else None
     con = con or connect()
-    rel = f"read_parquet({sql_str(path.as_posix())})"
-    cols = {c[0] for c in con.execute(f"DESCRIBE SELECT * FROM {rel}").fetchall()}
+    if prof is None:                                   # parquet (기본, 또는 PostgreSQL 에 없는 표)
+        path = Path(VIEW_OUT_DIR) / src.get("file", "")
+        if not path.exists():
+            raise FileNotFoundError(f"좌표 파일을 찾을 수 없음: {path}")
+        rel = f"read_parquet({sql_str(path.as_posix())})"
+        cols = {c[0] for c in con.execute(f"DESCRIBE SELECT * FROM {rel}").fetchall()}
+    else:                                              # STAT_BACKEND=postgres — 아래 조건으로 먼저 걸러 가져옴
+        rel = None
+        cols = {n for n, _ in stat_store.columns(prof["_pg"]["levels"])}
 
     w = [f"prd_se = {sql_str(src['prd_se'])}"]
     if src.get("itm_id"):
@@ -65,6 +73,8 @@ def load_record_data(record_or_source, con=None, limit=None):
     if "to" in p:
         w.append(f"prd_de <= {sql_str(p['to'])}")
 
+    if rel is None:
+        rel = stat_store.relation(con, prof, w)
     df = con.execute(f"SELECT * FROM {rel} WHERE {' AND '.join(w)}").df()
     sort = [c for c in ["period_date", *sorted(c for c in df.columns if re.fullmatch(r"c\d_ord", c)), "itm_ord"]
             if c in df.columns]

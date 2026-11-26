@@ -10,11 +10,12 @@ from .chart_type_rules import (
 )
 
 
-def check_chart(chart, profile, measure=None):
+def check_chart(chart, profile, measure=None, requested=False):
     """차트 하나를 빈 좌표에 꽂아 본다 (chart_type_frames). 반환: (통과 여부, 못 맞춘 이유 목록)
     [CHANGED 11-24] 이전: CHART_REQUIREMENTS 를 profile 로 추정 판정 (REQ_CHECKS) — 최대 개수 · 합계 행처럼 계산 뒤에야 알 수 있는 조건까지
-    계산 전 표로 막았다. 이제 표 구조와 최소 개수만 보고, requirements(최대 개수 포함)는 모듈 3 이 계산 뒤 판정한다"""
-    ok, fails, _ = check_frame(chart, profile, measure)
+    계산 전 표로 막았다. 이제 표 구조와 최소 개수만 보고, requirements(최대 개수 포함)는 모듈 3 이 계산 뒤 판정한다
+    requested: [NEW 11-25 6-3] 사용자가 이름으로 요청한 차트 (요청한 산점도 · 버블은 계열 2 · 3개를 지표로 본다)"""
+    ok, fails, _ = check_frame(chart, profile, measure, requested)
     return ok, fails
 
 def pick_chart_llm(measure, profile, log):
@@ -51,7 +52,7 @@ def pick_chart(measure, profile, use_llm=True, exclude=(), exclude_why=None, req
         elif rq not in CHART_REQUIREMENTS:                       # [NEW] 지원하지 않는 코드 (KeyError 방지)
             why = "지원하지 않는 차트"
         else:
-            ok, fails = check_chart(rq, profile, measure)
+            ok, fails = check_chart(rq, profile, measure, requested=True)     # [CHANGED 11-25 6-3] 요청한 차트로 검사
             why = None if ok else " / ".join(fails)
         if k == 0:
             request = {"chart": rq, "ok": why is None, "why": why}

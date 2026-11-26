@@ -88,7 +88,7 @@ def summarize(vs: list[RunVerdict], runs: list[dict] | None = None) -> dict:
             "fail_by_first_failure": dict(ff),
             "generator_fail": sum(1 for m in merged if m["verdict"] == "미달" and set(m["first_failure"]) & gen),
             "failed_to_contain": tag_n("failed_to_contain"), "silent_omission": tag_n("silent_omission"),
-            "scope_error": tag_n("scope_error"), "needs_review": tag_n("needs_review"),
+            "scope_error": tag_n("scope_error"), "needs_review": tag_n("needs_review"), "partial_answer": tag_n("partial_answer"),
             "unstable": sum(1 for m in merged if m["unstable"]),
             "stability": rate(sum(1 for m in merged if not m["unstable"]), n) if any(len(x) > 1 for x in by.values()) else None,
             "answered_rate": rate(sum(1 for v in vs if v.observed in ("answer", "partial")), len(vs)),
@@ -175,6 +175,7 @@ def markdown(s: dict, title: str) -> str:
              f"| Generator 귀책 미달 | {e['generator_fail']} |",
              f"| failed_to_contain · silent_omission · scope_error | {e['failed_to_contain']} · {e['silent_omission']} · {e['scope_error']} |",
              f"| 수동 판정 필요(needs_review) | {e['needs_review']} |",
+             f"| 허용된 부분 답변(partial_answer) | {e.get('partial_answer', 0)} |",
              f"| 판정 안정성 · 불안정 | {fmt(e['stability'])} · {e['unstable']} |",
              f"| 응답률(값을 낸 회차) | {fmt(e['answered_rate'])} |",
              f"| 정직한 실패 | {fmt(e['honest_failure'])} |",
@@ -236,7 +237,7 @@ def pair_table(s: dict, questions: dict) -> dict:
     for qid, q in questions.items():
         pr = (q.v2 or {}).get("pair") if hasattr(q, "v2") else None
         if pr and qid in verdict:
-            pairs[pr["id"]].append((pr.get("variant"), qid, verdict[qid]))
+            pairs[pr["id"]].append((pr.get("variant") or pr.get("role"), qid, verdict[qid]))   # [CHANGED] 이전: variant 만. pilot100 은 role
     return {k: sorted(v) for k, v in pairs.items()}
 
 

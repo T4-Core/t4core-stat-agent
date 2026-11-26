@@ -20,6 +20,7 @@ import pandas as pd
 
 from backend.core.config import VIEW_OUT_DIR
 from backend.core.utils import sql_str
+from backend.data_engine import stat_store
 from backend.data_engine.duckdb_client import connect
 from backend.rag.ingestion.normalize import ensure_normalized
 
@@ -551,10 +552,13 @@ def build_view(tbl_id, f, num, con=None):
         for i, (l, sel) in dims.items():
             if sel:
                 where.append(f"c{i}_code IN ({', '.join(sql_str(c['code']) for c in sel)})")
-        pq = (VIEW_OUT_DIR / prof["file"]).as_posix()
-        if not f.get("시점") and f.get("의도") != "추이":
+        latest_check = not f.get("시점") and f.get("의도") != "추이"
+        # 값 읽을 곳 (parquet 또는 PostgreSQL — data_engine/stat_store.py). PostgreSQL 이면 아래 조건으로 먼저 거른 행만 가져옴
+        rel = stat_store.relation(con, prof, where if latest_check else where + [f"year IN ({', '.join(map(str, years))})"],
+                                 base=VIEW_OUT_DIR)
+        if latest_check:
             # "최신" = 이 조건에 실제 값이 있는 가장 최근 연도 (최신 연도가 '-' 로만 채워진 표가 있음)
-            y = con.execute(f"SELECT max(year) FROM read_parquet({sql_str(pq)}) "
+            y = con.execute(f"SELECT max(year) FROM {rel} "
                             f"WHERE {' AND '.join(where)} AND value IS NOT NULL").fetchone()[0]
             if y is not None and y != years[-1]:
                 note(notes, "시점", "latest_shift", f"최신 {years[-1]} 은 값이 없어 값이 있는 최신 {y} 사용",
@@ -566,7 +570,7 @@ def build_view(tbl_id, f, num, con=None):
         df = con.execute(f'''
             SELECT period_label AS 시점, {', '.join(label_cols) + ',' if label_cols else ''}
                    itm_nm AS 항목, value AS 값, unit AS 단위, symbol AS 부호
-            FROM read_parquet({sql_str(pq)}) WHERE {' AND '.join(where)}
+            FROM {rel} WHERE {' AND '.join(where)}
             ORDER BY {', '.join(order)} LIMIT {MAX_ROWS + 1}''').df()
     finally:
         if own:

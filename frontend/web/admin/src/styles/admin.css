@@ -153,7 +153,9 @@ a.adm-logo:focus-visible { outline: 2px solid var(--primary-700); outline-offset
 @keyframes adm-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .adm-steps li.is-active .adm-step-dot { animation: none; } }
 
-.adm-queue { overflow-x: auto; background: #fff; border: 1px solid var(--line-200); border-radius: 18px; }
+/* overflow: clip — 가로 스크롤 상자가 아니어야 펼친 상세 안의 단계 흐름 막대(sticky)가 페이지 기준으로 붙어 있습니다. */
+.adm-queue { overflow: clip; background: #fff; border: 1px solid var(--line-200); border-radius: 18px; }
+@media (max-width: 760px) { .adm-queue { overflow-x: auto; } }
 .adm-queue-row { display: grid; grid-template-columns: 30px minmax(180px, 1fr) 92px 60px 64px 64px 70px; gap: 12px; align-items: center; min-width: 680px; min-height: 48px; padding: 0 16px; color: var(--text-700); border-bottom: 1px solid var(--line-100); font-size: 12.5px; font-weight: 500; }
 .adm-queue-row:last-child { border-bottom: 0; }
 .adm-queue-row > span:nth-child(n + 4) { text-align: center; }
@@ -166,6 +168,9 @@ a.adm-logo:focus-visible { outline: 2px solid var(--primary-700); outline-offset
 .adm-queue-list { position: relative; min-width: 680px; }
 .adm-queue-list.is-scroll { max-height: 288px; overflow-y: auto; }
 .adm-queue-empty { padding: 18px 16px; color: var(--text-500); font-size: 13px; }
+.adm-queue-item { scroll-margin-top: 12px; }
+.adm-queue-detail { padding: 12px; background: var(--surface-120); border-bottom: 1px solid var(--line-200); }
+.adm-queue-detail .adm-detail { scroll-margin-top: 0; background: var(--surface-100); }
 .adm-queue-question { overflow: hidden; color: var(--text-850); font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
 
 .adm-paused { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 14px; color: #8f1d1d; background: #fee9e7; border-radius: 12px; font-size: 13px; }

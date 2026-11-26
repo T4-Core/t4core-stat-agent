@@ -21,6 +21,12 @@ def _read(table_key: str) -> dict[str, Any] | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        pass
+    # STAT_BACKEND=postgres: 프로필 파일이 없는 서버 → PostgreSQL 에 올린 프로필 (없거나 연결 실패면 None)
+    from backend.data_engine import stat_store
+    try:
+        return stat_store.pg_profile_by_key(table_key)
+    except Exception:  # noqa: BLE001
         return None
 
 

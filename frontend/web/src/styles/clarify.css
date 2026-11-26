@@ -1,0 +1,84 @@
+/* 되묻기 화면 (피그마 5-1 ~ 5-5, 1440x900 기준 좌표) */
+/* 상단바(z-index 5)와 겹치는 위치라 그 위로 올립니다. */
+.clarify-pill { top: 112.5px; gap: 13px; padding: 8px 10px 8px 21px; z-index: 6; }
+.clarify-tag { display: inline-flex; flex: none; align-items: center; height: 29px; padding: 0 13px; border: 1px solid var(--line-200); border-radius: 999px; background: var(--surface-120); color: var(--primary-900); font-size: 12px; font-weight: 600; }
+.clarify-tag.ask { border: 1px dashed var(--primary-500); background: #fff; }
+
+/* 3D 캐릭터는 같은 상자에서 시안 그림보다 크게 그려져 0.8배로 줄여 시안의 크기·위치에 맞춥니다. */
+.clarify-sloth { position: absolute; left: 310px; top: 138px; transform: scale(0.8); transform-origin: 0 0; z-index: 1; }
+.clarify-heading { position: absolute; left: 462px; top: 190.5px; width: 660px; }
+.clarify-heading h1 { color: var(--text-900); font-size: 23px; font-weight: 600; line-height: 34.5px; letter-spacing: -0.4px; white-space: nowrap; }
+.clarify-heading p { margin-top: 5px; color: var(--text-700); font-size: 14px; font-weight: 500; line-height: 21px; }
+
+.clarify-card { position: absolute; left: 310px; top: 308px; display: flex; flex-direction: column; width: 819px; padding: 21px 22px 19px; border: 1px solid var(--line-200); border-radius: 22px; background: #fff; z-index: 2; }
+
+/* 위쪽 조건 칸 3개 (빠진 칸 = 점선 · ?, 아는 칸 = ✓) */
+.clarify-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; }
+.clarify-slot { display: flex; align-items: center; gap: 12px; height: 55px; padding: 0 14px 0 15px; border: 1px solid var(--line-200); border-radius: 14px; background: #fff; color: var(--text-500); }
+.clarify-slot.ask { border: 1px dashed var(--primary-500); background: var(--surface-120); color: var(--primary-700); }
+.clarify-slot-icon { flex: none; }
+.clarify-slot-text { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.clarify-slot-text small { color: var(--text-500); font-size: 11.5px; font-weight: 500; line-height: 14px; }
+.clarify-slot-text b { overflow: hidden; color: var(--text-900); font-size: 13px; font-weight: 600; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.clarify-slot.ask .clarify-slot-text b { color: var(--primary-900); }
+.clarify-badge { display: flex; flex: none; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--surface-300); color: var(--primary-900); font-size: 11.5px; font-weight: 700; }
+.clarify-slot.ask .clarify-badge { background: var(--primary-500); color: #fff; }
+
+/* 고르는 칸: 하나 = 넓게, 둘·셋 = 세로줄로 나눈 칸 */
+.clarify-columns { display: flex; margin-top: 19px; }
+.clarify-body { display: flex; flex: 1; flex-direction: column; }
+.clarify-col { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.layout-two .clarify-col + .clarify-col { margin-left: 20.5px; padding-left: 21px; border-left: 1px solid var(--line-100); }
+.layout-three .clarify-col + .clarify-col { margin-left: 16.5px; padding-left: 17px; border-left: 1px solid var(--line-100); }
+.clarify-col-head { display: flex; align-items: center; justify-content: space-between; height: 29px; margin-bottom: 11px; }
+.clarify-col-head h3 { color: var(--text-900); font-size: 14px; font-weight: 700; white-space: nowrap; }
+.clarify-col-head em { color: var(--primary-700); font-style: normal; font-weight: 600; }
+.clarify-back { height: 29px; padding: 0 12px; border: 1px solid var(--line-200); border-radius: 999px; background: #fff; color: var(--text-700); font-size: 12px; font-weight: 500; }
+
+.clarify-quick { display: flex; align-items: center; gap: 9px; height: 29px; }
+.clarify-quick-label { margin-right: 5px; color: var(--text-500); font-size: 11.5px; font-weight: 500; }
+.clarify-quick-right { margin-left: auto; }
+.clarify-quick-chip { height: 29px; padding: 0 13px; border: 1px solid var(--line-200); border-radius: 999px; background: var(--surface-120); color: var(--primary-900); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.clarify-quick-chip:hover { border-color: var(--primary-500); }
+.clarify-toggle { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface-120); }
+.clarify-toggle button { width: 50px; height: 29px; border-radius: 8px; color: var(--text-700); font-size: 12.5px; font-weight: 500; }
+.clarify-toggle button.on { background: #fff; color: var(--text-900); font-weight: 600; }
+
+.clarify-grid { display: grid; gap: 9px; }
+.clarify-body > .clarify-grid { margin-top: 15px; }
+.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.cols-6 { grid-template-columns: repeat(6, 1fr); }
+.clarify-grid.scroll { max-height: 214px; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: var(--line-300) transparent; }
+.clarify-opt { height: 35px; padding: 0 6px; overflow: hidden; border: 1px solid var(--line-200); border-radius: 10px; background: #fff; color: var(--text-700); font-size: 12.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.clarify-opt:hover:not(:disabled) { border-color: var(--primary-500); }
+.clarify-opt.on { border-color: var(--primary-500); background: var(--primary-500); color: #fff; font-weight: 600; }
+.clarify-opt.soft { border-color: var(--surface-300); background: var(--surface-120); color: var(--primary-900); font-weight: 600; }
+.clarify-opt:disabled { opacity: 0.4; }
+.layout-three .clarify-opt { height: 31px; font-size: 12px; }
+.clarify-label { margin: 14px 0 12px; color: var(--text-500); font-size: 11.5px; font-weight: 500; line-height: 15px; }
+.clarify-body > .clarify-label + .clarify-grid { margin-top: 0; }
+/* 시군구 칸은 시도를 고르기 전에도 두 줄 자리를 잡아 둡니다. (피그마 5-1 선택 전·후 카드 높이 같음) */
+.clarify-districts { align-content: start; min-height: 79px; }
+
+.clarify-target-group .clarify-label { margin-bottom: 9px; }
+.clarify-target-group:first-child .clarify-label { margin-top: 7.5px; }
+.clarify-target-group + .clarify-target-group .clarify-label { margin-top: 17px; }
+.layout-one .clarify-body:has(.clarify-target-group) { margin-bottom: 10px; }
+.clarify-chips { display: flex; flex-wrap: wrap; gap: 9px; padding-left: 2px; }
+.clarify-chip { height: 29px; padding: 0 13px; border: 1px solid var(--line-200); border-radius: 999px; background: #fff; color: var(--text-700); font-size: 12px; font-weight: 500; }
+.clarify-chip:hover { border-color: var(--primary-500); }
+.clarify-chip.on { border-color: var(--primary-500); background: var(--primary-500); color: #fff; font-weight: 600; }
+
+.clarify-footer { display: flex; align-items: center; gap: 8px; margin-top: 17px; padding-top: 14px; border-top: 1px solid var(--line-100); }
+.clarify-hint { flex: 1; min-width: 0; overflow: hidden; color: var(--text-500); font-size: 12.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.clarify-hint em { color: var(--primary-700); font-style: normal; font-weight: 600; }
+.clarify-button { height: 33px; padding: 0 14px; border: 1px solid var(--line-200); border-radius: 10px; background: #fff; color: var(--primary-900); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.clarify-button.primary { height: 34px; padding: 0 13px; border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
+
+/* 맨 아래 직접 입력 */
+.clarify-composer { position: absolute; left: 310.5px; top: 757.5px; display: flex; align-items: center; width: 819px; height: 61px; padding: 0 8px 0 24px; border: 1px solid var(--line-200); border-radius: 31px; background: #fff; z-index: 2; }
+.clarify-composer input { flex: 1; min-width: 0; height: 44px; border: 0; background: transparent; color: var(--text-850); font-size: 15px; outline: none; }
+.clarify-composer input::placeholder { color: var(--text-500); opacity: 1; }

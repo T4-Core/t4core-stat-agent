@@ -1,4 +1,5 @@
 // 2. 답변 생성 중: 백엔드가 진행 상황을 주지 않아 단계는 시간 기준으로 표시합니다.
+// 앞의 세 단계는 나무늘보가 타이핑을 1번·2번·2번 하는 동안 머뭅니다. 응답이 오면 단계와 상관없이 바로 넘어갑니다.
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import active from '../assets/figma/step-active.svg';
@@ -6,13 +7,15 @@ import check from '../assets/figma/step-check.svg';
 import pending from '../assets/figma/step-pending.svg';
 import { Character } from '../character';
 import { ThinkingBubble } from '../character/ThinkingBubble';
+import { TYPING_LOOP_SECONDS } from '../character/typingTiming';
 import { Frame, QueryPill } from '../components/Layout';
 import { startRun, stopRun } from '../store/agent';
 import { routeForRun, useRun } from '../store/history';
 
 const STEPS = ['질문 이해하기', '알맞은 통계표 찾기', '데이터 불러오기', '차트와 답변 만들기'];
 const TITLES = ['질문을 이해하고 있어요…', '알맞은 통계표를 찾고 있어요…', '통계표에서 숫자를 찾고 있어요…', '차트와 답변을 만들고 있어요…'];
-const STEP_MS = 1100;
+/** 단계마다 머무는 타이핑 횟수: 질문 이해하기 1번, 통계표 찾기 2번, 데이터 불러오기 2번 (마지막 단계는 응답이 올 때까지) */
+const LOOPS = [1, 4, 3];
 
 export function GeneratingPage() {
   const { id } = useParams();
@@ -27,7 +30,7 @@ export function GeneratingPage() {
 
   useEffect(() => {
     if (step >= STEPS.length - 1) return;
-    const timer = window.setTimeout(() => setStep(step + 1), STEP_MS);
+    const timer = window.setTimeout(() => setStep(step + 1), LOOPS[step] * TYPING_LOOP_SECONDS * 1000);
     return () => window.clearTimeout(timer);
   }, [step]);
 

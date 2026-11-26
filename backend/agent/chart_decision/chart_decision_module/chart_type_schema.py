@@ -28,10 +28,13 @@ class ChartOut(BaseModel):
 
 
 class OverlayOut(BaseModel):
-    overlay_id: str = Field(..., examples=["c1+c2"])
-    charts: list[str] = Field(..., min_length=2, max_length=2, description="겹쳐 그릴 두 차트의 chart_id")
-    mode: Literal["combo", "lines", "bars"]
-    axes: dict[str, Literal["y", "y2"]] = Field(default_factory=dict, description="combo 만: {chart_id: y | y2}")
+    # [CHANGED 11-25 5단계] 차트 2개만 → 2개 이상 (lines · bars 는 N개, combo · scatter 는 2개, bubble 은 3개, radar 는 3~8개).
+    #   mode 에 scatter · bubble · radar (사용자가 요청한 관계 차트), axes 값에 x · size 추가. 기존 2개짜리 표시는 그대로 맞다
+    overlay_id: str = Field(..., examples=["c1+c2", "c1+c2+c3"])
+    charts: list[str] = Field(..., min_length=2, description="합쳐 그릴 차트의 chart_id (하위질문 순서)")
+    mode: Literal["combo", "lines", "bars", "scatter", "bubble", "radar"]
+    axes: dict[str, Literal["y", "y2", "x", "size"]] = Field(
+        default_factory=dict, description="combo: {chart_id: y | y2} · scatter: {c1: x, c2: y} · bubble: {c1: x, c2: y, c3: size}")
     reason: str = ""
 
 

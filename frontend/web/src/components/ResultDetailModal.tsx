@@ -8,6 +8,7 @@ import next from '../assets/figma/next-button.svg';
 import prev from '../assets/figma/prev-button.svg';
 import { toCsv } from '../data/examples';
 import type { ChartSpec, ResultView } from '../data/types';
+import { badgeStyle, SINGLE_COLOR } from './chartColors';
 import { downloadSvgAsPng, downloadText } from './download';
 import { EvidenceTable } from './EvidenceTable';
 import { downloadPlotAsPng } from './PlotlyChart';
@@ -22,15 +23,21 @@ const MODES: { id: Mode; label: string }[] = [
   { id: 'overlay', label: '겹쳐서' },
 ];
 
-function Pager({ page, total, onChange }: { page: number; total: number; onChange: (page: number) => void }) {
+function Pager({ page, total, onChange, label = '' }: { page: number; total: number; onChange: (page: number) => void; label?: string }) {
+  const prefix = label ? `${label} ` : '';
   return (
     <div className="pager">
-      <button type="button" aria-label="이전 차트" disabled={page === 0} onClick={() => onChange(page - 1)}><img src={prev} alt="" width={30} height={30} /></button>
+      <button type="button" aria-label={`${prefix}이전 차트`} disabled={page === 0} onClick={() => onChange(page - 1)}><img src={prev} alt="" width={30} height={30} /></button>
       <span className="pager-dots" aria-hidden="true">{Array.from({ length: total }, (_, index) => <i key={index} className={index === page ? 'on' : ''} />)}</span>
       <span className="pager-text">{page + 1} / {total}</span>
-      <button type="button" aria-label="다음 차트" disabled={page >= total - 1} onClick={() => onChange(page + 1)}><img src={next} alt="" width={30} height={30} /></button>
+      <button type="button" aria-label={`${prefix}다음 차트`} disabled={page >= total - 1} onClick={() => onChange(page + 1)}><img src={next} alt="" width={30} height={30} /></button>
     </div>
   );
+}
+
+/** 차트 번호 표시 (여러 차트면 차트 색으로 칠합니다) */
+function NoBadge({ chart, small = false, as: Tag = 'span' }: { chart: ChartSpec; small?: boolean; as?: 'span' | 'i' }) {
+  return <Tag className={small ? 'no-badge small' : 'no-badge'} style={badgeStyle(chart)}>{chart.no}</Tag>;
 }
 
 function diff(values: number[], index: number) {
@@ -41,18 +48,24 @@ function diff(values: number[], index: number) {
 
 function overlaySpec(charts: ChartSpec[]): ChartSpec {
   const base = charts[0];
-  return { ...base, id: 'overlay', kind: 'combo', values2: charts[1]?.unit === '%' ? charts[1].values : [27.2, 27.9, 28.6, 29.3, 30.2, 31.7], ticks: [0, 250, 500, 750, 1000], ticks2: [15, 20, 25, 30, 35] };
+  const sourceColors = base.color && charts[1]?.color ? [base.color, charts[1].color] : undefined;
+  return { ...base, id: 'overlay', kind: 'combo', sourceColors, values2: charts[1]?.unit === '%' ? charts[1].values : [27.2, 27.9, 28.6, 29.3, 30.2, 31.7], ticks: [0, 250, 500, 750, 1000], ticks2: [15, 20, 25, 30, 35] };
 }
 
 export function ResultDetailModal({ runId, view, title, onClose }: Props) {
   const [mode, setMode] = useState<Mode>('both');
-  const [page, setPage] = useState(0);
+  // 나란히: 왼쪽 열은 홀수 번(1·3·5) 차트, 오른쪽 열은 짝수 번(2·4) 차트를 따로 넘깁니다.
+  const [leftPage, setLeftPage] = useState(0);
+  const [rightPage, setRightPage] = useState(0);
   const [selected, setSelected] = useState(0);
   const body = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const charts = view.charts;
-  const pageCount = charts.length;
-  const visible = charts.length > 1 ? [charts[page], charts[(page + 1) % charts.length]] : charts;
+  const columns = [
+    { side: '왼쪽', list: charts.filter((_, index) => index % 2 === 0), page: leftPage, setPage: setLeftPage },
+    { side: '오른쪽', list: charts.filter((_, index) => index % 2 === 1), page: rightPage, setPage: setRightPage },
+  ].filter((column) => column.list.length > 0);
+  const visible = columns.map((column) => column.list[Math.min(column.page, column.list.length - 1)]);
   const modes = view.live ? MODES.filter((item) => item.id !== 'overlay') : MODES;
   const firstDetail = view.details?.[0];
   const current = charts[selected] ?? charts[0];
@@ -96,22 +109,25 @@ export function ResultDetailModal({ runId, view, title, onClose }: Props) {
           {mode === 'both' && (
             <>
               <div className="modal-charts">
-                {visible.map((chart) => (
-                  <div className="modal-chart-column" key={chart.id}>
-                    <article className="modal-chart">
-                      <h3><span className="no-badge">{chart.no}</span>{chart.title}<small>단위: {chart.unit}</small></h3>
-                      <StatChart chart={chart} width={visible.length === 1 ? 940 : 444} height={314} />
-                    </article>
-                    <Pager page={page} total={pageCount} onChange={setPage} />
-                  </div>
-                ))}
+                {columns.map((column, columnIndex) => {
+                  const chart = visible[columnIndex];
+                  return (
+                    <div className="modal-chart-column" key={column.side}>
+                      <article className="modal-chart">
+                        <h3 title={chart.title}><NoBadge chart={chart} /><b className="modal-chart-title">{chart.title}</b>{chart.unit && <small>단위: {chart.unit}</small>}</h3>
+                        <StatChart chart={chart} width={columns.length === 1 ? 940 : 444} height={314} />
+                      </article>
+                      {column.list.length > 1 && <Pager page={Math.min(column.page, column.list.length - 1)} total={column.list.length} onChange={column.setPage} label={column.side} />}
+                    </div>
+                  );
+                })}
               </div>
               {view.live ? (firstDetail && <EvidenceTable table={firstDetail.table} className="modal-evidence" />) : <table className="modal-table">
                 <thead><tr><th scope="col">시점</th>{charts[0].years.map((year) => <th scope="col" key={year}>{year}년</th>)}<th scope="col">변화</th></tr></thead>
                 <tbody>
                   {visible.map((chart) => (
                     <tr key={chart.id}>
-                      <th scope="row"><span className="no-badge small">{chart.no}</span>{chart.title}({chart.unit})</th>
+                      <th scope="row"><NoBadge chart={chart} small />{chart.title}({chart.unit})</th>
                       {chart.values.map((value, index) => <td key={chart.years[index]}>{value}</td>)}
                       <td className="accent">{chart.delta}</td>
                     </tr>
@@ -130,18 +146,18 @@ export function ResultDetailModal({ runId, view, title, onClose }: Props) {
               <aside>
                 <h3>차트 목록</h3>
                 {charts.map((chart, index) => (
-                  <button type="button" key={chart.id} className={selected === index ? 'thumb-card on' : 'thumb-card'} aria-pressed={selected === index} onClick={() => setSelected(index)}>
-                    <span><i className="no-badge small">{chart.no}</i>{chart.title}</span>
-                    <span className={`mini-${chart.kind === 'bar' ? 'bars' : 'line'}`} aria-hidden="true">
-                      {chart.kind === 'bar' ? chart.values.map((value, i) => <i key={i} style={{ height: `${(value / (view.live ? Math.max(...chart.values, 1) : 800)) * 100}%` }} className={i === 0 || i === chart.values.length - 1 ? 'dark' : ''} />) : (
-                        <svg width="150" height="52"><polyline points="4,44 34,39 64,33 94,27 122,20 146,7" fill="none" stroke="#7ba39d" strokeWidth="2" /></svg>
+                  <button type="button" key={chart.id} className={selected === index ? 'thumb-card on' : 'thumb-card'} aria-pressed={selected === index} title={chart.title} onClick={() => setSelected(index)}>
+                    <span><NoBadge chart={chart} small as="i" /><b className="thumb-title">{chart.title}</b></span>
+                    <span className={`mini-${chart.kind === 'bar' && chart.values.length > 0 ? 'bars' : 'line'}`} aria-hidden="true">
+                      {chart.kind === 'bar' && chart.values.length > 0 ? chart.values.map((value, i) => <i key={i} style={{ height: `${(value / (view.live ? Math.max(...chart.values, 1) : 800)) * 100}%`, background: chart.color ?? SINGLE_COLOR }} />) : (
+                        <svg width="150" height="52"><polyline points="4,44 34,39 64,33 94,27 122,20 146,7" fill="none" stroke={chart.color ?? SINGLE_COLOR} strokeWidth="2" /></svg>
                       )}
                     </span>
                   </button>
                 ))}
               </aside>
               <article className="modal-chart large">
-                <h3><span className="no-badge">{current.no}</span>{current.title}<small>단위: {current.unit}</small></h3>
+                <h3 title={current.title}><NoBadge chart={current} /><b className="modal-chart-title">{current.title}</b>{current.unit && <small>단위: {current.unit}</small>}</h3>
                 <StatChart chart={current} width={480} height={454} />
                 <Pager page={selected} total={charts.length} onChange={setSelected} />
               </article>

@@ -18,6 +18,7 @@ from collections import defaultdict
 
 from eval.generator import CHART_CONSISTENCY_RULES, CHART_STRUCTURE_RULES, trace
 from eval.generator.binding import region_key
+from eval.generator.checks import chart_request
 from eval.generator.checks.chart_request import _final_types
 from eval.generator.claim import period_key
 from eval.generator.findings import Finding
@@ -393,7 +394,13 @@ def consistency(q: Question, run: dict, sub_exps) -> list[Finding]:
                            f"차트 {', '.join(drawn)} 가 그려졌는데 답변이 계산 결과 없음 (method={m6.get('method')})" if bad else ", ".join(drawn),
                            detail={"chart_ids": drawn, "method": m6.get("method")}))
     if q.dataset == "v2" and q.chart_mode == "forbidden":
-        out.append(Finding("chart_forbidden_drawn", "stage2", "M3", not drawn,
-                           f"차트 금지 문항에 차트 {', '.join(drawn)}" if drawn else "차트 없음", detail={"chart_ids": drawn}))
+        # [NEW] chart_spec.partial_allowed 가 true 인 문항(pilot100 H)은 확인된 점만 그린 부분 차트를 허용한다. 누락 대상이나 근거 없는 점을 그렸을 때만 실패
+        partial = ((q.v2 or {}).get("chart_spec") or {}).get("partial_allowed")
+        if drawn and partial is True:
+            pc = chart_request.partial_chart(q, run)
+            out.append(Finding("chart_forbidden_drawn", "stage2", "M3", pc.ok, pc.message, detail={"chart_ids": drawn, "partial": True}))
+        else:
+            out.append(Finding("chart_forbidden_drawn", "stage2", "M3", not drawn,
+                               f"차트 금지 문항에 차트 {', '.join(drawn)}" if drawn else "차트 없음", detail={"chart_ids": drawn}))
     return out
 

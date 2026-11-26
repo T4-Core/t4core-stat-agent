@@ -22,6 +22,17 @@ python -m eval.generator.run --mode isolated --v2 <v2 경로> --slots eval/gener
 python -m eval.generator.report storage/runs/eval_generator/v2_isolated/runs.jsonl.gz --v2 <v2 경로>
 ```
 
+## 대규모 실행 (샤딩 · 재개)
+
+isolated · m3_only는 `--shard I/N`(문항을 `sha1(id) % N`으로 나눔), `--only-file <ID 목록>`, `--resume`을 쓸 수 있다. 샤드마다 별도 프로세스와 `--tag`를 쓰고, 끝나면 gz를 이어 붙여 한 파일로 집계한다(gzip은 연결 가능).
+
+```bash
+for k in 1 2 3 4; do python -m eval.generator.run --mode isolated --v2 <경로> --shard $k/4 --runs 1 --tag all_s$k & done
+# 중단되면 같은 명령에 --resume 을 붙여 이어 한다 (끝나지 않은 gzip 은 온전한 줄만 남기고 다시 쓴다)
+mkdir -p storage/runs/eval_generator/all && cat storage/runs/eval_generator/all_s*/runs.jsonl.gz > storage/runs/eval_generator/all/runs.jsonl.gz
+python -m eval.generator.report storage/runs/eval_generator/all/runs.jsonl.gz --v2 <경로>
+```
+
 ## 구성
 
 | 파일 | 역할 |

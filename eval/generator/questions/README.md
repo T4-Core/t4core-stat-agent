@@ -26,6 +26,16 @@ python -m eval.generator.run --mode isolated --v2 <경로> --slots eval/generato
 - 입력 슬롯 overlay(`v2_slots.json`): 데이터셋 입력의 `query_bundle.filters`에는 `의도`만 있어서, M2가 질문이 요청한 나눔(지역 · 성별 · 연령 · 비교축)을 알 수 없다. 이 파일은 운영 질의 분석과 같은 형식의 슬롯을 76문항(A0 대상 제외)에 덧씌운다.
   - 슬롯은 질문 원문에서만 뽑는다. View에 없는 좌표에 맞춰 줄이지 않는다(경계 문항 정답 누출 방지). 이름 없이 수만 말한 지역('다섯 지역')은 `비교축: [지역]`이고, 월별 · 분기별은 `시점`에 연도 정수와 `비교축: 월 · 분기`를 쓴다.
   - 적용하면 `dataset_version`이 `<버전>+slots`가 되고 `input_hash`는 입력 파일 + 슬롯 항목의 해시다. 슬롯 없는 isolated와 `--compare`로 섞이지 않는다.
+- 차트 지정 요청 변환(pilot100 등, `coverage`에 `chart_request`가 있는 문항, `schema_v2.chart_request_of`): `required_chart.mode`와 `chart_spec.partial_allowed`를 `Question.chart_request`로 옮긴다. 없으면 "요청 없음이 정답"으로 처리돼 `request_misparse`가 거짓 실패로 나온다.
+
+  | mode | preferred | 허용 결과 | 안내(`notice_required`) |
+  |---|---|---|---|
+  | `required` | `acceptable_types` | 요청 유형 그대로(`honored`) | 데이터셋 값 |
+  | `forbidden` + `partial_allowed: true` | 질문의 차트 이름 | `honored`(확인된 점만 그린 부분 차트) 또는 `table_only` (`allowed_outcomes`) | 실제 결과가 `honored`가 아닐 때만 |
+  | `forbidden` 그 밖 | 질문의 차트 이름 | `table_only` | 데이터셋 값 |
+
+  질문의 차트 이름은 평가기 이름표(`schema_v2.CHART_NAMES`: 꺾은선 · 막대 · 도넛)로 코드를 찾는다(모듈 2의 해석기를 import하지 않는다). 이름표에 없는 이름이나 `acceptable_types`와 다른 이름은 `v2 check`가 실패로 처리한다. 새 차트 이름을 쓰는 문항을 만들면 이름표에 먼저 추가한다.
+- 부분 답변(`expected_answer.allowed_statuses`에 `partial`): 기대 hold 하위 질문에서 근거 있는 값을 내고 답변 · 주의사항에 `missing_target`을 밝히면 `needs_review` 대신 `partial_answer` 태그로 통과한다. 누락 대상을 밝히지 않았거나 `partial`이 허용되지 않으면 이전처럼 `rule_review` · `needs_review`다.
 - 평가 하네스 probe(J01~J14)는 `tests/eval_generator/fixtures/v2_probes.json`(원본 해시 기록)으로 데이터셋 없이 항상 테스트한다.
 - 집계 키는 `(dataset, dataset_version, condition, id)`다. 조건이 다른 실행은 `--compare`에서 비교하지 않는다.
 

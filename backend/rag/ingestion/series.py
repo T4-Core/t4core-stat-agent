@@ -221,8 +221,9 @@ def _total_series(con, tbl_id, se):
     prof = ensure_normalized(con, tbl_id)
     where = [f"prd_se = {sql_str(se)}"] + [f"c{lv['level']}_code = {sql_str(lv['default_code'])}"
                                             for lv in prof["levels"] if lv.get("default_code")]
-    pq = (VIEW_OUT_DIR / prof["file"]).as_posix()
-    rows = con.execute(f"SELECT year, itm_nm, avg(value) FROM read_parquet({sql_str(pq)}) "
+    from backend.data_engine import stat_store
+    rel = stat_store.relation(con, prof, where + ["value IS NOT NULL"], base=VIEW_OUT_DIR)   # parquet 또는 PostgreSQL
+    rows = con.execute(f"SELECT year, itm_nm, avg(value) FROM {rel} "
                        f"WHERE {' AND '.join(where)} AND value IS NOT NULL GROUP BY year, itm_nm").fetchall()
     first_only = sum(1 for lv in prof["levels"] if not lv.get("total_code"))
     return {(int(y), _norm(UNIT_PAREN.sub("", n))): float(v) for y, n, v in rows}, first_only

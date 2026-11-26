@@ -158,7 +158,9 @@ A0 조기 중단 기대는 하위 질문 보류 사유와 **분리해서** 입�
 | ③ 표시 | `chart_visible` | figure 수치가 고정 축 범위(`layout.*axis.range`) 안. encoding에 `y2`가 있으면 `yaxis: y2` 계열이 있음 | 1단계 | 그린 차트 전부 |
 | ④ 좌표 포함 | `chart_covers_final` | 차트가 맡은 하위 질문의 FINAL 좌표가 chart_contents 행에 있음 (차트에 나타난 차원만 대조) | 2단계 보류 | v2 required · per_subquestion |
 | ⑤a 차트-답변 일관성 | `chart_answer_consistent` | 그림 상태가 drawn인 차트가 있는데 M6 출력이 `insufficient`(계산 결과 없음)이면 모순이다. 사용자에게 "결과를 만들 수 없다"고 안내하면서 값이 든 차트를 보여 준 것이다. 귀속 M3 | 1단계 미달 (`chart_inconsistent` 태그) | 기대 상태가 answer인 하위 질문이 있는 문항. 정답 좌표 없이 판정하므로 v2가 아닌 세트에도 적용 |
-| ⑤b 차트 금지 | `chart_forbidden_drawn` | 데이터셋 모드가 `forbidden`인 문항에서 차트가 그려졌다. 보류해야 할 값을 차트로 보여 준 것이다(예: 명 · 명 · 가구 값을 한 축에 놓은 B07). 귀속 M3 | 2단계 보류 (`chart_unmet`) | v2 forbidden |
+| ⑤b 차트 금지 | `chart_forbidden_drawn` | 데이터셋 모드가 `forbidden`인 문항에서 차트가 그려졌다. 보류해야 할 값을 차트로 보여 준 것이다(예: 명 · 명 · 가구 값을 한 축에 놓은 B07). 귀속 M3. 단 `chart_spec.partial_allowed: true`인 문항은 **확인된 점만 그린 부분 차트**를 허용한다: 그린 행이 모두 `expected_answer.points`의 점이고(좌표 · 값 일치) `missing_target`을 그리지 않았으면 통과, 아니면 실패 | 2단계 보류 (`chart_unmet`) | v2 forbidden |
+
+차트 지정 요청(`chart_request`)은 데이터셋이 정답 결과를 여럿 허용할 수 있다(`allowed_outcomes`). `partial_allowed: true`인 forbidden 문항은 `honored`(부분 차트)와 `table_only`가 모두 정답이고, 안내(`notice`)는 실제 결과가 `honored`가 아닐 때만 요구한다. 이 판정은 지표(`request_outcome` · `notice` · `chart_mode`)이며 판정 규칙 버전은 올리지 않는다.
 
 ②는 Generator 자체 검증(`chart_calculate/validate.check_chart`)과 같은 코드를 쓰지만 형태가 아니라 **정답 좌표 기준의 의미**로 판정한다. 예: `two_points_per_category`는 정답에서 값이 2개인 차원(시점 2023 · 2024)이 양 끝(start · end)이고 나머지 차원(지역)이 범주(label)여야 한다. 범주마다 점이 2개라는 형태만으로는 통과하지 않는다.
 

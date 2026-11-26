@@ -91,7 +91,7 @@ def draw_node(task: DrawTask) -> dict:
 
 def save_node(state: Module5State) -> dict:
     results = [r for _, r in sorted(state.get("drawn") or [], key=lambda t: t[0])]
-    # 2번 chart_plan.overlays: 원래 두 차트는 그대로 두고 합친 차트를 더한다 (겹쳐 그리기)
+    # 2번 chart_plan.overlays: 원래 차트는 그대로 두고 합친 차트를 맨 앞에 더한다 (겹쳐 그리기. [CHANGED 11-25] 이전: 두 차트 뒤)
     results = apply_overlays(results, state.get("jobs"), (state.get("plan") or {}).get("overlays"))
     html = None
     if state.get("save", True) and results:

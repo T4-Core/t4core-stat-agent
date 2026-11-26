@@ -51,6 +51,19 @@ export async function postJson<TResponse>(path: string, body: unknown, signal?: 
   return data as TResponse;
 }
 
+/** GET 요청 (세션 복구처럼 짧은 조회). 실패하면 ApiError */
+export async function getJson<TResponse>(path: string, signal?: AbortSignal): Promise<TResponse> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_PATH}${path}`, { signal: signal ?? AbortSignal.timeout(10_000) });
+  } catch {
+    throw new ApiError('백엔드에 연결하지 못했습니다.', undefined, signal?.aborted ?? false);
+  }
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(friendlyMessage(response.status, readDetail(data)), response.status);
+  return data as TResponse;
+}
+
 export async function checkHealth() {
   try {
     const response = await fetch('/health', { signal: AbortSignal.timeout(5_000) });

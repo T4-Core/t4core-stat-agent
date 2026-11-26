@@ -132,13 +132,19 @@ def test_skips_what_cannot_be_planned():
                         "q-1: 질문용 계산 rank 에 피연산자가 없어 건너뜀"]
 
 
+def _without_fill(notes):
+    """[NEW 11-25] answers 가 빈 결정이면 1-9 가 '질문용 계산을 채움' 기록을 남긴다 — 이 파일의 다른 검사와는 무관해서 비교에서 뺀다
+    (채우기 자체는 test_fill_missing_answers.py 가 본다)"""
+    return [n for n in notes if "질문용 계산을 비워" not in n]
+
+
 def test_branch_with_wrong_role_gets_free_role():
     """combo 에 없는 역할('왼쪽') → 비어 있는 y2 에 배정 (2026-11-10 HCX 가 role "combo" 를 준 것과 같은 종류)"""
     sel = {**NATION, "시점": YEARS}
     cp, _ = plan([chart("c3", "combo")], {"charts": [{
         "chart_id": "c3", "operands": [pick("혼인건수(건)", "y", sel), pick("출생아수(명)", "왼쪽", sel)]}]})
     assert [(o.step_id, o.role) for o in cp.plans[0].output] == [("s1", "y"), ("s2", "y2")]
-    assert cp.notes == ["c3: combo 갈래 역할 왼쪽 → y2 (출생아수(명))"]
+    assert _without_fill(cp.notes) == ["c3: combo 갈래 역할 왼쪽 → y2 (출생아수(명))"]
 
 
 def test_branch_without_free_role_is_noted():
@@ -146,7 +152,7 @@ def test_branch_without_free_role_is_noted():
     cp, _ = plan([chart("c3", "combo")], {"charts": [{"chart_id": "c3", "operands": [
         pick("혼인건수(건)", "y", sel), pick("출생아수(명)", "y2", sel), pick("조혼인율(천명당)", "왼쪽", sel)]}]})
     assert [(o.step_id, o.role) for o in cp.plans[0].output] == [("s1", "y"), ("s2", "y2")]
-    assert cp.notes == ["c3: 축 역할이 없는 갈래가 있음 (차트에 쓰이지 않음)"]
+    assert _without_fill(cp.notes) == ["c3: 축 역할이 없는 갈래가 있음 (차트에 쓰이지 않음)"]
 
 
 def test_answer_operands_are_normalized():
@@ -443,7 +449,7 @@ def test_sum_refused_when_other_column_mixes_items():
         "행정구역별(읍면동)": ["전국"], "연령별": AGES}}]})
     cp, _ = make_plan(charts, [rec], decision, preschool("추이", (2024, 2025)))
     assert cp.plans[0].steps[0].op == "raw"
-    assert cp.notes == ["c1: 시점 조건이 없어 고정 시점 ['2024', '2025'] 을 넣음",
+    assert _without_fill(cp.notes) == ["c1: 시점 조건이 없어 고정 시점 ['2024', '2025'] 을 넣음",
                         "c1: 항목 에 값이 여럿이라 연령 합계를 내지 않음 ({'항목': ['총인구(명)', '총인구_성비']})"]
 
 

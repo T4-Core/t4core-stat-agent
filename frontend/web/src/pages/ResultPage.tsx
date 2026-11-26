@@ -15,6 +15,7 @@ import vizIcon from '../assets/figma/viz-icon.svg';
 import { Character } from '../character';
 import { Frame, QueryPill } from '../components/Layout';
 import { EvidenceTable } from '../components/EvidenceTable';
+import { badgeStyle } from '../components/chartColors';
 import { ResultDetailModal } from '../components/ResultDetailModal';
 import { StatChart } from '../components/StatChart';
 import { chartCountForSuggestion } from '../data/examples';
@@ -72,12 +73,12 @@ function MiniChartCard({ chart, width, height, compact }: MiniProps) {
   const isCombo = chart.kind === 'combo' && !chart.figure;
   return (
     <article className={compact ? 'mini-chart-card compact' : 'mini-chart-card'}>
-      <h3><span className="no-badge">{chart.no}</span>{chart.title}</h3>
+      <h3 title={chart.title}><span className="no-badge" style={badgeStyle(chart)}>{chart.no}</span><b className="mini-chart-title">{chart.title}</b></h3>
       <p>{isCombo ? '단위: 만 가구 · % · 2015~2020년' : unitLine(chart)}</p>
       {isCombo && (
         <div className="combo-legend">
-          <span><i className="bar" />1인 가구 수 (만 가구, 왼쪽)</span>
-          <span><i className="line" />1인 가구 비율 (%, 오른쪽)</span>
+          <span><i className="bar" style={chart.sourceColors ? { background: chart.sourceColors[0] } : undefined} />1인 가구 수 (만 가구, 왼쪽)</span>
+          <span><i className="line" style={chart.sourceColors ? { background: chart.sourceColors[1] } : undefined} />1인 가구 비율 (%, 오른쪽)</span>
         </div>
       )}
       <StatChart chart={chart} width={width} height={height} scale={compact ? 0.72 : 1} />
@@ -109,11 +110,20 @@ export function ResultPage() {
   const [copied, setCopied] = useState(false);
   const [followUp, setFollowUp] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
   const { view, loading } = useRunView(run);
 
   useEffect(() => {
     if (params.get('focus') === '1') inputRef.current?.focus();
   }, [params]);
+
+  // 차트 탭이 넘칠 때 지금 보는 차트의 탭이 가운데 오도록 가로로 스크롤합니다.
+  useEffect(() => {
+    const box = tabsRef.current;
+    const tab = box?.children[chartIndex] as HTMLElement | undefined;
+    if (!box || !tab || box.scrollWidth <= box.clientWidth) return;
+    box.scrollTo({ left: tab.offsetLeft - (box.clientWidth - tab.offsetWidth) / 2, behavior: 'smooth' });
+  }, [chartIndex, mode, view]);
 
   if (!run) return <Navigate to="/" replace />;
   if (run.status !== 'done') return <Navigate to={routeForRun(run)} replace />;
@@ -163,10 +173,15 @@ export function ResultPage() {
               {total > 0 && <button type="button" className="icon-button" aria-label="차트 크게 보기" onClick={() => setDetail(true)}><img src={expandButton} alt="" width={32} height={32} /></button>}
             </header>
             {total > 0 ? <>
-            <div className="chart-tabs" role="tablist">
-              {view.charts.slice(0, 2).map((item, index) => (
-                <button type="button" role="tab" key={item.id} aria-selected={chartIndex === index} className={chartIndex === index ? 'chart-tab on' : 'chart-tab'} onClick={() => setChartIndex(index)}>
-                  <span>{item.no}</span>{item.title}
+            <div
+              ref={tabsRef}
+              className={total > 2 ? 'chart-tabs scroll' : 'chart-tabs'}
+              role="tablist"
+              onWheel={(event) => { if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) event.currentTarget.scrollLeft += event.deltaY; }}
+            >
+              {view.charts.map((item, index) => (
+                <button type="button" role="tab" key={item.id} title={item.title} aria-selected={chartIndex === index} className={chartIndex === index ? 'chart-tab on' : 'chart-tab'} onClick={() => setChartIndex(index)}>
+                  <span style={badgeStyle(item)}>{item.no}</span><b>{item.title}</b>
                 </button>
               ))}
             </div>

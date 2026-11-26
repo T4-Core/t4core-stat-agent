@@ -19,6 +19,12 @@
 .chart-tab span { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--line-200); border-radius: 9px; color: var(--text-500); font-size: 10.8px; }
 .chart-tab.on { border-color: var(--primary-500); background: var(--surface-120); color: var(--primary-900); }
 .chart-tab.on span { border-color: var(--primary-500); background: var(--primary-500); color: #fff; }
+/* 제목이 길면 말줄임(…)으로 자르고, 마우스를 올리면 전체 제목이 보입니다. 3개부터는 가로로 넘겨 봅니다. */
+.chart-tabs { position: relative; }
+.chart-tab { min-width: 0; }
+.chart-tab span { flex: none; }
+.chart-tab b { min-width: 0; overflow: hidden; font-weight: inherit; text-overflow: ellipsis; white-space: nowrap; }
+.chart-tabs.scroll .chart-tab { flex: none; width: 168px; }
 .chart-heading { margin-top: 15px; color: var(--text-900); font-size: 14.5px; font-weight: 600; }
 /* 아래 여백으로 그래프와 화살표 줄을 함께 내립니다. (화살표 줄 위쪽 = 화면 기준 623) */
 .chart-unit { margin: 3px 0 9.95px; color: var(--text-500); font-size: 12px; font-weight: 500; }

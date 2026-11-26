@@ -476,6 +476,10 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build   # �
 
 이미지에는 `backend/`, `configs/` 만 들어갑니다. 데이터(`storage/`)는 실행할 때 마운트하고, 키는 `.env` 로 넘깁니다.
 
+**AWS (EC2 3대)**: 통계값은 PostgreSQL, 임베딩은 db-server 의 pgvector, 멀티턴 세션은 Redis 에 둡니다
+(`STAT_BACKEND=postgres` · `VECTOR_STORE=pgvector` · `REDIS_URL` — 비우면 지금처럼 parquet · sqlite).
+구조는 [docs/AWS_DB.md](docs/AWS_DB.md), 배포 순서는 [deploy/README.md](deploy/README.md), 명령은 `python -m backend.db --help`.
+
 ---
 
 ## 13. 자주 나는 오류
