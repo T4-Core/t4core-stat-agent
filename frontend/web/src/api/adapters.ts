@@ -1,4 +1,5 @@
 // 백엔드 응답을 화면에서 쓰는 모양으로 바꿉니다. 응답 구조가 바뀌면 이 파일만 고치면 됩니다.
+import { applyChartPaint } from '../components/chartColors';
 import type { ChartKind, ChartSpec, ChoiceCard, ClarificationGroup, ConditionRow, DetailView, EvidenceTableData, Paragraph, ResultView, SummaryRow, TextPart } from '../data/types';
 import type { ChatResponse, JudgeResult, PlotlyFigure } from './types';
 
@@ -32,7 +33,7 @@ type RawTable = {
   truncated?: boolean;
   total_rows?: number;
 };
-type RawDrawn = { chart_id: string; chart_type?: string | null; status?: string; title?: string | null; reason?: string | null; figure?: PlotlyFigure | null };
+type RawDrawn = { chart_id: string; chart_type?: string | null; status?: string; title?: string | null; reason?: string | null; figure?: PlotlyFigure | null; merged_from?: string[] | null };
 type RawCaveat = string | { text?: string; message?: string };
 type RawChat = {
   question?: string;
@@ -171,6 +172,7 @@ function toChart(drawn: RawDrawn, no: number, response: RawChat, records: Map<st
     delta: '',
     figure: drawn.figure ?? undefined,
     chartType: drawn.chart_type ?? undefined,
+    mergedFrom: (drawn.merged_from ?? []).map((id) => `${prefix}${id}`),
   };
 }
 
@@ -273,7 +275,7 @@ export function toResultView(responses: ChatResponse[], labels: string[] = []): 
 
   return {
     live: true,
-    charts,
+    charts: applyChartPaint(charts),
     paragraphs,
     summary,
     source: sources.length > 0 ? `출처 · ${sources[0]}${details.length > 1 ? ` 외 ${details.length - 1}개` : ''}` : '출처 정보 없음',

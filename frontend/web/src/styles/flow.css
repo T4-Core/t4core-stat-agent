@@ -20,9 +20,11 @@
 .select-heading h1 { color: var(--text-900); font-size: 23px; font-weight: 600; line-height: 34.5px; letter-spacing: -0.4px; white-space: nowrap; }
 .select-heading p { color: var(--text-700); font-size: 14px; font-weight: 500; line-height: 21px; }
 .stat-cards { position: absolute; left: 206px; top: 297px; display: flex; align-items: flex-start; gap: 28px; width: 1028px; }
-.stat-card { display: flex; flex-direction: column; gap: 12px; width: 500px; padding: 27px; border: 1px solid var(--line-300); border-radius: 18px; background: #fff; cursor: pointer; }
+.stat-card { display: flex; flex-direction: column; gap: 12px; width: 500px; padding: 27px; border: 1px solid var(--line-300); border-radius: 18px; background: #fff; }
+/* 마우스를 올린 카드가 초록색으로 활성화됩니다. (고르기는 "이 통계표로 보기" 버튼) */
 .stat-card.selected { padding: 26px; border: 2px solid var(--primary-600); box-shadow: 0 8px 12px rgba(0, 0, 0, 0.08); }
 .stat-top { display: flex; align-items: center; justify-content: space-between; }
+.stat-radio { display: inline-flex; }
 .radio-on { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 12px; background: var(--primary-500); }
 .stat-card h2 { color: var(--text-850); font-size: 20px; font-weight: 700; line-height: 24px; white-space: nowrap; }
 .stat-org, .stat-hint { color: var(--text-600); font-size: 13px; line-height: 17px; }

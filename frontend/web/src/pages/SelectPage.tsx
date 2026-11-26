@@ -35,7 +35,8 @@ export function SelectPage() {
   const groups = useMemo(() => (USE_MOCK ? EXAMPLE_CARDS : response ? toChoices(response) : []), [response]);
   const [unit, setUnit] = useState(0);
   const [picks, setPicks] = useState<Record<string, string>>({});
-  const [selected, setSelected] = useState(0);
+  // 마우스를 올린(또는 키보드로 들어간) 카드만 초록색으로 표시합니다. 처음에는 아무 카드도 활성화되어 있지 않습니다.
+  const [selected, setSelected] = useState<number | null>(null);
   const [confirming, setConfirming] = useState(false);
   const cards = groups[unit] ?? [];
 
@@ -57,7 +58,7 @@ export function SelectPage() {
     if (unit < groups.length - 1) {
       setPicks(nextPicks);
       setUnit(unit + 1);
-      setSelected(0);
+      setSelected(null);
       return;
     }
     continueRun(run.id, response!, { view_selections: Object.entries(nextPicks).map(([selection_token, option_id]) => ({ selection_token, option_id })) });
@@ -94,12 +95,21 @@ export function SelectPage() {
         {cards.map((card, index) => {
           const isSelected = selected === index;
           return (
-            <article className={isSelected ? 'stat-card selected' : 'stat-card'} key={card.optionId} onClick={() => setSelected(index)}>
+            <article
+              className={isSelected ? 'stat-card selected' : 'stat-card'}
+              key={card.optionId}
+              onMouseEnter={() => setSelected(index)}
+              // 화면이 뜰 때 이미 마우스가 카드 위에 있으면 enter 가 오지 않으므로, 조금만 움직여도 활성화합니다.
+              onMouseMove={() => setSelected(index)}
+              onMouseLeave={() => setSelected((current) => (current === index ? null : current))}
+              onFocus={() => setSelected(index)}
+              onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSelected((current) => (current === index ? null : current)); }}
+            >
               <div className="stat-top">
                 <TagChip label={card.badge} size="M" />
-                <button type="button" className="stat-radio" aria-label={`${card.badge} 선택`} aria-pressed={isSelected} onClick={() => setSelected(index)}>
+                <span className="stat-radio" aria-hidden="true">
                   {isSelected ? <span className="radio-on"><img src={cardCheck} alt="" width={14} height={14} /></span> : <img src={radio} alt="" width={24} height={24} />}
-                </button>
+                </span>
               </div>
               <h2 title={card.name}>{card.name}</h2>
               <p className="stat-org">{card.org}</p>

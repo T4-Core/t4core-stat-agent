@@ -1,5 +1,5 @@
-// 쿼리를 누르면 목록 아래에 펼쳐지는 상세 (Figma 05-1)
-import { useEffect, useRef, useState } from 'react';
+// 쿼리를 누르면 그 쿼리 줄 바로 아래에 펼쳐지는 상세 (Figma 05-1)
+import { useState } from 'react';
 import type { ModuleKey } from '../adapters/issues';
 import { moduleStyle } from '../adapters/moduleColors';
 import type { StepData, StepState } from '../adapters/steps';
@@ -67,7 +67,6 @@ function StepPanel({ step }: { step: StepData }) {
 type Props = { item: RunItem; onClose: () => void; rerunMode?: 'run' | 'draft'; onRerun: (question: string) => void };
 
 export function QueryDetail({ item, onClose, rerunMode = 'run', onRerun }: Props) {
-  const ref = useRef<HTMLElement>(null);
   const result = item.result;
   const [viewIndex, setViewIndex] = useState(0);
   const view = result?.views[viewIndex];
@@ -76,10 +75,6 @@ export function QueryDetail({ item, onClose, rerunMode = 'run', onRerun }: Props
   const step = view?.steps.find((entry) => entry.key === stepKey);
   const badge = badgeOf(item);
 
-  useEffect(() => {
-    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [item.position]);
-
   const rerun = () => {
     // 저장된 결과에서는 입력칸에 넣기만 합니다.
     if (rerunMode === 'draft') onRerun(item.question);
@@ -87,7 +82,7 @@ export function QueryDetail({ item, onClose, rerunMode = 'run', onRerun }: Props
   };
 
   return (
-    <section ref={ref} className="adm-detail" aria-label={`${numberOf(item.position)}번 쿼리 상세`}>
+    <section className="adm-detail" aria-label={`${numberOf(item.position)}번 쿼리 상세`}>
       <header className="adm-detail-head">
         <button type="button" className="adm-button is-outline" onClick={onClose}>접기 ⌃</button>
         <span className="adm-detail-no">{numberOf(item.position)}</span>

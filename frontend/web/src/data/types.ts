@@ -52,6 +52,14 @@ export type ChartSpec = {
   period?: string;
   figure?: PlotlyFigure;
   chartType?: string;
+  /** 차트 번호 색 (차트가 2개 이상일 때) */
+  color?: string;
+  /** 콤보 차트가 합친 재료 차트의 색 */
+  sourceColors?: string[];
+  /** 합친 그림의 항목별 재료 차트 색 (콤보처럼 항목이 재료 차트와 대응할 때만) */
+  traceColors?: string[];
+  /** 콤보 차트가 합친 재료 차트의 id */
+  mergedFrom?: string[];
 };
 
 export type TextPart = { text: string; tone?: 'strong' | 'accent' };

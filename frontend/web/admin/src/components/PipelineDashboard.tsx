@@ -2,7 +2,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createContext, isValidElement, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ChatResponse, PlotlyFigure } from '../../../src/api/types';
+import { paintCharts, type ChartPaint } from '../../../src/components/chartColors';
 import { PlotlyChart } from '../../../src/components/PlotlyChart';
+import { FigureChart } from '../../../src/components/StatChart';
 import type { ModuleKey } from '../adapters/issues';
 import { moduleStyle } from '../adapters/moduleColors';
 import { decodeResponses } from '../runner/responseCodec';
@@ -440,7 +442,8 @@ function Module5({ r }: { r: D }) {
           {d.title && <b>{d.title}</b>}
           <SourceLine ids={[...new Set(idsOf(d))]} label="차트 데이터의 출처 표" />
           {d.reason && <div className="pd-box is-err">{d.reason}</div>}
-          {d.figure && <div className="pd-plot"><PlotlyChart figure={d.figure as PlotlyFigure} width={720} height={360} chartType={d.chart_type} /></div>}
+          {/* 모듈 5 점검용: 모듈 5가 만든 그림 그대로 (화살표 주석 포함) */}
+          {d.figure && <div className="pd-plot"><PlotlyChart figure={d.figure as PlotlyFigure} width={720} height={360} chartType={d.chart_type} original /></div>}
         </div>
       ))}
       <Mid>{drawn.filter((d) => d.figure).map((d) => <Json key={d.chart_id} title={`${d.chart_id} Plotly Figure (data · layout)`} value={d.figure} />)}</Mid>
@@ -515,7 +518,8 @@ function QaSection({ r }: { r: D }) {
 }
 
 // ── 최종 결과: 펼치면 결론부터 봅니다 ──
-function FitPlot({ figure, chartType }: { figure: PlotlyFigure; chartType?: string }) {
+// 사용자 화면과 같은 모양: 화살표·출처 주석 없이 담백하게, 차트 번호 색과 범례를 붙입니다.
+function FitPlot({ figure, chartType, paint }: { figure: PlotlyFigure; chartType?: string; paint?: ChartPaint }) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
@@ -527,7 +531,7 @@ function FitPlot({ figure, chartType }: { figure: PlotlyFigure; chartType?: stri
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  return <div className="pd-final-plot" ref={ref}>{width > 0 && <PlotlyChart figure={figure} width={width} height={300} chartType={chartType} />}</div>;
+  return <div className="pd-final-plot" ref={ref}>{width > 0 && <FigureChart figure={figure} width={width} height={300} chartType={chartType} paint={paint} />}</div>;
 }
 
 /** 답변 표와 차트에 실제로 쓴 통계표. 없으면 답변에 넘긴 자료 전체를 씁니다. */
@@ -566,6 +570,7 @@ function FinalResult({ r }: { r: D }) {
   const qa = m?.qa;
   const body = answer?.answer ?? r.result?.answer;
   const charts = list(m?.drawn).filter((d) => d.status === 'drawn' && d.figure);
+  const paints = paintCharts(charts.map((d) => ({ id: String(d.chart_id), mergedFrom: list(d.merged_from).map(String), figure: d.figure as PlotlyFigure })));
   const table = charts.length === 0 ? list(answer?.tables)[0] : null;
   const caveats = [...new Set(list(answer?.caveats ?? r.result?.caveats).map((c) => (typeof c === 'object' && c ? c.text : c)).filter(Boolean).map(String))];
   const qaMessage = qa?.message && qa.message !== body ? qa.message : '';
@@ -578,7 +583,7 @@ function FinalResult({ r }: { r: D }) {
           {charts.map((d) => (
             <figure key={d.chart_id}>
               {d.title && <figcaption>{d.title}</figcaption>}
-              <FitPlot figure={d.figure as PlotlyFigure} chartType={d.chart_type} />
+              <FitPlot figure={d.figure as PlotlyFigure} chartType={d.chart_type} paint={paints.get(String(d.chart_id))} />
             </figure>
           ))}
           {table && (

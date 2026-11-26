@@ -1,5 +1,6 @@
 // 예시 데이터입니다. 백엔드를 연결하면 이 파일 대신 API 응답을 사용합니다.
 import { USE_MOCK } from '../api/client';
+import { applyChartPaint } from '../components/chartColors';
 import type { ChartSpec, Filters, ResultView, RunRecord, StatTable, TableChoice } from './types';
 
 export const SIDO = ['전국', '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주'];
@@ -52,6 +53,8 @@ function chart(no: number, kind: ChartSpec['kind'], values: number[], title = '1
     ticks2: kind === 'combo' ? [15, 20, 25, 30, 35] : undefined,
     summary: isRate ? `${first}% → ${last}%` : `${first}만 → ${last}만`,
     delta: isRate ? '+4.5%p' : `+${(((last - first) / first) * 100).toFixed(1)}%`,
+    // 예시 콤보 차트는 1번(가구 수)과 2번(비율)을 합친 차트입니다.
+    mergedFrom: kind === 'combo' ? ['chart-1', 'chart-2'] : undefined,
   };
 }
 
@@ -66,7 +69,7 @@ export function getResultView(run: Pick<RunRecord, 'chartCount' | 'table'>): Res
     ? [chart(3, 'combo', main, '1인 가구 수 · 비율', '1인 가구 수 · 비율')]
     : [chart(3, 'area', main), chart(4, 'donut', RATE, '1인 가구 비율', '1인 가구 비율'), chart(5, 'bar', main, '1인 가구 수', '1인 가구 수 추가 차트')];
   const count = Math.max(2, run.chartCount);
-  const charts = [...base, ...(count > 2 ? extras : [])].slice(0, count);
+  const charts = applyChartPaint([...base, ...(count > 2 ? extras : [])].slice(0, count));
 
   if (run.table === 'both') {
     return {
