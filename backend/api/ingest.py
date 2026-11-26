@@ -19,6 +19,7 @@ from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Query
 
+from backend.api.deps import guard
 from backend.core.config import VIEW_OUT_DIR
 from backend.data_engine.duckdb_client import connect
 from backend.rag.ingestion.normalize import ensure_normalized
@@ -122,9 +123,11 @@ def normalize(tbl_id: str,
         con.close()
     if prof is None:
         raise HTTPException(409, f"원본 CSV 가 없어 정규화할 수 없습니다: {tbl_id}")
-    pq = VIEW_OUT_DIR / prof["file"]
+    pq = VIEW_OUT_DIR / prof.get("file", "")            # 수정 시각만 봄 (값은 stat_store 로 읽음)
+    in_pg = prof.get("store") == "postgres"        # STAT_BACKEND=postgres 로 올린 표 (정규화하지 않음)
     return {"table_key": prof["table_key"], "tbl_nm": prof["tbl_nm"],
-            "cached": before is not None and pq.stat().st_mtime == before, "seconds": round(time.time() - t0, 2),
+            "cached": in_pg or (before is not None and pq.exists() and pq.stat().st_mtime == before),
+            "seconds": round(time.time() - t0, 2),
             "row_check": prof["row_check"], "profile": prof if full else slim(prof)}
 
 
@@ -132,7 +135,12 @@ def normalize(tbl_id: str,
 def get_norm_profile(tbl_id: str, full: bool = Query(False, description="true 면 코드 목록까지")):
     p = next(iter((VIEW_OUT_DIR / "profiles").glob(f"*_{tbl_id}.json")), None) if (VIEW_OUT_DIR / "profiles").exists() else None
     if p is None:
-        raise HTTPException(404, f"아직 정규화되지 않은 표: {tbl_id} (POST /api/v1/ingest/normalize/{tbl_id})")
+        from backend.data_engine import stat_store
+        with guard("프로필: "):
+            prof = stat_store.pg_profile(tbl_id)        # STAT_BACKEND=postgres 면 PostgreSQL 에 올린 프로필
+        if prof is None:
+            raise HTTPException(404, f"아직 정규화되지 않은 표: {tbl_id} (POST /api/v1/ingest/normalize/{tbl_id})")
+        return prof if full else slim(prof)
     prof = json.loads(p.read_text(encoding="utf-8"))
     return prof if full else slim(prof)
 

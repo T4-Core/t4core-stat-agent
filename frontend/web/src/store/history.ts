@@ -7,7 +7,7 @@ import { deletePayload } from './payloads';
 
 // 예시 기록과 실제 기록이 섞이지 않도록 저장 위치를 나눕니다.
 const STORAGE_KEY = USE_MOCK ? 'kosis.history.v1' : 'kosis.history.live.v1';
-const INTERRUPTED = '새로고침 등으로 응답을 받지 못했어요. 비용이 중복되지 않도록 자동으로 다시 보내지 않았습니다.';
+export const INTERRUPTED = '새로고침 등으로 응답을 받지 못했어요. 비용이 중복되지 않도록 자동으로 다시 보내지 않았습니다.';
 const listeners = new Set<() => void>();
 
 function load(): RunRecord[] {
@@ -48,6 +48,10 @@ export function useRuns() {
 export function useRun(id: string | undefined) {
   const all = useRuns();
   return all.find((run) => run.id === id);
+}
+
+export function listRuns() {
+  return runs;
 }
 
 export function getRun(id: string) {

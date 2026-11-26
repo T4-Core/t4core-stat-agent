@@ -1,12 +1,12 @@
 // 질문 전송과 응답 처리를 맡습니다. 유료 호출이 중복으로 나가지 않도록 여기서만 백엔드를 부릅니다.
 import { useEffect, useMemo, useState } from 'react';
 import { toResultView, toTags, thumbOf } from '../api/adapters';
-import { sendChat, type ChatInput } from '../api/chat';
+import { getSession, sendChat, type ChatInput } from '../api/chat';
 import { ApiError, USE_MOCK } from '../api/client';
 import type { ChatResponse, SelectionItem } from '../api/types';
 import { getResultView } from '../data/examples';
 import type { ResultView, RunRecord } from '../data/types';
-import { completeRun, getRun, removeRun, updateRun } from './history';
+import { completeRun, getRun, INTERRUPTED, listRuns, removeRun, updateRun } from './history';
 import { loadPayload, peekPayload, savePayload, type RunPayload } from './payloads';
 
 const MOCK_MS = 4400;
@@ -74,7 +74,7 @@ export function startRun(id: string) {
     }, MOCK_MS);
     return;
   }
-  void send(id, async (signal) => ({ responses: [await sendChat({ question: requestText(run) }, signal)] }));
+  void send(id, async (signal) => ({ responses: [await sendChat({ question: requestText(run), sessionId: id }, signal)] }));
 }
 
 /** 화면 대기만 멈춥니다. 이미 시작된 백엔드 작업과 HCX 비용은 취소되지 않습니다. */
@@ -88,7 +88,7 @@ export function continueRun(id: string, previous: ChatResponse, input: Pick<Chat
   const run = getRun(id);
   if (!run || inflight.has(id)) return;
   void send(id, async (signal) => ({
-    responses: [await sendChat({ question: requestText(run), previous, ...input }, signal)],
+    responses: [await sendChat({ question: requestText(run), sessionId: id, previous, ...input }, signal)],
   }));
 }
 
@@ -101,7 +101,7 @@ export function compareTables(id: string, previous: ChatResponse, picks: { selec
     const labels: string[] = [];
     for (const pick of picks) {
       try {
-        const response = await sendChat({ question: requestText(run), previous, view_selections: [pick.selection] }, signal);
+        const response = await sendChat({ question: requestText(run), sessionId: id, previous, view_selections: [pick.selection] }, signal);
         if (response.status === 'ok') {
           responses.push(response);
           labels.push(pick.label);
@@ -114,6 +114,37 @@ export function compareTables(id: string, previous: ChatResponse, picks: { selec
     return { responses, labels };
   });
   updateRun(id, { table: 'both' });
+}
+
+const RECOVER_POLL_MS = 5_000;
+const RECOVER_MAX_POLLS = 40;
+const RECOVER_WITHIN_MS = 24 * 60 * 60 * 1000;
+let recovering = false;
+
+/** 새로고침 전에 보낸 질문의 결과를 서버 세션(Redis)에서 다시 받습니다. 같은 질문을 다시 보내지 않습니다. */
+export async function recoverInterrupted() {
+  if (USE_MOCK || recovering) return;
+  recovering = true;
+  const targets = listRuns().filter((run) => (
+    run.status === 'error' && run.message === INTERRUPTED && Date.now() - (run.sentAt ?? run.createdAt ?? 0) < RECOVER_WITHIN_MS
+  ));
+  await Promise.all(targets.map(async (run) => {
+    for (let i = 0; i < RECOVER_MAX_POLLS; i += 1) {
+      let state;
+      try {
+        state = await getSession(run.id);
+      } catch {
+        return; // 세션 없음(404)·저장 꺼짐 → 그대로 둡니다.
+      }
+      if (state.status === 'running') {
+        await new Promise((resolve) => window.setTimeout(resolve, RECOVER_POLL_MS));
+        continue;
+      }
+      if (state.response && getRun(run.id)) await applyResponse(run.id, { responses: [state.response] });
+      return;
+    }
+  }));
+  recovering = false;
 }
 
 export function usePayload(id: string | undefined) {

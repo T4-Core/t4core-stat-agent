@@ -1717,6 +1717,11 @@ export interface components {
              */
             save?: boolean;
             /**
+             * Session Id
+             * @description 멀티턴 세션 id (REDIS_URL 이 있을 때). 주면 응답을 서버에 두어 GET /api/v1/sessions/{id} 로 다시 받을 수 있고, 이어서 할 때 previous 없이 selections · view_selections 만 보내도 된다 (previous 가 있으면 그것이 먼저)
+             */
+            session_id?: string | null;
+            /**
              * Pipeline
              * @description default | 개인 폴더 파이프라인 이름 (GET /api/v1/system/pipelines)
              * @default default
@@ -1774,6 +1779,11 @@ export interface components {
             } | null;
             /** Saved */
             saved?: string | null;
+            /**
+             * Session Id
+             * @description 요청의 session_id (세션 저장을 켰을 때)
+             */
+            session_id?: string | null;
             /**
              * Trace
              * @description 플러그인 파이프라인 단계 기록 (있으면)

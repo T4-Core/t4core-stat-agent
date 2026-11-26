@@ -12,10 +12,12 @@ Swagger 순서 = 파이프라인 순서
   ③-2 답변·표  POST /api/v1/answer/compose     계산 결과 → 답변 문장·근거 표·주의사항 (모듈 6)
   화면         /lab/chart-lab/                 frontend/ 가 있을 때 정적 테스트 화면
 """
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from backend.api import answer, chart, chat, csv_index, ingest, judge, query, views
+from backend.api import answer, chart, chat, csv_index, ingest, judge, query, sessions, views
 from backend.core.config import FRONTEND_DIR, TABLE_INDEX_DIR, VIEW_OUT_DIR, paths
 
 TAGS = [
@@ -32,9 +34,27 @@ TAGS = [
                                        "(backend/agent/chart_decision, chart_calculate)"},
     {"name": answer.TAG, "description": "질문 + View + 계산 결과 → 답변 문장·근거 표·주의사항 (backend/agent/answer_compose)"},
     {"name": views.DATA_TAG, "description": "Record.source → parquet 재조회 (backend/data_engine)"},
+    {"name": sessions.TAG, "description": "멀티턴 세션(Redis) · 대화 이력(PostgreSQL) (backend/db)"},
 ]
 
+
+@asynccontextmanager
+async def lifespan(_app):
+    # DB_MIGRATE_ON_START=on 이면 시작할 때 스키마 적용 (IF NOT EXISTS 라 여러 번 해도 안전). 실패해도 서버는 뜸
+    import logging
+    from backend.db import conn
+    if conn.env("DB_MIGRATE_ON_START", "off").lower() in ("1", "on", "true", "yes"):
+        from backend.db.migrate import migrate_configured
+        try:
+            migrate_configured(log=logging.getLogger("t4core.db").info)
+        except Exception as e:  # noqa: BLE001
+            logging.getLogger("t4core.db").warning("스키마 적용 실패: %s", e)
+    yield
+    conn.close_pools()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     separate_input_output_schemas=False,   # 요청·응답 스키마 이름을 하나로 (Record-Input/-Output 으로 갈라지지 않게)
     title="KOSIS 통계 Agent API",
     description=("질문 → **① 질의 분석** → **② 검색·View** → **③ 답변** 을 단계별 또는 한 번에\n\n"
@@ -45,7 +65,7 @@ app = FastAPI(
     openapi_tags=TAGS,
 )
 for r in (ingest.router, csv_index.router, query.router, views.router, judge.router, chat.router,
-          chart.router, answer.router, views.data):
+          chart.router, answer.router, views.data, sessions.router):
     app.include_router(r)
 
 # 정적 테스트 화면 (frontend/). 같은 주소에서 서빙해 CORS 설정 없이 /api/v1/* 를 부른다. API 경로와 겹치지 않게 /lab 아래
@@ -56,11 +76,21 @@ if FRONTEND_DIR.exists():
 @app.get("/health", tags=["system"], summary="상태 확인")
 def health():
     from backend.core.config import CSV_INDEX_DIR
+    from backend.data_engine import stat_store
+    from backend.db import conn
     return {"status": "ok", "meta_profiles": (VIEW_OUT_DIR / "meta_profiles.jsonl").exists(),
             "table_index": (TABLE_INDEX_DIR / "tokens.json").exists(),
             "csv_index": (CSV_INDEX_DIR / "values.parquet").exists(),
             "n_normalized": len(list((VIEW_OUT_DIR / "processed").glob("*.parquet")))
-            if (VIEW_OUT_DIR / "processed").exists() else 0}
+            if (VIEW_OUT_DIR / "processed").exists() else 0,
+            "stat_backend": conn.stat_backend(), "vector_store": conn.vector_store(),
+            "n_pg_tables": stat_store.n_tables()}
+
+
+@app.get("/api/v1/system/db", tags=["system"], summary="DB 연결 확인 (PostgreSQL · pgvector · Redis)")
+def system_db():
+    from backend.db import conn
+    return conn.ping_all()
 
 
 @app.get("/api/v1/system/paths", tags=["system"], summary="데이터 경로 해석 결과")

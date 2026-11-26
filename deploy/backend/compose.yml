@@ -1,3 +1,10 @@
+# backend-server (t3.xlarge · 16 GiB · 100 GB) — FastAPI + PostgreSQL(통계값·대화 이력) + Redis(멀티턴 세션)
+#
+#   docker compose --env-file deploy/backend/.env -f deploy/backend/compose.yml up -d --build
+#
+# 포트: 8000 = FastAPI (보안 그룹에서 front-server 의 프라이빗 IP 만 허용)
+#       5432 = PostgreSQL (127.0.0.1 에만 — SSH 터널로만 접속)
+#       Redis 는 호스트에 열지 않음 (컨테이너 네트워크 안에서만)
 name: t4core-backend
 
 services:
@@ -11,13 +18,20 @@ services:
       STORAGE_DIR: /app/storage
       KOSIS_DATA_DIR: /app/storage/kosis_data
       DATABASE_URL: "postgresql://${PG_USER}:${PG_PASSWORD}@postgres:5432/${PG_DB}"
+      REDIS_URL: "redis://redis:6379/0"
+      STAT_BACKEND: "${STAT_BACKEND:-postgres}"
+      VECTOR_STORE: "${VECTOR_STORE:-pgvector}"
+      CHAT_HISTORY: "${CHAT_HISTORY:-on}"
+      DB_MIGRATE_ON_START: "on"
     volumes:
       - "${STORAGE_HOST_DIR:-/srv/t4core/storage}:/app/storage"
-      - "${KOSIS_HOST_DIR:-${STORAGE_HOST_DIR:-/srv/t4core/storage}/kosis_data}:/app/storage/kosis_data:ro"
+      - "${KOSIS_HOST_DIR:-/srv/t4core/kosis_data}:/app/storage/kosis_data:ro"
     ports:
       - "8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     logging:
@@ -32,6 +46,27 @@ services:
       POSTGRES_USER: "${PG_USER}"
       POSTGRES_PASSWORD: "${PG_PASSWORD}"
       POSTGRES_DB: "${PG_DB}"
+    # 16 GiB 서버에서 backend(검색 색인·모델 ~4 GiB)와 나눠 씀. 표마다 파티션(약 1,100개)이라 잠금 수를 늘림
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - max_connections=60
+      - -c
+      - max_locks_per_transaction=256
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - wal_compression=on
+      - -c
+      - random_page_cost=1.1
     volumes:
       - "${PG_HOST_DIR:-/srv/t4core/pgdata}:/var/lib/postgresql/data"
     ports:
@@ -41,5 +76,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    shm_size: "256mb"
+    shm_size: "1gb"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    # AOF: 컨테이너 재시작·재배포·EC2 중지/시작 뒤에도 세션이 남음. 세션 키는 모두 만료 시간이 있어 volatile-lru
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec",
+              "--maxmemory", "512mb", "--maxmemory-policy", "volatile-lru", "--save", ""]
+    volumes:
+      - "${REDIS_HOST_DIR:-/srv/t4core/redis}:/data"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
