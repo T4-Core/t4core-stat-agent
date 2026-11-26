@@ -89,6 +89,8 @@ class ChartRequestSpec(BaseModel):
     preferred: list[RequestedName] = Field(default_factory=list)
     excluded: list[RequestedName] = Field(default_factory=list)
     expected_outcome: ExpectedOutcome
+    # [NEW] 정답이 둘 이상인 문항(예: 부분 차트 또는 표만). 비어 있으면 expected_outcome 하나로 판정한다
+    allowed_outcomes: list[ExpectedOutcome] = Field(default_factory=list)
     notice_required: bool = False
 
 

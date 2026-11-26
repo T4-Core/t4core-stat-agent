@@ -1,6 +1,8 @@
 """차트 지정 요청 (KOS-41): Request Parse · Outcome · Notice 정합 · 요청 오인식"""
 from backend.schemas.chart import OUTCOME_REASONS
 from eval.generator import trace
+from eval.generator.binding import region_key
+from eval.generator.claim import period_key
 from eval.generator.findings import Finding
 from eval.generator.schema import Question
 
@@ -42,19 +44,23 @@ def check(q: Question, run: dict) -> list[Finding]:
         allowed = OUTCOME_REASONS.get(o.get("outcome"), ())
         out.append(Finding("outcome_combo", "metric", "E2E", o.get("reason") in allowed,
                            f"{o.get('outcome')}/{o.get('reason')}", detail=o))
-        exp = spec.expected_outcome
         st = states.get(o["chart_id"]) or {}
-        want = (exp.outcome, exp.reason)
+        # [CHANGED] 이전: expected_outcome 하나. allowed_outcomes 가 있으면 그중 하나와 맞으면 통과 (부분 차트 또는 표만)
+        wants = [(e.outcome, e.reason, e.final_chart) for e in (spec.allowed_outcomes or [spec.expected_outcome])]
         if st.get("state") in ("failed", "skipped") and st.get("reason") in RENDER_OUTCOME:
-            want = RENDER_OUTCOME[st["reason"]]          # 렌더링 단계 결과는 실행 조건으로 정해진다
-        ok = o.get("outcome") == want[0] and (want[1] is None or o.get("reason") == want[1]) and \
-            (exp.final_chart is None or want[0] != exp.outcome or o.get("final_chart") == exp.final_chart)
+            wants = [(*RENDER_OUTCOME[st["reason"]], None)]          # 렌더링 단계 결과는 실행 조건으로 정해진다
+        ok = any(o.get("outcome") == w[0] and (w[1] is None or o.get("reason") == w[1]) and (w[2] is None or o.get("final_chart") == w[2])
+                 for w in wants)
         out.append(Finding("request_outcome", "metric", "E2E", ok, f"{o.get('outcome')}/{o.get('reason')}/{o.get('final_chart')} "
-                           f"/ 기대 {want[0]}/{want[1]}/{exp.final_chart}", detail={"chart_id": o["chart_id"]}))
+                           f"/ 기대 {' | '.join(f'{w[0]}/{w[1]}/{w[2]}' for w in wants)}", detail={"chart_id": o["chart_id"]}))
         if o.get("final_chart") in want_e:
             out.append(Finding("excluded_used", "stage1", "M2", False, f"제외한 {o.get('final_chart')} 로 그림"))
     notices = mods.get("chart_notices") or []
-    need = spec.notice_required and spec.expected_outcome.outcome != "honored"
+    if spec.allowed_outcomes:                  # [NEW] 정답이 여럿이면 실제 결과로 정한다 (부분 차트로 honored 이면 안내 불필요)
+        actual = [o.get("outcome") for o in mods.get("request_outcomes") or [] if o.get("chart_id") in req_ids]
+        need = spec.notice_required and (not actual or any(x != "honored" for x in actual))
+    else:
+        need = spec.notice_required and spec.expected_outcome.outcome != "honored"
     out.append(Finding("notice", "metric", "E2E", bool(notices) == bool(need) or (need and bool(notices)),
                        "; ".join(notices) or "(안내 없음)"))
     return out
@@ -68,6 +74,33 @@ def _final_types(run: dict) -> dict[str, str | None]:
     return {c.get("chart_id"): drawn.get(c.get("chart_id")) for c in charts}
 
 
+def _key(v) -> str:
+    t = str(v).strip()
+    return period_key(t) or region_key(t) or t
+
+
+def partial_chart(q: Question, run: dict) -> Finding:
+    """[NEW] 부분 차트 허용 문항(partial_allowed): 확인된 점만 그렸는가
+    기대 점은 expected_answer.points (원본 근거가 있는 점). 그린 행이 모두 그 점이어야 하고, 누락 대상(missing_target)은 없어야 한다.
+    모듈 5 의 자체 검증과 무관하게 데이터셋의 점과 대조한다"""
+    ans = (q.v2 or {}).get("expected_answer") or {}
+    points = [(_key(p["label"]), float(p["value"])) for p in ans.get("points") or []]
+    target = ans.get("missing_target")
+    rows = [r for c in trace.m3(run).get("chart_contents") or [] for r in c.get("rows") or []]
+    unmatched, hit_target = [], False
+    for r in rows:
+        cells = {_key(x) for x in r[:-1]}
+        hit_target |= target is not None and _key(target) in cells
+        val = r[-1] if isinstance(r[-1], (int, float)) else None
+        if not any(k in cells and val is not None and abs(val - v) <= 1e-6 * max(1.0, abs(v)) for k, v in points):
+            unmatched.append(r)
+    if hit_target:
+        return Finding("chart_mode", "metric", "M2", False, f"누락 대상 {target} 을 그림", detail={"partial": True})
+    if unmatched:
+        return Finding("chart_mode", "metric", "M2", False, f"원본 근거 점이 아닌 행 {len(unmatched)}개: {unmatched[:3]}", detail={"partial": True})
+    return Finding("chart_mode", "metric", "M2", True, f"부분 차트: 확인된 점 {len(rows)}행만 그림 (누락 대상 {target})", detail={"partial": True})
+
+
 def mode_check(q: Question, run: dict) -> list[Finding]:
     """v2 문항의 차트 요구 (required · forbidden · fallback · per_subquestion). optional 은 검사하지 않는다"""
     mode = q.chart_mode
@@ -79,7 +112,11 @@ def mode_check(q: Question, run: dict) -> list[Finding]:
     notices = trace.mods(run).get("chart_notices") or []
     out: list[Finding] = []
     if mode == "forbidden":
-        out.append(Finding("chart_mode", "metric", "M2", not drawn, f"차트 금지인데 {drawn}" if drawn else ""))
+        partial = ((q.v2 or {}).get("chart_spec") or {}).get("partial_allowed")
+        if drawn and partial is True:
+            out.append(partial_chart(q, run))
+        else:
+            out.append(Finding("chart_mode", "metric", "M2", not drawn, f"차트 금지인데 {drawn}" if drawn else ""))
     elif mode == "required":
         ok = any(t in q.chart_types for t in drawn)
         out.append(Finding("chart_mode", "metric", "M2", ok, f"최종 {drawn or '없음'} / 허용 {q.chart_types}"))

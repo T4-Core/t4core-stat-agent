@@ -339,6 +339,9 @@ def main(argv=None):
     ap.add_argument("--slots", type=Path, help="[NEW] isolated 입력 슬롯 overlay (eval/generator/questions/v2_slots.json)")
     ap.add_argument("--set", default="core34", choices=list(SETS))
     ap.add_argument("--only", default="")
+    ap.add_argument("--only-file", type=Path, help="[NEW] 줄 단위 문항 ID 목록 (--only 와 교집합)")
+    ap.add_argument("--shard", help="[NEW] I/N: 문항을 sha1(id) %% N 으로 나눠 I번째 몫만 실행 (isolated · m3_only)")
+    ap.add_argument("--resume", action="store_true", help="[NEW] 같은 --tag 의 기록에 있는 (id, run) 은 건너뛴다 (isolated · m3_only)")
     ap.add_argument("--runs", type=int, default=2)
     ap.add_argument("--tag", default=time.strftime("%m%d_%H%M"))
     ap.add_argument("--from", dest="from_", type=Path)
@@ -348,7 +351,10 @@ def main(argv=None):
     ap.add_argument("--today")
     a = ap.parse_args(argv)
     only = {x.strip() for x in a.only.split(",") if x.strip()}
-    ds, slots = None, None
+    ds, slots, shard, only_file = None, None, None, None
+    if a.shard or a.resume or a.only_file:
+        if a.mode not in ("isolated", "m3_only"):
+            raise SystemExit("[shard · resume · only-file] isolated · m3_only 전용")
     if a.mode in ("isolated", "m3_only"):
         from eval.generator import v2 as V2
         try:
@@ -357,6 +363,14 @@ def main(argv=None):
         except (V2.DatasetError, OSError) as e:
             raise SystemExit(f"[{a.mode}] 데이터셋 오류: {e}")
         a.v2 = str(root)
+        try:
+            shard = V2.parse_shard(a.shard)
+        except V2.DatasetError as e:
+            raise SystemExit(f"[{a.mode}] {e}")
+        if a.only_file:
+            only_file = V2.read_ids(a.only_file)
+            if unknown := only_file - {c.id for c in ds["cases"]}:
+                raise SystemExit(f"[only-file] 데이터셋에 없는 ID {sorted(unknown)[:5]} 외 {max(len(unknown) - 5, 0)}건")
         a.dataset_meta = {"name": ds["name"], "version": ds["version"], "path": rel(root),
                           "cases_sha256": V2.sha256(root / "cases.json")}
         if a.slots:
@@ -371,8 +385,14 @@ def main(argv=None):
             a.dataset_meta.update(version=ds["version"], slots={"path": rel(sl["path"]), "sha256": sl["sha256"], "cases": len(slots)})
     out_dir = EVAL_RUNS_DIR / a.tag
     out_dir.mkdir(parents=True, exist_ok=True)
+    done: set[tuple[str, int]] = set()
+    if a.resume:
+        kept = V2.salvage(out_dir / "runs.jsonl.gz")           # 끝나지 않은 gzip 을 온전한 줄로 다시 쓴다
+        done = V2.done_keys(out_dir / "runs.jsonl.gz")
+        print(f"[resume] {a.tag}: 기존 기록 {kept}줄 · 완료 (id, run) {len(done)}개", flush=True)
     set_path = None if ds else QUESTIONS_DIR / SETS[a.set]
     man = manifest(a, set_path)
+    man.update(shard=a.shard, only_file=a.only_file and rel(a.only_file), resume=a.resume)
     man_id = f"{a.tag}@{(man['git_sha'] or '')[:7]}"
     (out_dir / "manifest.json").write_text(json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
     log = (out_dir / "run.log").open("a", encoding="utf-8")
@@ -393,8 +413,16 @@ def main(argv=None):
     try:
         if ds is not None:
             for run_no in range(1, a.runs + 1):
+                skipped = 0
                 for c in ds["cases"]:
                     if only and c.id not in only:
+                        continue
+                    if only_file is not None and c.id not in only_file:
+                        continue
+                    if shard and V2.shard_of(c.id, shard[1]) != shard[0]:
+                        continue
+                    if (c.id, run_no) in done:
+                        skipped += 1
                         continue
                     path = V2.input_path(root, c.id, a.mode)
                     if not path.exists():
@@ -409,6 +437,10 @@ def main(argv=None):
                                           draw=not a.no_draw, max_rows=a.max_rows))
                     else:
                         emit(m3_only_one(c.id, c.question, inp, run_no, input_hash=h, version=ds["version"]))
+                if skipped:
+                    msg = f"[resume] run{run_no}: 완료된 {skipped}문항 건너뜀"
+                    log.write(msg + "\n")
+                    print(msg, flush=True)
         elif a.mode == "live":
             qs = [q for q in load_questions(a.set).questions if not only or q.id in only]
             for run_no in range(1, a.runs + 1):

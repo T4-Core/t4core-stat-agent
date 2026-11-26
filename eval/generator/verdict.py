@@ -163,9 +163,13 @@ def judge(q: Question, run: dict, review: dict | None = None) -> RunVerdict:
             elif r.observed == "value":
                 # 기대 hold 인데 값을 냄: 근거 없는 값 → 미달. 근거가 있으면(대체 시점 · 일부 기간) 고지했는지는 2단계에서 본다
                 grounded = m3.hold_grounded(r, run, s)
+                partial = grounded and r.notified and _partial_answer(q, run)
                 fs.append(Finding("hold_but_value", "stage1", "M3", grounded,
+                                  "부분 답변 (partial_answer)" if partial else
                                   "근거 있는 값 (rule_review)" if grounded else "근거 없는 값", s.key))
-                if grounded:
+                if partial:
+                    tags.append("partial_answer")          # [NEW] 허용된 부분 답변: 확인된 값만 내고 누락 대상을 밝혔다 → 수동 판정 불필요
+                elif grounded:
                     tags += ["rule_review", "needs_review"]
     # ── 2단계: 완전성 ──
     sub_rows = []
@@ -227,6 +231,16 @@ def judge(q: Question, run: dict, review: dict | None = None) -> RunVerdict:
                    first_failure=ff, tags=sorted(set(tags)), subs=sub_rows, findings=[f.as_dict() for f in fs],
                    detectors=detectors, extra_subs=len(extra))
     return _finish(v, review)
+
+
+def _partial_answer(q: Question, run: dict) -> bool:
+    """[NEW] 데이터셋이 부분 답변(allowed_statuses 에 partial)을 허용하고, 답변 · 주의사항이 누락 대상(missing_target)을 말했는가"""
+    ans = (q.v2 or {}).get("expected_answer") or {}
+    target = ans.get("missing_target")
+    if "partial" not in (ans.get("allowed_statuses") or []) or not target:
+        return False
+    shown = " ".join([trace.answer_text(run)] + trace.user_caveats(run) + [c.get("text", "") for c in trace.m6(run).get("caveats") or []])
+    return str(target) in shown
 
 
 def _first_failure(fs, sub_rows, sub_exps, a0_exp, a0_obs) -> list[str]:
