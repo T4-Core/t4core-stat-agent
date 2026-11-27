@@ -10,7 +10,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # [CHANGED] 이전: cancel-in-progress: true
+  # develop 은 deploy job 이 서버를 바꾸는 중에 취소되면 안 됨 → 대기열로 (중간 커밋은 deploy.sh 가 누적 diff 로 반영)
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 
 jobs:
   backend:
@@ -83,3 +85,70 @@ jobs:
         run: |
           docker build --target runtime -t t4core-backend:ci .
           docker run --rm -e STAT_BACKEND=postgres t4core-backend:ci python -c "import backend.main, backend.db.stats, backend.db.vectors, psycopg, redis; print('ok')"
+
+  # [NEW] KOS-57 develop push 에서 CI 3개 job 이 통과하면 EC2 개발 환경에 배포 (deploy/scripts/deploy.sh)
+  # workflow_run 을 쓰지 않는 이유: 기본 브랜치(main)에 워크플로 파일이 있어야만 동작한다.
+  # public 저장소라 이 job 의 로그는 누구나 본다 → 서버 주소·사용자는 secret(마스킹), /health 본문·컨테이너 로그는 출력하지 않음
+  deploy:
+    needs: [backend, frontend, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'T4-Core/t4core-stat-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: dev
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    env:
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH 설정
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          FRONT_HOST: ${{ secrets.FRONT_HOST }}
+          BACKEND_PRIVATE_IP: ${{ secrets.BACKEND_PRIVATE_IP }}
+          DB_PRIVATE_IP: ${{ secrets.DB_PRIVATE_IP }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # front 는 공인 IP 가 바뀔 수 있어 호스트 키를 별칭(front)으로 조회한다
+          cat > ~/.ssh/config <<EOF
+          Host front
+            HostName $FRONT_HOST
+            HostKeyAlias front
+          Host backend
+            HostName $BACKEND_PRIVATE_IP
+            ProxyJump front
+          Host db
+            HostName $DB_PRIVATE_IP
+            ProxyJump front
+          Host *
+            User $SSH_USER
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 10
+            ServerAliveInterval 30
+            LogLevel ERROR
+          EOF
+      - name: 배포 (db → backend → front)
+        # 스크립트는 이 커밋의 것을 stdin 으로 보낸다 → 서버 작업 트리에 아직 deploy.sh 가 없어도 동작
+        run: |
+          # shellcheck disable=SC2029  # role·SHA 는 의도적으로 runner 쪽에서 펼침 (SHA 는 github.sha, role 은 고정 목록)
+          for role in db backend front; do
+            echo "::group::$role"
+            ssh "$role" "f=\$(mktemp) && cat > \"\$f\" && bash \"\$f\" $role $SHA 0 </dev/null; rc=\$?; rm -f \"\$f\"; exit \$rc" \
+              < deploy/scripts/deploy.sh || { echo "::error::$role 배포 실패 (롤백 결과는 위 로그)"; exit 1; }
+            echo "::endgroup::"
+          done
+      - name: 스모크 테스트 (front → backend)
+        run: |
+          ssh front 'curl -fsS --max-time 10 http://localhost/health' | grep -q '"stat_backend":"postgres"' \
+            || { echo "::error::front 경유 /health 실패 또는 stat_backend 가 postgres 가 아님"; exit 1; }
+      - name: SSH 키 정리
+        if: always()
+        run: rm -f ~/.ssh/id_deploy

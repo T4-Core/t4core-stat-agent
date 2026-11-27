@@ -279,7 +279,9 @@ docker compose --env-file deploy/frontend/.env -f deploy/frontend/compose.yml up
 - db-server 가 꺼진 채로 backend 를 쓰면: 질문 임베딩 캐시는 HCX 로 대신 계산하고, dense 점수는 backend 에 남긴 파일 사본으로 계산한다. 사본이 없으면 "벡터 DB 에 연결하지 못함" 오류 → db-server 를 켜면 다음 요청부터 정상.
 - front-server 공인 IP 가 켤 때마다 바뀌므로 시연 주소가 바뀐다. 고정 주소가 필요하면 관리자에게 front-server 탄력적 IP 를 요청한다.
 - 로그: `dcb logs --tail 200 backend` · 자원: `docker stats` · 디스크: `df -h /`, `docker system df`.
-- 코드 갱신: `git pull` (또는 새 패치 apply) → `dcb build backend && dcb up -d backend` / front 는 `up -d --build`.
+- 코드 갱신: develop 에 병합되면 CI 가 자동 배포한다 (12장). 손으로 할 때는 `bash deploy/scripts/deploy.sh <db|backend|front> [sha]`.
+  <!-- [CHANGED] 이전: `git pull` (또는 새 패치 apply) → `dcb build backend && dcb up -d backend` / front 는 `up -d --build`. -->
+  서버 작업 트리는 배포한 커밋에 detached 상태로 있으므로 `git pull` 대신 이 스크립트를 쓴다. 추적 파일을 서버에서 직접 고치면 배포가 중단된다.
 
 ## 8. 데이터 갱신 (주기적으로)
 
@@ -344,3 +346,62 @@ dcb exec -T postgres pg_restore -U t4core -d t4core --clean < ~/app_2026-12-01.d
 | 검색 dense 설정 (`dense_docs` · 임베더) | 없음 — 첫 검색 때 새 묶음을 db-server 에 만듦 (없는 임베딩만 HCX) · 나중에 `vectors prune` | DB 점수 = 메모리 점수 |
 
 규칙은 두 가지다. **통계값은 `stat_store` 로만 읽는다.** 정규화 결과의 열을 바꾸면 `backend/db/sql/main/001_kosis.sql` · `stat_store.py` · `stats.py` 를 함께 고친다 (테스트 실패 메시지가 파일을 알려 준다).
+
+<!-- [NEW] KOS-57 -->
+## 12. 자동 배포 (CD)
+
+`develop` 에 push(병합)되면 `.github/workflows/ci.yml` 의 `deploy` job 이 backend · frontend · docker job 통과 뒤 실행된다. PR · fork · 다른 브랜치에서는 실행되지 않는다.
+
+```
+GitHub-hosted runner ──SSH──▶ front-server ──ProxyJump──▶ backend-server · db-server
+                     deploy.sh 를 stdin 으로 보내 각 서버에서 실행 (db → backend → front)
+```
+
+### 12-1. `deploy/scripts/deploy.sh` 가 하는 일
+
+| 단계 | 동작 |
+|---|---|
+| 사전 조건 | 추적 파일 수정이 있거나 `.env` 가 없으면 중단 (서버의 수정을 덮어쓰지 않음) |
+| 대상 커밋 | `git fetch` 후 지정 SHA 로 `checkout --detach`. `origin/develop` 이력에 없는 커밋은 거부 |
+| 변경 판정 | 마지막 배포 SHA(`.git/t4core-deployed-<역할>`) 이후 그 역할의 경로가 안 바뀌었으면 skip |
+| 기동 | db `up -d` · backend `build backend && up -d backend` · front `up -d --build` |
+| 헬스 확인 | db 컨테이너 healthy · `localhost:8000/health` · `localhost/health`, 최대 180초 (`T4_HEALTH_TIMEOUT`) |
+| 실패 시 | 이전 배포 SHA 로 checkout 해 다시 기동하고 종료 코드 1 (롤백도 실패하면 2) |
+
+| 역할 | 변경 판정 경로 |
+|---|---|
+| db | `deploy/db/` |
+| backend | `backend/` `configs/` `requirements*.txt` `Dockerfile` `.dockerignore` `deploy/backend/` |
+| front | `frontend/web/` `deploy/frontend/` |
+
+`.env` 와 데이터(`/srv/t4core/storage`, 묶음 적재)는 다루지 않는다. 데이터 갱신은 8장대로 한다.
+
+### 12-2. 처음 한 번 설정 (관리자)
+
+1. 배포 전용 키를 만든다 (팀 공용 `team-key.pem` 을 쓰지 않는다).
+   ```sh
+   ssh-keygen -t ed25519 -N '' -C t4core-deploy -f t4core-deploy
+   ```
+   `t4core-deploy.pub` 한 줄을 세 서버의 `~/.ssh/authorized_keys` 에 추가한다.
+2. 호스트 키를 모은다. front 는 별칭 `front` 로, backend · db 는 프라이빗 IP 로 기록한다.
+   ```sh
+   # 팀 PC 에서
+   ssh-keyscan -t ed25519 <front 공인 IP> | sed 's/^[^ ]*/front/' > known_hosts
+   # front-server 에서 (결과를 위 파일에 이어 붙임)
+   ssh-keyscan -t ed25519 <backend 프라이빗 IP> <db 프라이빗 IP>
+   ```
+3. GitHub 저장소 Settings → Environments → `dev` 를 만든다.
+   - Deployment branches: `develop` 만
+   - Secrets: `DEPLOY_SSH_KEY`(개인 키 전체), `DEPLOY_KNOWN_HOSTS`(2의 파일), `FRONT_HOST`, `BACKEND_PRIVATE_IP`, `DB_PRIVATE_IP`, `SSH_USER`(`ubuntu`)
+   - public 저장소라 Actions 로그는 누구나 본다. 주소를 variable 이 아니라 secret 에 두는 이유다.
+4. Settings → Branches: `develop` 병합 전에 `backend` · `frontend` · `docker` 통과를 필수로.
+5. 보안 그룹: GitHub-hosted runner IP 는 고정되지 않으므로 front 22 는 0.0.0.0/0 을 유지한다. backend · db 의 22 는 front 프라이빗 IP 만 허용해도 된다.
+6. 각 서버의 작업 트리가 깨끗한지 확인한다 (`git status` — 예전 `git apply` 패치가 남아 있으면 커밋된 develop 으로 정리).
+
+### 12-3. 운영
+
+- front 공인 IP 가 바뀌면 (탄력적 IP 전까지 켤 때마다) `FRONT_HOST` secret 만 고친다. 호스트 키는 그대로라 `DEPLOY_KNOWN_HOSTS` 는 그대로 둔다.
+- 서버가 꺼져 있으면 deploy job 이 SSH 타임아웃으로 실패한다. 서버를 켠 뒤 Actions 에서 그 실행을 "Re-run failed jobs" 한다.
+- 손으로 배포 · 롤백: 서버에서 `bash deploy/scripts/deploy.sh backend <이전 SHA>`. 강제 재기동은 셋째 인자 `1`.
+- 실패 원인은 Actions 로그에 남기지 않는다 (컨테이너 로그에 질문 · 내부 주소가 담길 수 있음). 서버에서 `dcb logs --tail 200 backend` 로 본다.
+- develop 의 CI 실행은 서로 취소하지 않고 순서대로 돈다 (배포 도중 취소 방지). 대기 중에 더 새 커밋이 오면 중간 실행은 건너뛰고, 다음 배포가 누적 변경을 반영한다.
