@@ -6,10 +6,14 @@
 import re
 import time
 
+from backend.agent.index_scale import SCALE_NAME, index_scale
+
 from .chart_type_llm import hcx_chat
 from .chart_type_rules import (
-    DATA_SCOPE, INTENT_TO_MEASURE, MEASURE_CHOICES, MEASURE_KEYWORDS, MEASURES, OUT_OF_SCOPE,
+    DATA_SCOPE, INTENT_TO_MEASURE, MEASURE_CHOICES, MEASURE_KEYWORDS, MEASURES, OUT_OF_SCOPE, RAW_VALUE_PATTERN,
 )
+
+_RAW_VALUE = re.compile(RAW_VALUE_PATTERN)
 
 
 def _ns(s):
@@ -42,7 +46,14 @@ def keyword_hits(text):
 def decide_measure_rule(sub_question, query_bundle):
     """규칙으로 measure 판단 (재작성 질문만 봄). 반환: (measure, 확신 여부, 근거, 힌트)
     확신이 없으면 measure는 None으로 비워 두고 LLM이 채운다.
-    순서: ① 하위질문 끝 키워드 → ② rewritten 끝 키워드 → ③ intent 필드 → ④ 일반 키워드 → ⑤ 못 찾음"""
+    순서: ⓪ 원 질문의 지수 환산 표현 · 원값 그대로 → ① 하위질문 끝 키워드 → ② rewritten 끝 키워드 → ③ intent 필드 → ④ 일반 키워드 → ⑤ 못 찾음"""
+    # ⓪ [NEW 11-27] 원 질문의 지수 환산 표현 ('최소=0·최대=100 지수로 환산' · '월평균=100'). 재작성 질문에서는 사라져
+    #   값 조회(raw) · 증감률로 분류됐다 (레이더 20선 R01 · R10). 모듈 3 이 같은 표현으로 환산 방식을 정한다 (backend/agent/index_scale.py)
+    if scale := index_scale(query_bundle.get("original")):
+        return "index", True, f"원 질문의 지수 환산 표현 ({SCALE_NAME[scale]})", []
+    # [NEW 11-27] 원 질문이 '원값 그대로' · '지수가 아닌 원값' → raw. 재작성이 '… 추이 증감' 으로 바꿔 증감(change)으로 분류됐다 (레이더 20선 19 · 20번)
+    if m := _RAW_VALUE.search(str(query_bundle.get("original") or "")):
+        return "raw", True, f"원 질문 '{m.group(0)}' → 원값", []
     # ①② 재작성 질문 끝의 INTENTS 키워드
     for name, text in (("sub_question 끝", sub_question), ("rewritten 끝", query_bundle.get("rewritten"))):
         kw = end_intent(text)

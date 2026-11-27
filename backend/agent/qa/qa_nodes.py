@@ -117,6 +117,17 @@ def judge(state: QAState, point: str, to_raw, rebuild, can_retry: bool, value=No
     return {**upd, "routes": {point: "fail"}}, None
 
 
+def _stage2_charts(m3) -> set[str]:
+    """[NEW 11-27] 모듈 3 의 2차 결과 차트 id (options.stage2). 모듈 2 계획 밖에서 만든 것이 정상이라 chart_ids 에 더한다"""
+    contents = (m3.get("chart_contents") if isinstance(m3, dict) else getattr(m3, "chart_contents", None)) or []
+    out = set()
+    for c in contents:
+        opt, cid = (c.get("options"), c.get("chart_id")) if isinstance(c, dict) else (c.options, c.chart_id)
+        if (opt or {}).get("stage2"):
+            out.add(cid)
+    return out
+
+
 def ref_ctx(state: QAState, point: str) -> dict:
     """id 짝을 볼 참조 목록 (qa_rules.rule_issues 의 ctx)"""
     if point == M2:
@@ -130,7 +141,8 @@ def ref_ctx(state: QAState, point: str) -> dict:
     if point == M3:
         from backend.agent.chart_calculate.planner import sub_question_ids
         req3 = state["req3"]
-        return {"chart_ids": {c.chart_id for c in req3.charts}, "record_ids": {r.id for r in req3.records},
+        m3 = (state.get("outs") or {}).get(M3) or state.get("m3")
+        return {"chart_ids": {c.chart_id for c in req3.charts} | _stage2_charts(m3), "record_ids": {r.id for r in req3.records},
                 "sub_ids": {sid for sid, _ in sub_question_ids(req3.query_bundle)}}
     if point == "M5-out":
         m3, plan = state["m3"], state.get("plan") or {}
@@ -140,7 +152,7 @@ def ref_ctx(state: QAState, point: str) -> dict:
         from backend.agent.chart_calculate.planner import sub_question_ids
         return {"record_ids": {r.id for r in state.get("records") or []},
                 "sub_ids": {sid for sid, _ in sub_question_ids(state["bundle"])},
-                "chart_ids": {c.chart_id for c in state["req3"].charts},
+                "chart_ids": {c.chart_id for c in state["req3"].charts} | _stage2_charts(state.get("m3")),
                 "role_unit_ids": set(state.get("role_unit_ids") or [])}
     if point == M6:
         req6 = state["req6"]

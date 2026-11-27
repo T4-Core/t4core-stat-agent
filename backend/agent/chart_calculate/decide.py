@@ -16,7 +16,8 @@ from typing import Any, Callable, get_args
 
 from pydantic import ValidationError
 
-from backend.agent.chart_calculate.planner import AnswerDecision, ChartDecision, Decision, sub_question_ids  # noqa: F401
+from backend.agent.chart_calculate.planner import (STAGE1_ID, AnswerDecision, ChartDecision, Decision,  # noqa: F401
+                                                   sub_question_ids)
 from backend.agent.chart_calculate.select import VALUE_COL
 from backend.agent.prompts import CHART_PLAN_SCHEMA, CHART_PLAN_SYS
 from backend.schemas.chart import ChartRequest, ChartType, Measure
@@ -149,7 +150,17 @@ def _set_prompt(bundle: QueryBundle, records: list[Record], charts: list[ChartRe
         lines.append("자료:")
         for vid in c.view_ids:
             lines += _record_lines(by_id[vid], hint) if vid in by_id else [f"- (자료 없음: record_id={vid} 가 records 에 없음)"]
-    return "\n".join(lines)
+    return "\n".join(lines + _stage1_lines(charts, text_of))
+
+
+def _stage1_lines(charts: list[ChartRequest], text_of: dict[str, str]) -> list[str]:
+    """[NEW 11-27] 하위 질문이 둘 이상이면 '1차결과' 표를 알린다. HCX 가 하위 질문 결과로 다시 계산할 때(뺀 값 · 합 · 차이 · 몇 배)
+    이 표를 쓰는 2차 계산을 적는다 (규칙 11). 결과 값은 1차 계산 뒤에 코드가 채운다 (stage2.py)"""
+    sids = list(dict.fromkeys(s for c in charts if c.view_ids for s in c.sub_question_ids))
+    if len(sids) < 2:
+        return []
+    return ["", f"[{STAGE1_ID}]  (record_id = \"{STAGE1_ID}\". 위 세트들의 질문용 계산 결과를 모은 표. 값은 1차 계산 뒤에 채워진다)",
+            *(f"- item \"{s}\": {text_of.get(s, '(질문 문장 없음)')} 의 결과" for s in sids)]
 
 
 # ── 응답 → Decision ──────────────────────────────────────────────

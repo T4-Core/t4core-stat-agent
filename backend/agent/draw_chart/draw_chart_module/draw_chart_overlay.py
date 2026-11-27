@@ -20,6 +20,7 @@
   3번 모듈은 이 표시를 모른다 (2번이 chart_plan.overlays 에 남기고 5번만 읽는다).
 """
 from backend.agent.chart_calculate.select import REGION_HINTS
+from backend.agent.period_cycle import cycle_info, cycle_of
 from backend.schemas.chart import AxisSpec, ChartContent
 
 from .draw_chart_format import SERIES_COLORS, is_missing
@@ -192,10 +193,21 @@ def _relation(ov, contents):
     first = contents[0]
     title = _title(contents, names, " · ")
     if mode == "radar":
+        options = {"display_ref": _display_ref(first)} if _display_ref(first) else {}
+        if scale := first.options.get("index_scale"):        # [NEW 11-27] 환산 지수(0~100 · 평균=100)면 반지름 축 규칙을 물려받는다
+            options["index_scale"] = scale
+        cyc = cycle_info(keys)
+        if cyc and len(cyc["years"]) == 1:
+            # [NEW 11-27] 한 해의 월 · 분기 · 반기가 범주: 축 = 주기 칸(1월~12월), 다각형 = 차트(지표). 모듈 2 가 같은 기준으로 합치기를 표시한다
+            rows = [[cycle_of(k)[3], n, t[k]] for n, t in zip(names, tables) for k in keys]
+            return ChartContent(chart_id=ov["overlay_id"], chart_type="radar", measure=first.measure,
+                                title=f"{cyc['years'][0]}년 {cyc['col']}별 " + "·".join(names),
+                                encoding={"label": cyc["col"], "series": ITEM, "value": VALUE}, axis={}, options=options,
+                                columns=[cyc["col"], ITEM, VALUE], rows=rows, record_ids=_record_ids(contents), warnings=[]), warns
         rows = [[k, n, t[k]] for n, t in zip(names, tables) for k in keys]
         return ChartContent(chart_id=ov["overlay_id"], chart_type="radar", measure=first.measure, title=title,
                             encoding={"label": ITEM, "series": cat, "value": VALUE}, axis={},
-                            options={"display_ref": _display_ref(first)} if _display_ref(first) else {},
+                            options=options,
                             columns=[cat, ITEM, VALUE], rows=rows, record_ids=_record_ids(contents), warnings=[]), warns
     rows = [[k, *(t[k] for t in tables)] for k in keys]
     enc = {"x": names[0], "y": names[1], "label": cat}
@@ -232,14 +244,17 @@ def _color(res):
         return None
     t = res.figure.data[0]
     c = t.marker.color if t.type == "bar" else (t.line.color or t.marker.color)
+    if not isinstance(c, str) and isinstance(t.meta, dict):      # [NEW 11-27] 강조로 막대마다 색이 됐으면 원래 색
+        c = t.meta.get("base_color")
     return c if isinstance(c, str) else None
 
 
 def _colors(ov, content, results):
     """합친 차트의 trace 색. 선 · 막대 · 콤보 = 원래 차트 색 그대로 (rows 는 차트 순서), 산점도 · 버블 = 첫 차트 색,
     레이더 = 범주(다각형)마다 팔레트 순서"""
-    if ov["mode"] == "radar":
-        cats = list(dict.fromkeys(str(r[0]) for r in content.rows))
+    if ov["mode"] == "radar":            # [CHANGED 11-27] 다각형 = 계열 열의 값 (범주가 다각형이거나, 한 해의 월 · 분기면 지표가 다각형)
+        si = content.columns.index(content.encoding.get("series") or content.columns[0])
+        cats = list(dict.fromkeys(str(r[si]) for r in content.rows))
         return {n: SERIES_COLORS[i % len(SERIES_COLORS)] for i, n in enumerate(cats)}
     if ov["mode"] in ("scatter", "bubble"):
         col = _color(results[0])

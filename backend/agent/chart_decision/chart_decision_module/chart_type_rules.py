@@ -23,6 +23,10 @@ INTENT_TO_MEASURE = {
     "범위 밖": None, #LLM 호출
 }
 
+# [NEW 11-27] 원 질문이 값을 가공하지 말라고 한 표현 → raw (재작성 질문 끝 키워드보다 먼저 본다. chart_type_measure ⓪)
+#   '지수가 아닌 원값 그대로 … 규모 변화를 보여줘' 를 재작성이 '… 추이 증감' 으로 바꿔 증감 막대가 나왔다 (레이더 20선 19 · 20번)
+RAW_VALUE_PATTERN = r"(?:원\s*값|원\s*자료|실제\s*값)\s*(?:그대로|으로|로)|지수(?:가|로)?\s*아닌|가공\s*(?:하지|없이)"
+
 # 일반 키워드 → measure (끝 키워드로 못 정할 때 문장 전체에서 찾음)
 MEASURE_KEYWORDS = {
     "change":      ["증감", "늘었", "줄었", "몇 명 차이"],
@@ -68,7 +72,8 @@ OVERLAY_SCALE_RATIO = 10                           # 두 값의 최댓값 비율
 #   값: (차트 수 최소, 최대, 범주 수 최소, 최대). 산점도·버블의 범주 = 점, 레이더의 범주 = 계열(다각형), 레이더의 차트 = 지표 축
 RELATION_OVERLAYS = {"scatter": (2, 2, 5, None),      # x · y (모듈 3 산점도 조건 min_points_5 와 같은 점 수)
                      "bubble": (3, 3, 3, None),       # x · y · 원 크기
-                     "radar": (3, 8, 1, 8)}           # 지표 축 3~8개 (모듈 3 레이더 조건과 같음) · 다각형 8개까지 · 단위가 같아야 함
+                     "radar": (3, 12, 1, 8)}          # 지표 축 3~12개 (모듈 3 레이더 조건과 같음) · 다각형 8개까지 · 단위가 같아야 함
+                                                      # [CHANGED 11-27] 축 8 → 12. 한 해의 월 · 분기가 범주면 축 = 주기 칸 3~12 · 다각형 = 차트 2~8 (chart_type_overlay)
 
 # ── ③-1 요청한 나눔 (고도화 2단계: chart_type_axes.py) ──
 # 비교축 말 → 축 이름. 여기 없는 말(예: '가구원수')은 그 말 자체를 축으로 보고, 열 이름에 그 말이 든 열과 맞춘다
@@ -141,7 +146,8 @@ MEASURE_TO_CHARTS = {
     "change":      ["bar", "dumbbell", "map", "heatmap"],
     "growth_rate": ["bar", "line", "combo", "map", "heatmap", "scatter"],
     "cagr":        [],                                   # 차트 없음 → 표만
-    "index":       ["line", "radar"],
+    "index":       ["line", "radar",
+                    "bar"],                              # [NEW 11-27] 시점이 하나인 지수(17개 시도 내 0~100 지수)는 꺾은선이 안 돼 막대로. 요청한 레이더는 모듈 5 가 막대들을 합쳐 그린다
     "share":       ["donut", "pie", "stacked_bar", "treemap", "pyramid", "area", "map",
                     "bar"],                              # [NEW 11-24] 항목이 많아 원형이 탈락할 때 막대로 (임시 — 뺄 때는 이 줄만 지운다)
     "diff":        ["dumbbell", "bar"],
@@ -165,7 +171,7 @@ CHART_REQUIREMENTS = {
     "donut":       ["non_negative", "parts_sum_to_total", "max_categories_5", "min_categories_2"],
     "bubble":      ["three_measures_required"],
     "combo":       ["time_axis_required", "two_series_required", "min_points_3"],
-    "radar":       ["min_categories_3", "max_categories_8"],
+    "radar":       ["min_categories_3", "max_categories_12"],      # [CHANGED 11-27] 8 → 12 (1월~12월 축)
     "map":         ["region_dimension_required"],
     "heatmap":     ["two_dimensions_required"],
     "treemap":     ["non_negative", "parts_sum_to_total", "min_categories_2"],

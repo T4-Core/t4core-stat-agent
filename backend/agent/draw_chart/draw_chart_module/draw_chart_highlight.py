@@ -16,7 +16,7 @@
 """
 import re
 
-from .draw_chart_format import display_for, fmt, is_missing
+from .draw_chart_format import SERIES_COLORS, display_for, fmt, is_missing
 
 TARGET_OPS = ("extreme", "rank", "change", "growth_rate", "diff")
 HIGHLIGHT_TYPES = ("line", "area", "bar", "stacked_bar", "combo")
@@ -24,6 +24,7 @@ MAX_NOTES = 4
 OP_NAME = {"change": "증감", "diff": "차이", "growth_rate": "증감률"}
 NOTE_FONT = {"size": 11, "color": "#222"}
 EDGE = "#222"
+HIGHLIGHT_COLOR = "#F5781F"     # [NEW 11-27] 강조한 막대 · 점 (주황). 화면(frontend chartColors.EMPHASIS_COLOR)도 같은 색
 
 
 def calcs_for(content, calcs):
@@ -84,9 +85,23 @@ def _signed(v, d):
 
 
 def _emphasize(fig, ti, pi):
-    """막대: 테두리 / 점: 크게"""
+    """막대: 테두리 + 강조 색 / 점: 크게 + 강조 색.
+    [NEW 11-27] 강조한 점 번호를 trace.meta['highlight'] 에 적는다 (원래 색은 meta['base_color']). 화면(frontend PlotlyChart)은
+    테두리 · 화살표 주석을 지우고 색을 다시 칠해서 '최근 10년 혼인건수가 가장 적은 해' 의 2022 막대가 다른 막대와 똑같이 보였다.
+    화면은 이 번호로 그 막대만 강조 색을 칠한다. 증감 · 증감률 막대(meta['signed'])는 부호 색을 그대로 둔다"""
     t = fig.data[ti]
     n = len(t.x if t.x is not None else t.y)
+    meta = dict(t.meta) if isinstance(t.meta, dict) else {}
+    color = t.marker.color
+    if not isinstance(color, (list, tuple)):
+        meta["base_color"] = color or SERIES_COLORS[ti % len(SERIES_COLORS)]       # 색이 비었으면 Plotly 기본 순서 색
+        color = [meta["base_color"]] * n
+    if not meta.get("signed"):
+        color = list(color)
+        color[pi] = HIGHLIGHT_COLOR
+        t.marker.color = color
+    meta["highlight"] = sorted(set(meta.get("highlight") or []) | {pi})
+    t.meta = meta
     if t.type == "bar":
         w = list(t.marker.line.width) if isinstance(t.marker.line.width, (list, tuple)) else [0] * n
         w[pi] = 3

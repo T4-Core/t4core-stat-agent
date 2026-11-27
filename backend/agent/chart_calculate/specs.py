@@ -59,7 +59,8 @@ SPECS: dict[str, ChartSpec] = {
                        requirements=("time_axis_required", "two_series_required", "min_points_3"),
                        # 왼쪽 y 는 막대(options.marks) → 0 을 기준선으로. 오른쪽 y2 는 선 → 데이터 범위
                        axis_rules={"y": "include_zero", "y2": "free"}),
-    "radar": ChartSpec("레이더", ("label", "series", "value"), requirements=("min_categories_3", "max_categories_8"),
+    # [CHANGED 11-27] max_categories_8 → 12 (같은 주기끼리 견주는 레이더: 1월~12월. 모듈 2 CHART_REQUIREMENTS 와 같다)
+    "radar": ChartSpec("레이더", ("label", "series", "value"), requirements=("min_categories_3", "max_categories_12"),
                        category="label"),
     "map": ChartSpec("맵", ("region", "value"), requirements=("region_dimension_required",), category="region"),
     "heatmap": ChartSpec("히트맵", ("x", "y", "value"), requirements=("two_dimensions_required",)),

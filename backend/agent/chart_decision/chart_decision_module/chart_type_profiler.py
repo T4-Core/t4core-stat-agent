@@ -5,6 +5,8 @@
 """
 import re
 
+from backend.agent.period_cycle import cycle_info
+
 from .chart_type_axes import TIME, classify_dims
 from .chart_type_rules import TOTAL_WORDS
 
@@ -65,7 +67,7 @@ def profile_data(view, sub_filter, filters, intents=None):
         if len(vals) >= 2:
             all_dims.append({"name": col_slot.get(col, col), "col": col, "values": vals, "n": len(vals)})
     # [고도화 2단계] 질문이 요청한 나눔만 범주·계열로 (연령 범위 구성 요소 · 요청하지 않은 열은 뺀다)
-    dims, excluded, axis_notes, req_axes = classify_dims(all_dims, sub_filter, filters, intents)
+    dims, excluded, axis_notes, req_axes = classify_dims(all_dims, sub_filter, filters, intents, n_points=len(periods))
 
     # ── 3. 수치 ─────────────────────────────
     ind_labels = distinct(ind_col) if ind_col else []
@@ -109,6 +111,7 @@ def profile_data(view, sub_filter, filters, intents=None):
     n_categories = category["n"]
     n_series = series_dim["n"] if series_dim else (len(indicators) if len(indicators) >= 2 else 1)
 
+    cyc = cycle_info(periods) if periods else None       # [NEW 11-27] 월 · 분기 · 반기 시점 (같은 주기끼리 견주는 레이더)
     return {
         # 1. 시점
         "has_time": len(periods) >= 2,
@@ -116,6 +119,8 @@ def profile_data(view, sub_filter, filters, intents=None):
         "n_points": len(periods),
         "periods": periods,
         "time_continuous": time_continuous,
+        "cycle": ({"kind": cyc["kind"], "col": cyc["col"], "n_positions": len(cyc["positions"]), "n_years": len(cyc["years"])}
+                  if cyc else None),
         # 2. 범주·계열
         "dims": dims,                                                    # 요청한 나눔만 (고도화 2단계)
         "n_dims": len(dims) + (1 if len(periods) >= 2 else 0),         # 시점도 차원 하나로 셈

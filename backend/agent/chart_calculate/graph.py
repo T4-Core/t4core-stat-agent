@@ -2,6 +2,7 @@
 [NEW] 모듈 3 그래프 (LangGraph) — Module3Request → Module3Output
 
   START → decide → plan → build_charts → answer_steps → assemble → END
+  (answer_steps 끝에서 [NEW 11-27] 2차 계산: 1차 결과를 표로 묶어 HCX 가 계획한 계산 — stage2.py. 계획이 없으면 하지 않는다)
 
   decide        HCX 가 무엇을 계산할지 정한다           (state 에 decision 이 있으면 건너뛴다)
   plan          ChartPlan + displays                   (규칙)
@@ -26,7 +27,8 @@ from backend.agent.chart_calculate.calculate import Calc, run_answer_steps
 from backend.agent.chart_calculate.content import build_chart
 from backend.agent.chart_calculate.decide import decide_trace
 from backend.agent.chart_calculate.display import format_value
-from backend.agent.chart_calculate.planner import Decision, make_plan
+from backend.agent.chart_calculate.planner import AnswerDecision, Decision, make_plan
+from backend.agent.chart_calculate.stage2 import run_stage2, split_stage2
 from backend.agent.chart_calculate.specs import requirements_for
 from backend.schemas.chart import (CalcResult, ChartContent, ChartPlan, ChartValidation, CheckResult, Display,
                                    Module3Output, Module3Request, Plan)
@@ -91,6 +93,7 @@ class Module3State(Module3Input, Module3Result, total=False):
     validation: dict[str, ChartValidation]
     calc_results: list[CalcResult]
     chart_calcs: dict[str, Calc]          # '{chart_id}.{step_id}' → 차트용 단계의 계산 결과 (질문용 계산이 재사용한다)
+    stage2: list[AnswerDecision]          # [NEW 11-27] HCX 가 적은 2차 계산 (1차결과 표를 쓰는 것). second_stage 노드가 1차 실행 뒤에 만든다
 
 
 # ── 노드 ─────────────────────────────────────────────────────────
@@ -108,9 +111,9 @@ def decide_node(state: Module3State, config: RunnableConfig) -> dict:
 
 def plan_node(state: Module3State) -> dict:
     request, dt = state["request"], state["decide"]
-    plan, displays = make_plan(request.charts, request.records, dt.decision, request.query_bundle)
+    plan, displays = make_plan(request.charts, request.records, dt.decision, request.query_bundle)   # 2차 계산은 건너뛴다
     plan.notes = dt.notes + plan.notes
-    return {"chart_plan": plan, "displays": displays}
+    return {"chart_plan": plan, "displays": displays, "stage2": split_stage2(dt.decision.answers)}
 
 
 def _requirements_of(p: Plan, asked: dict) -> list[str] | None:
@@ -153,7 +156,17 @@ def answer_steps_node(state: Module3State) -> dict:
     plan, done = state["chart_plan"], state.get("chart_calcs") or {}
     # 같은 계산의 차트 단계 결과가 없으면(계산 전에 오류 등) 재사용하지 않고 따로 계산한다
     reuse = {sid: done[ref] for sid, ref in plan.answer_reuse.items() if ref in done}
-    return {"calc_results": run_answer_steps(plan.answer_steps, state["request"].records, reuse)}
+    results = run_answer_steps(plan.answer_steps, state["request"].records, reuse)
+    # [NEW 11-27] 2차 계산: 1차 결과를 표로 묶어 하위 질문끼리 다시 계산한다 (뺀 값 · 합 · 차이 · 몇 배, stage2.py).
+    #   HCX 가 적은 2차는 질문 표현과 맞춰 검사하고, HCX 가 적지 않았어도 표현이 있으면 규칙이 만든다 (안전망).
+    #   노드를 따로 두지 않고 여기서 한다 — 그래프 모양(answer_steps → assemble)은 그대로.
+    #   2차 결과 차트(s1 …)도 함께 만든다 — 모듈 2 는 하위 질문마다 차트를 정해 값 하나짜리 비교는 차트가 없었다
+    plan, displays, results, charts = run_stage2(state["request"].query_bundle, plan, state.get("displays") or {}, results,
+                                                 state.get("stage2") or [])
+    if not charts and plan is state["chart_plan"]:          # 2차 계산 없음 (질문 표현도 HCX 2차도 없음)
+        return {"calc_results": results}
+    return {"chart_plan": plan, "displays": displays, "calc_results": results,
+            "contents": [*(state.get("contents") or []), *charts]}
 
 
 def _display_text(r: CalcResult, displays: dict[str, Display]) -> str | list[str | None] | None:

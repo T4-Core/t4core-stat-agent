@@ -10,8 +10,9 @@
     3. 모든 차트 있음 (chart_type 있음)              4. measure 같음
     5. 시점이 하나이고 모두 같음                      6. 범주 축이 같음 (시점 축은 아님). 범주 개수는 달라도 된다
                                                        (모듈 5 가 범주 이름으로 짝짓고, 한쪽에만 있는 범주는 빼고 알린다)
+       [NEW 11-27] 레이더는 5 · 6 대신 '범주 축이 모두 시점이고 시점 목록이 같음' 도 된다 (시점마다 다각형)
     7. 모두 계열 1개                                 8. 범주 수: 산점도 5개 이상 · 버블 3개 이상 · 레이더 8개 이하
-    9. 레이더는 단위가 모두 같음 (반지름 축 하나)
+    9. 레이더는 단위가 모두 같음 (반지름 축 하나). [NEW 11-27] measure 가 지수(index)면 보지 않는다 (같은 척도로 환산)
     axes: 산점도 {c1: x, c2: y} · 버블 {c1: x, c2: y, c3: size} (하위질문 순서) · 레이더는 없음 (지표가 축 이름)
     이전: 하위질문마다 막대 1개씩만 나가고 요청한 차트는 그려지지 않았다 (15유형 테스트 산점도 · 버블 · 레이더)
   ② 같은 x축 겹치기 — 지금까지의 규칙. [CHANGED 11-25] 차트 2개만 → 2개 이상
@@ -24,6 +25,8 @@
                (3개 이상) 축이 하나뿐이라 단위가 같고 최댓값 비율 < OVERLAY_SCALE_RATIO 일 때만 lines / bars. 아니면 겹치지 않음
   (모듈 5 는 그린 차트들의 x 값이 맞는지 한 번 더 확인한다)
 """
+from backend.agent.period_cycle import cycle_info
+
 from .chart_type_rules import OVERLAY_INTENTS, OVERLAY_MODES, OVERLAY_SCALE_RATIO, RELATION_OVERLAYS
 
 TIME = "시점"
@@ -66,6 +69,12 @@ def _relation(ms, charts):
     if kind not in RELATION_OVERLAYS or len(charts) < 2:       # 차트 1개는 합칠 것이 없다 (기록은 ② 가 남긴다)
         return None, None
     lo, hi, cat_lo, cat_hi = RELATION_OVERLAYS[kind]
+    # [NEW 11-27] 한 해의 월 · 분기가 범주인 레이더 ('2025년 전국 월별 출생·사망·혼인·이혼'): 축 = 주기 칸(3~12), 다각형 = 차트(지표, 2~8개)
+    first_periods = {tuple(str(x) for x in (m.get("profile") or {}).get("periods") or []) for m in ms}
+    cyc = cycle_info(next(iter(first_periods))) if kind == "radar" and len(first_periods) == 1 else None
+    by_cycle = bool(cyc) and len(cyc["years"]) == 1
+    if by_cycle:                                              # 차트 수(다각형) 2~8 · 범주 수(축) 3~12 로 바꿔 본다
+        lo, hi, cat_lo, cat_hi = 2, cat_hi, 3, hi
 
     def no(why):
         return None, f"{kind} 합치기 안 함: {why}"
@@ -78,12 +87,16 @@ def _relation(ms, charts):
         return no(f"measure 다름 {[c.get('measure') for c in charts]}")
     profiles = [m.get("profile") or {} for m in ms]
     periods = [tuple(str(p) for p in pr.get("periods") or []) for pr in profiles]
-    if any(len(p) != 1 for p in periods) or len(set(periods)) > 1:
-        return no(f"시점이 하나가 아니거나 서로 다름 {[list(p) for p in periods]}")
     cats = [pr.get("category_axis") or {} for pr in profiles]
     names = {x.get("axis") for x in cats}
-    if len(names) != 1 or None in names or TIME in names:
-        return no(f"범주 축이 다르거나 없음 {[x.get('axis') for x in cats]}")
+    # [NEW 11-27] 레이더는 시점이 범주인 차트들도 합친다 (지역 하나 · 지표 하나씩, 시점이 모두 같음) → 시점마다 다각형.
+    #   '전국의 1995·2000·2010·2020·2025년 6개 지표를 0~100 지수로 레이더' (레이더 20선 R10)
+    by_time = kind == "radar" and names == {TIME} and len(set(periods)) == 1 and len(periods[0]) >= 2
+    if not by_time:
+        if any(len(p) != 1 for p in periods) or len(set(periods)) > 1:
+            return no(f"시점이 하나가 아니거나 서로 다름 {[list(p) for p in periods]}")
+        if len(names) != 1 or None in names or TIME in names:
+            return no(f"범주 축이 다르거나 없음 {[x.get('axis') for x in cats]}")
     if any(pr.get("n_series", 1) != 1 for pr in profiles):
         return no("계열이 여러 개인 차트가 있음")
     ns = [x.get("n") or 0 for x in cats]
@@ -91,12 +104,17 @@ def _relation(ms, charts):
         need = f"{cat_lo}개 이상" + (f" {cat_hi}개 이하" if cat_hi is not None else "")
         return no(f"범주 {min(ns)}~{max(ns)}개 ({need} 필요)")
     units = [_unit(m) for m in ms]
-    if kind == "radar" and (None in units or len(set(units)) > 1):
+    # [CHANGED 11-27] 지수(index)는 모듈 3 이 단위 없는 같은 척도로 환산하므로 원래 단위가 달라도 된다 (천명당 · 명 · 합계출산율)
+    indexed = charts[0].get("measure") == "index"
+    if kind == "radar" and not indexed and (None in units or len(set(units)) > 1):
         return no(f"단위가 다르거나 모름 {units} (레이더는 반지름 축 하나)")
     ids = [c["chart_id"] for c in charts]
     axes = dict(zip(ids, RELATION_ROLES.get(kind, ())))
     what = " · ".join(f"{cid}={role}" for cid, role in axes.items()) if axes else f"지표 축 {len(ids)}개"
-    reason = f"요청한 {kind} · {next(iter(names))} {min(ns)}~{max(ns)}개 · 시점 {periods[0][0]} → {what}"
+    when = f"시점 {periods[0][0]}~{periods[0][-1]} (시점마다 다각형)" if by_time else f"시점 {periods[0][0]}"
+    if by_cycle:
+        what, when = f"{cyc['col']} 축 {len(periods[0])}개 · 지표마다 다각형 {len(ids)}개", f"{cyc['years'][0]}년"
+    reason = f"요청한 {kind} · {next(iter(names))} {min(ns)}~{max(ns)}개 · {when}{' · 지수(단위 없음)' if indexed else ''} → {what}"
     return {"overlay_id": "+".join(ids), "charts": ids, "mode": kind, "axes": axes, "reason": reason}, \
         f"합치기: {kind} — {reason}"
 

@@ -11,6 +11,7 @@ import re
 from .chart_type_rules import CHART_WORDS, SHAPE_SCORES
 
 TIME = "시점"
+CHANGE_MEASURES = ("change", "growth_rate")     # [NEW 11-27] 시점마다 늘고 준 폭 · 비율 → 막대
 
 
 def _ns(s):
@@ -45,7 +46,9 @@ def shape_score(chart, profile, measure):
     n_cat = profile.get("n_categories", 0)
     if chart == "pyramid" and cat.get("axis") == "연령" and ser.get("axis") == "성별" and ser.get("n") == 2:
         return SHAPE_SCORES["pyramid_age_sex"], "범주 = 연령, 계열 = 성별 2개"
-    if chart == "line" and cat.get("axis") == TIME and cat.get("n", 0) >= 3:
+    # [CHANGED 11-27] 증감 · 증감률(시점마다 늘고 준 폭)은 0 을 기준으로 위아래 막대가 읽기 쉽다 → 꺾은선 점수를 주지 않는다 (막대 1순위).
+    #   '최근 5년 혼인건수 매년 증감률' 이 꺾은선(점수 3)으로 나왔다. 시점이 많아 막대가 20개를 넘으면 모듈 3 이 꺾은선으로 대체한다
+    if chart == "line" and cat.get("axis") == TIME and cat.get("n", 0) >= 3 and measure not in CHANGE_MEASURES:
         return SHAPE_SCORES["line_time"], f"범주 = 시점 {cat.get('n')}개"
     if chart == "heatmap":
         non_time = [d for d in dims if d.get("axis") != TIME]

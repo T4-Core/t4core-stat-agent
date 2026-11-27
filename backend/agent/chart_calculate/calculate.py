@@ -28,7 +28,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from backend.agent.chart_calculate.display import ratio_unit, result_unit, unit_of
-from backend.agent.chart_calculate.select import INDICATOR_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL, age_span, select_rows  # noqa: F401
+from backend.agent.chart_calculate.select import (INDICATOR_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL, age_span, is_category,  # noqa: F401
+                                                   select_rows)
+from backend.agent.period_cycle import YEAR_COL, cycle_info, cycle_of
 from backend.agent.chart_calculate.validate import TOTAL_LABELS, totals_in
 from backend.core.korean import strip_unit, unit_tail
 from backend.schemas.chart import CalcInput, CalcResult, Operand, Plan, Step
@@ -498,11 +500,53 @@ def _raw(ctx: _Ctx) -> Calc:
     return out
 
 
+def _indicator_group(p: Point) -> tuple:
+    """[NEW 11-27] 환산 지수의 묶음 = 같은 지표. 시점과 범주 열(지역 · 연령 · 성별)은 비교 대상이라 묶지 않는다"""
+    return tuple((c, v) for c, v in p.key.items() if c != TIME_COL and not is_category(c))
+
+
+def _scaled_index(ctx: _Ctx, s: Series, out: Calc, scale: str) -> Calc:
+    """[NEW 11-27] 비교 대상 안에서 환산한 지수 (레이더 20선). 기준(최소 · 최대 · 평균)은 총계 행(전국 · 계)을 빼고 정하고,
+    총계 행도 같은 기준으로 환산해 함께 돌려준다 (전국을 기준선으로 그린다 — 0~100 밖일 수 있다)
+      minmax  (값 − 최소) / (최대 − 최소) × 100. 최대 = 최소면 모두 50
+      mean    값 / 평균 × 100. 평균이 0 이하면 계산하지 않음
+              시점이 월 · 분기 · 반기면 같은 지표 · 같은 범주(지역 …) · **같은 해** 안의 평균 ('월평균=100': 해마다 · 지역마다 다각형 하나)"""
+    group = _indicator_group
+    if scale == "mean" and s.points and cycle_info(str(p.key.get(TIME_COL)) for p in s.points):
+        def group(p: Point) -> tuple:                          # noqa: E306  [NEW 11-27] 월평균 · 분기 평균
+            return tuple((c, v) for c, v in p.key.items() if c != TIME_COL) + ((YEAR_COL, cycle_of(p.key[TIME_COL])[0]),)
+    for gk, pts in _groups(s.points, group).items():
+        ref = [p for p in _without_totals(pts, out.notes, None) if p.value is not None]      # 조건에 전국을 적었어도 기준에서는 뺀다
+        what = " · ".join(str(v) for _, v in gk) or (s.item or "값")
+        if len(ref) < 2:
+            out.notes.append(f"{what}: 비교할 값이 {len(ref)}개뿐이라 지수로 환산하지 않음")
+            out.points += [Point(dict(p.key), None) for p in pts]
+            continue
+        vals = [p.value for p in ref]
+        if scale == "mean":
+            mean = sum(vals) / len(vals)
+            if mean <= 0:
+                out.notes.append(f"{what}: 평균이 0 이하라 평균=100 지수로 환산하지 않음")
+                out.points += [Point(dict(p.key), None) for p in pts]
+                continue
+            out.notes.append(f"{what}: 평균 {_show(mean)} = 100 (비교 대상 {len(ref)}개)")
+            out.points += [Point(dict(p.key), None if p.value is None else p.value / mean * 100) for p in pts]
+            continue
+        lo, hi = min(vals), max(vals)
+        out.notes.append(f"{what}: 최소 {_show(lo)} = 0 · 최대 {_show(hi)} = 100 (비교 대상 {len(ref)}개)" if hi != lo
+                         else f"{what}: 비교 대상 {len(ref)}개의 값이 모두 같아 50")
+        out.points += [Point(dict(p.key), None if p.value is None else (50.0 if hi == lo else (p.value - lo) / (hi - lo) * 100))
+                       for p in pts]
+    return out
+
+
 def _index(ctx: _Ctx) -> Calc:
     s = ctx.series("value")
     out = ctx.calc(s, unit=result_unit("index", s.unit))
     if _failed(s):
         return out
+    if (scale := ctx.arg("scale")) in ("minmax", "mean"):     # [NEW 11-27] 0~100 · 평균=100 환산 (planner 가 원 질문에서 정한다)
+        return _scaled_index(ctx, s, out, scale)
     for gk, pts in _groups(s.points, _no_time).items():
         t0 = str(ctx.step.base or ctx.step.from_ or pts[0].key.get(TIME_COL))
         clash = _conflicts(pts)

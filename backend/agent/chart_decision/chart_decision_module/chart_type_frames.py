@@ -40,6 +40,16 @@ def _axis(cats, name):
     return next((d for d in cats if d.get("axis") == name), None)
 
 
+def _whole_and_parts(p, measure):
+    """[NEW 11-27] 전체 대비 부분 비중인가: 비중 · 시점 하나 · 시점이 아닌 범주 열 하나에 총계(전국 · 계)와 부분 1개 이상.
+    '2024년 전국 대비 서울 출생아 비중' 은 총계를 빼면 조각이 서울 하나라 원 · 도넛에서 떨어지고 막대(전국 100 · 서울 17.5)가 됐다.
+    모듈 3 이 총계 행을 빼고 '그 외' 조각(100% − 부분 합)을 더해 원을 채운다 (chart_calculate/content.py _whole_remainder)"""
+    if measure != "share" or (p.get("n_points") or 0) > 1:
+        return False
+    dims = [d for d in p.get("dims") or [] if d.get("axis") != TIME]
+    return any(n_eff(d) >= 1 and any(_clean(v) in TOTAL_WORDS for v in d.get("values") or []) for d in dims)
+
+
 def _non_negative(p, measure):
     """음수가 없는가. 계산하면 부호가 바뀔 수 있는 measure 는 판정하지 않는다 (None)"""
     return None if measure in SIGNED_MEASURES else bool(p.get("non_negative"))
@@ -63,6 +73,11 @@ def _frames(p, measure, requested=False):
     pos = _non_negative(p, measure) is not False                         # 모르면 통과
     sex = _axis(cats, "성별")
     second = len(cats) >= 2 or (cats and t >= 2) or nm >= 2               # 범주 말고 나눌 기준(계열)이 하나 더 있는가
+    # [NEW 11-27] 같은 주기끼리 견주는 레이더: 월 · 분기 3~12칸이 축, 연도(2개 이상) · 범주 · 지표가 다각형
+    #   ('전국 월별 출생아수의 2015·2020·2025년' 은 시점이 아닌 범주가 없어 '범주 3개 이상 + 계열' 에서 떨어졌다)
+    cyc = p.get("cycle") or {}
+    by_cycle = 3 <= (cyc.get("n_positions") or 0) <= 12 and ((cyc.get("n_years") or 0) >= 2 or bool(cats) or nm >= 2)
+    whole = _whole_and_parts(p, measure)          # [NEW 11-27] 전국 + 서울 → 서울 · 그 외 두 조각
     return {
         "line":        (t >= 3,                                  "시점 3개 이상"),
         "area":        (t >= 3 and pos,                          "시점 3개 이상 + 음수 없음"),
@@ -70,13 +85,13 @@ def _frames(p, measure, requested=False):
         "stacked_bar": (bool(cats) and ser_n >= 2 and pos,       "범주 + 쌓을 계열 2개 이상 + 음수 없음"),
         "pyramid":     (bool(_axis(cats, "연령")) and bool(sex) and n_eff(sex) == 2 and pos,
                         "연령 + 성별 2개 + 음수 없음"),
-        "pie":         (c1 >= 2 and pos,                         "시점이 아닌 범주 2개 이상 + 음수 없음"),
-        "donut":       (c1 >= 2 and pos,                         "시점이 아닌 범주 2개 이상 + 음수 없음"),
+        "pie":         ((c1 >= 2 or whole) and pos,              "시점이 아닌 범주 2개 이상 + 음수 없음"),
+        "donut":       ((c1 >= 2 or whole) and pos,              "시점이 아닌 범주 2개 이상 + 음수 없음"),
         "combo":       (t >= 3 and nm >= 2,                      "시점 3개 이상 + 지표 2개"),
         "scatter":     (c1 >= 5 and (nm >= 2 or split == 2),     "범주 5개 이상 + 지표 2개"),
         "bubble":      (c1 >= 2 and (nm >= 3 or split == 3),     "범주 2개 이상 + 지표 3개"),
         "dumbbell":    (c1 >= 2 and bool(p.get("two_points_per_category")), "범주 2개 이상 + 비교 대상 2개"),
-        "radar":       (c1 >= 3 and bool(second),                "범주 3개 이상 + 계열"),
+        "radar":       ((c1 >= 3 and bool(second)) or by_cycle,  "범주 3개 이상 + 계열"),
         "map":         (bool(p.get("has_region")),               "지역 2곳 이상"),
         "heatmap":     ((p.get("n_dims") or 0) >= 2,             "나누는 기준 2종류"),
         "treemap":     (len(cats) >= 2 and pos,                  "상위 범주 + 하위 범주 + 음수 없음"),

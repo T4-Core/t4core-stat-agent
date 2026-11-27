@@ -9,10 +9,17 @@ import math
 
 import plotly.graph_objects as go
 
-from .draw_chart_format import (COLOR_SCALE, LABEL_MAX_POINTS, aligned, aligned_ticks, axis_title, categories, digits_of,
-                                display_for, fallback_digits, few_bars, fmt, is_missing, missing_warning, nice_step, scaled,
-                                series_groups, tick_format, tick_format_for, unit_text, value_range, x_ticks, y_floor)
+from .draw_chart_format import (COLOR_SCALE, LABEL_MAX_POINTS, SERIES_COLORS, aligned, aligned_ticks, axis_title, categories,
+                                digits_of, display_for, fallback_digits, few_bars, fmt, is_missing, missing_warning, nice_step,
+                                scaled, series_groups, tick_format, tick_format_for, unit_text, value_range, x_ticks, y_floor)
+from .draw_chart_highlight import HIGHLIGHT_COLOR
 from .draw_chart_schema import CHART_TYPES
+
+REMAINDER_COLOR = "#7D8694"        # [NEW 11-27] 원 · 도넛의 '그 외' 조각 (하얀 글자가 읽히는 진한 회색. 대비 3.7:1)
+# [NEW 11-27] 원 · 도넛 조각 안의 글자: 하얀색 + 옅은 그림자 (밝은 조각색 위에서도 읽히게). 조각 밖 글자는 기본(어두운 색) 그대로
+PIE_INSIDE_TEXT = {"color": "white", "shadow": "0px 0px 3px rgba(0,0,0,0.45)"}
+SIGNED_BAR_MEASURES = ("change", "growth_rate", "diff", "combine")     # [NEW 11-27] 증감 · 증감률 · 차이 · 합산 막대는 부호별 색
+UP_COLOR, DOWN_COLOR = SERIES_COLORS[0], SERIES_COLORS[1]   # 늘어남 파랑 · 줄어듦 빨강
 
 # =============================================
 # 렌더러: (df, content, displays) → (traces, layout, warnings)
@@ -73,22 +80,38 @@ def _bars(df, content, displays, stacked=False):
     horizontal = content.options.get("orientation") == "horizontal"     # 순위(rank)면 가로 막대
     cats = categories(df, x_col)
     show = len(cats) <= LABEL_MAX_POINTS
+    # [NEW 11-27] 증감 · 증감률 막대(계열 하나): 늘어난 막대는 파란색, 줄어든 막대는 빨간색, 라벨에 '+' ('+14.8' · '-0.4')
+    signed = content.measure in SIGNED_BAR_MEASURES and not s_col and not stacked
     traces = []
     for name, g in series_groups(df, s_col):
         raw = aligned(g, x_col, cats, y_col)
         warns += missing_warning(raw, name)
         vals = [scaled(v, d) for v in raw]
         xy = {"x": vals, "y": cats, "orientation": "h"} if horizontal else {"x": cats, "y": vals}
-        traces.append(go.Bar(
+        text = [fmt(v, d, with_unit=False) for v in raw]
+        if signed:
+            text = [f"+{s}" if not is_missing(v) and v > 0 else s for v, s in zip(raw, text)]
+        bar = go.Bar(
             **xy, name=name or (y_spec.label if y_spec else y_col),
-            text=[fmt(v, d, with_unit=False) for v in raw] if show else None,
+            text=text if show else None,
             textposition="inside" if stacked else "outside", cliponaxis=False,
             customdata=[fmt(v, d) for v in raw],
             hovertemplate=("%{y}" if horizontal else "%{x}") + "<br>" + HOVER,
-        ))
+        )
+        if signed:          # 막대마다 색 (목록) — apply_colors 는 목록 색을 덮어쓰지 않는다
+            bar.marker.color = [DOWN_COLOR if not is_missing(v) and v < 0 else UP_COLOR for v in raw]
+            bar.meta = {"signed": True}     # 화면(frontend)이 부호 색 막대임을 알아본다 (강조 색 목록과 구분)
+        elif (emph := content.options.get("emphasis")) and not s_col:
+            # [NEW 11-27] options.emphasis 의 범주만 강조 색 (2차 결과 막대 '출생아수 − 사망자수'). 화면은 meta.highlight 로 칠한다
+            hot = [i for i, c in enumerate(cats) if c in emph]
+            bar.marker.color = [HIGHLIGHT_COLOR if i in hot else UP_COLOR for i in range(len(cats))]
+            bar.meta = {"highlight": hot, "base_color": UP_COLOR}
+        traces.append(bar)
     cat_axis = {"title": axis_title(content.axis.get("x"), None), "type": "category",
                 "categoryorder": "array", "categoryarray": cats}
     val_axis = {"title": axis_title(y_spec, d), "tickformat": tick_format(d), **value_range(y_spec, d, y_floor(content))}
+    if not horizontal and not stacked:       # 음수 막대가 있으면 아래 라벨 자리 (없으면 그대로)
+        val_axis = _room_below([v for t in traces for v in (t.y or ()) if v is not None], val_axis)
     few, gap = few_bars(len(cats), reverse=horizontal)        # 막대가 2개 이하면 범주 축을 넓혀 막대 폭을 줄인다
     if horizontal:
         cat_axis.update(few or {"autorange": "reversed"})      # 1위가 위에 오도록 (few 는 이미 뒤집힌 범위)
@@ -100,6 +123,24 @@ def _bars(df, content, displays, stacked=False):
     if gap is not None:
         layout["bargap"] = gap
     return traces, layout, warns
+
+
+def _room_below(vals, axis, share=0.12):
+    """[NEW 11-27] 음수 막대가 있으면 값 축 아래쪽에 여유(범위의 12%)를 둔다. 막대 아래의 라벨('-0.4')이
+    범주 이름('2022')과 겹쳤다 (모듈 3 이 축 범위를 최솟값 -0.4 에 딱 맞춰 준다). 음수가 없으면 그대로"""
+    if not vals or min(vals) >= 0:
+        return axis
+    lo = min(vals)
+    hi = max(max(vals), 0)
+    if rng := axis.get("range"):
+        lo, hi = min(rng[0], lo), max(rng[1], hi)
+    bottom = lo - share * ((hi - lo) or 1)
+    out = {k: v for k, v in axis.items() if k != "autorangeoptions"}
+    if rng:
+        out["range"] = [bottom, hi]
+    else:
+        out["autorangeoptions"] = {"include": [*(axis.get("autorangeoptions") or {}).get("include", []), bottom]}
+    return out
 
 
 def draw_bar(df, content, displays):
@@ -157,8 +198,12 @@ def _pie(df, content, displays, hole=0.0):
     labels = df[l_col].astype(str).tolist()
     raw = [None if is_missing(v) else v for v in df[v_col]]
     trace = go.Pie(labels=labels, values=[scaled(v, d) for v in raw], hole=hole, sort=False, direction="clockwise",
-                   textinfo="label+percent", customdata=[fmt(v, d) for v in raw],
+                   textinfo="label+percent", insidetextfont=PIE_INSIDE_TEXT, customdata=[fmt(v, d) for v in raw],
                    hovertemplate="%{label}<br>%{customdata} (%{percent})<extra></extra>")
+    if rest := content.options.get("remainder_label"):
+        # [NEW 11-27] 전체 대비 부분 비중의 '그 외' 조각(모듈 3 이 100% − 부분 합으로 만든 것)은 회색. 부분은 계열 색 순서대로
+        parts = iter(SERIES_COLORS)
+        trace.marker.colors = [REMAINDER_COLOR if name == rest else next(parts, SERIES_COLORS[0]) for name in labels]
     layout = {}
     if hole and (center := content.options.get("center_text")):
         layout["annotations"] = [{"text": center, "x": 0.5, "y": 0.5, "xref": "paper", "yref": "paper",
@@ -201,6 +246,9 @@ def draw_treemap(df, content, displays):
 
 
 # ── radar: label(지표 축), series, value ─────────
+RADAR_REFERENCE = {"전국", "계", "합계", "총계", "전체"}      # [NEW 11-27] 기준선으로 그리는 총계 계열 (점선 · 채우지 않음)
+
+
 def draw_radar(df, content, displays):
     """레이더: 계열별로 닫힌 다각형. 단위가 다른 지표의 정규화는 모듈 3 몫 (아직 없음)
     약속: 필수 label(지표 축)·series·value / long 행 / 숫자 value"""
@@ -208,18 +256,35 @@ def draw_radar(df, content, displays):
     l_col, s_col, v_col = enc["label"], enc.get("series"), enc["value"]
     d = display_for(content, displays)
     axes = categories(df, l_col)
-    traces = []
-    for name, g in series_groups(df, s_col):
+    groups = list(series_groups(df, s_col))
+    scale = content.options.get("index_scale")
+    traces, outside = [], []
+    for name, g in groups:
         raw = aligned(g, l_col, axes, v_col)
         warns += missing_warning(raw, name)
         vals = [scaled(v, d) for v in raw]
-        traces.append(go.Scatterpolar(r=vals + vals[:1], theta=axes + axes[:1], name=name or v_col, fill="toself",
-                                      opacity=0.6, customdata=[fmt(v, d) for v in raw + raw[:1]],
+        if scale == "minmax":      # [NEW 11-27] 0~100 지수: 기준선(전국)이 비교 대상 범위 밖이면 가장자리에 (마우스를 올리면 실제 값)
+            outside += [f"{name} · {a} {fmt(v, d)}" for a, v in zip(axes, raw) if not is_missing(v) and not 0 <= v <= 100]
+            vals = [v if is_missing(v) else min(max(v, 0), 100) for v in vals]
+        # [NEW 11-27] 전국 · 계 같은 총계 계열은 기준선: 채우지 않은 점선 (다른 계열이 있을 때만. 레이더 20선 '전국과 함께')
+        ref = len(groups) > 1 and str(name).strip() in RADAR_REFERENCE
+        traces.append(go.Scatterpolar(r=vals + vals[:1], theta=axes + axes[:1], name=name or v_col,
+                                      fill="none" if ref else "toself", opacity=1.0 if ref else 0.6,
+                                      line={"dash": "dash", "width": 2} if ref else None,
+                                      customdata=[fmt(v, d) for v in raw + raw[:1]],
                                       hovertemplate="%{theta}<br>" + HOVER))
     # 반지름 눈금은 위쪽 세로축에 가로 글씨로 (기본 위치는 지표 이름·축 제목과 겹친다), 단위는 눈금 뒤에 붙인다
-    layout = {"polar": {"radialaxis": {"angle": 90, "tickangle": 90, "nticks": 5, "tickformat": tick_format(d),
-                                       "ticksuffix": unit_text(d), "tickfont": {"size": 10}},
-                        "angularaxis": {"direction": "clockwise", "rotation": 90}}}
+    radial = {"angle": 90, "tickangle": 90, "nticks": 5, "tickformat": tick_format(d),
+              "ticksuffix": unit_text(d), "tickfont": {"size": 10}}
+    if scale == "minmax":                  # [NEW 11-27] 0~100 지수: 반지름 0~100 고정
+        radial["range"] = [0, 100]
+        if outside:
+            warns.append(f"0~100 밖의 값은 가장자리에 그림 (비교 대상 범위 밖): {', '.join(outside[:6])}"
+                         + (f" 외 {len(outside) - 6}개" if len(outside) > 6 else ""))
+    elif scale == "mean" and axes:         # [NEW 11-27] 평균=100 지수: 100 기준선 (점선 원)
+        traces.append(go.Scatterpolar(r=[100] * (len(axes) + 1), theta=axes + axes[:1], name="평균=100", mode="lines",
+                                      line={"dash": "dot", "width": 1, "color": "#888"}, hoverinfo="skip"))
+    layout = {"polar": {"radialaxis": radial, "angularaxis": {"direction": "clockwise", "rotation": 90}}}
     return traces, layout, warns
 
 

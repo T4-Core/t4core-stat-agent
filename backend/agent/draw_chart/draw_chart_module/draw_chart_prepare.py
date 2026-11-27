@@ -85,7 +85,8 @@ def build_jobs(chart_plan, chart_contents, displays, load_errors, validation=Non
                       sub_question_ids=list((p or {}).get("sub_question_ids", [])),
                       planned_type=(p or {}).get("chart_type"),
                       warnings=list((p or {}).get("warnings") or []))      # 모듈 2 사용자용 경고 (차트 아래 · 안내 박스에 보임)
-        if p is None:
+        stage2 = bool(chart_contents.get(cid) and (chart_contents[cid].options or {}).get("stage2"))
+        if p is None and not stage2:       # [NEW 11-27] 모듈 3 의 2차 결과 차트(s1 …)는 모듈 2 계획 밖이 정상이다
             job.warnings.append("ChartPlan에 없는 차트 (ChartContent에만 있음)")
 
         if cid in chart_contents and chart_contents[cid] is None:
@@ -97,7 +98,8 @@ def build_jobs(chart_plan, chart_contents, displays, load_errors, validation=Non
             job.content, job.chart_type = c, c.chart_type
             job.display_refs = display_refs_of(c)
             job.displays = {r: displays[r] for r in job.display_refs if r in displays}
-            job.calcs = calcs_for(c, calcs)
+            # 2차 결과 차트는 결과 막대를 options.emphasis 로 이미 강조한다 (질문용 계산의 화살표 강조를 겹쳐 달지 않는다)
+            job.calcs = [] if stage2 else calcs_for(c, calcs)
             job.displays.update({k.display_ref: displays[k.display_ref] for k in job.calcs     # 주석 숫자 표시용
                                  if k.display_ref in displays and k.display_ref not in job.displays})
             job.source_links, warns = source_links_of(c.record_ids)

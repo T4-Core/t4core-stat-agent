@@ -28,7 +28,8 @@ from backend.agent.chart_calculate.calculate import TIME_COL, Calc, period_index
 from backend.agent.chart_calculate.display import format_value, indicator_name, strip_unit, unit_of
 from backend.agent.chart_calculate.select import INDICATOR_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL  # noqa: F401  (REGION_HINTS: 예전 위치 호환)
 from backend.agent.chart_calculate.specs import SPECS, requirements_for
-from backend.agent.chart_calculate.validate import check_chart
+from backend.agent.chart_calculate.validate import PARTS_TOLERANCE, check_chart, totals_in
+from backend.agent.period_cycle import CYCLE_COLS, YEAR_COL, cycle_info, cycle_of
 from backend.core.korean import unit_tail
 from backend.core.reasons import humanize
 from backend.schemas.chart import AxisSpec, ChartContent, ChartPlan, ChartValidation, CheckResult, Display, Plan, Step
@@ -153,7 +154,11 @@ def _long(branches: list[_Branch], keep_missing: bool = False) -> tuple[list[str
                 skipped += 1
                 name = strip_unit(str(m[ITEM_COL])) if ITEM_COL in m else b.label
                 rows.append([m.get(c) for c in dims] + [name, None])
-    if TIME_COL in dims:
+    # [CHANGED 11-27] 해끼리 매긴 순위(시점만 달라짐)는 순위 순서 그대로 둔다. '최근 10년 혼인건수가 많은 해 순서대로' 의
+    #   순위 막대가 연도 순서(2016 → 2025)로 다시 정렬됐다. 같은 해 안에서 지역끼리 매긴 순위는 이전처럼 시점별로 묶는다
+    by_year_rank = any(b.step.op == "rank" for b in branches) and not any(
+        len({str(r[i]) for r in rows}) > 1 for i, c in enumerate(dims) if c != TIME_COL)
+    if TIME_COL in dims and not by_year_rank:
         ti = dims.index(TIME_COL)
         idx = [period_index(r[ti]) for r in rows]
         if rows and all(idx) and len({k for k, _ in idx}) == 1:
@@ -174,18 +179,35 @@ def _merge_series(cols: list[str], rows: list[list], used: list[str]) -> str | N
     return SERIES_COL
 
 
-RADAR_SPOKES = (3, 8)       # 레이더 축 수 (specs 의 radar 조건 min_categories_3 · max_categories_8 과 같다)
+RADAR_SPOKES = (3, 8)       # 레이더 축으로 고르는 범주 수 (지표 · 지역 …)
+CYCLE_SPOKES_MAX = 12       # [NEW 11-27] 주기 칸(월)은 12개까지. specs 의 radar 조건은 min_categories_3 · max_categories_12
+
+
+def _cycle_split(cols: list[str], rows: list[list]) -> tuple[list[str], list[list]]:
+    """[NEW 11-27] 레이더: 시점이 월 · 분기 · 반기면 시점 열을 [주기 칸('3월' · '1분기'), 연도] 두 열로 나눈다 (period_cycle.py).
+    축 = 주기 칸, 다각형 = 연도(여럿일 때) · 지역 · 지표. '전국 월별 출생아수의 2015·2020·2025년' → 1월~12월 축에 해마다 다각형.
+    이전: 시점 36개가 한 열이라 축 개수(최대 8)를 넘거나 2015.01 · 2020.01 이 서로 다른 축이 됐다. 주기가 아니면 그대로"""
+    if TIME_COL not in cols:
+        return cols, rows
+    ti = cols.index(TIME_COL)
+    info = cycle_info(r[ti] for r in rows)
+    if info is None:
+        return cols, rows
+    split = [cycle_of(r[ti]) for r in rows]
+    return (cols[:ti] + [info["col"], YEAR_COL] + cols[ti + 1:],
+            [r[:ti] + [c[3], c[0]] + r[ti + 1:] for r, c in zip(rows, split)])
 
 
 def _radar_spokes(cols: list[str], rows: list[list], var: list[str]) -> str:
-    """[NEW 11-25 6-2] 레이더의 축(label)으로 쓸 열. 지표(항목) → 시점이 아닌 범주 → 시점 순서로, 값이 3~8개인 첫 열.
+    """[NEW 11-25 6-2] 레이더의 축(label)으로 쓸 열. 주기 칸 → 지표(항목) → 시점이 아닌 범주 → 시점 순서로, 값이 3~8개(주기 칸은 12개)인 첫 열.
     나머지 열은 계열(다각형)이 된다. 맞는 열이 없으면 이전과 같다 (항목이 달라지면 항목, 아니면 첫 열 — 검증이 걸러낸다)
     이전: 항목이 아니면 항상 첫 열 → '2020년과 2024년 서울·부산·대구·인천·광주' 는 시점 2개가 축이 되어 레이더가 실패하고 막대로 대체됐다.
-    지금: 지역 5곳이 축, 2020 · 2024 가 다각형 (15유형 T2-radar). 시점 5개 · 지역 3곳이면 지역 3곳이 축이 된다"""
+    지금: 지역 5곳이 축, 2020 · 2024 가 다각형 (15유형 T2-radar). 시점 5개 · 지역 3곳이면 지역 3곳이 축이 된다
+    [CHANGED 11-27] 주기 칸(월 · 분기 · 반기, _cycle_split)을 먼저 본다: 같은 주기끼리 견주는 질문은 1월~12월이 축이다"""
     lo, hi = RADAR_SPOKES
-    order = ([ITEM_COL] if ITEM_COL in var else []) + [c for c in var if c not in (ITEM_COL, TIME_COL)] \
-        + ([TIME_COL] if TIME_COL in var else [])
-    fit = next((c for c in order if lo <= len(_distinct(cols, rows, c)) <= hi), None)
+    order = [c for c in var if c in CYCLE_COLS] + ([ITEM_COL] if ITEM_COL in var else []) \
+        + [c for c in var if c not in (ITEM_COL, TIME_COL) and c not in CYCLE_COLS] + ([TIME_COL] if TIME_COL in var else [])
+    fit = next((c for c in order if lo <= len(_distinct(cols, rows, c)) <= (CYCLE_SPOKES_MAX if c in CYCLE_COLS else hi)), None)
     return fit or (ITEM_COL if ITEM_COL in var else (var[0] if var else ITEM_COL))
 
 
@@ -237,6 +259,76 @@ def _assign(chart_type: str, cols: list[str], rows: list[list]) -> dict[str, str
             enc["group"] = group
         enc["value"] = VALUE_COL
     return enc
+
+
+REMAINDER_LABEL = "그 외"          # [NEW 11-27] 전체 대비 부분 비중의 나머지 조각 (지역 열이면 '그 외 지역')
+
+
+def _question_share(plan: Plan) -> bool:
+    """분모가 질문에 정해진 비중(전국 대비 · 전체 대비)인가 — 조각의 합이 100% 여야 한다 (_totals 와 같은 조건)"""
+    return any(s.op == "share" and s.denominator and s.denominator.scope == "question" for s in plan.steps)
+
+
+def _whole_remainder(plan: Plan, cols: list[str], rows: list[list], fixed: dict | None = None
+                     ) -> tuple[list[str], list[list], dict | None, list[str]]:
+    """[NEW 11-27] 원 · 도넛의 전체 대비 부분 비중 → (열, 행, 나머지 조각 정보 | None, 안내).
+    '2024년 전국 대비 서울 출생아 비중' 은 조각이 총계(전국 100%)와 부분(서울 17.5%)뿐이라 원을 채울 수 없어 막대로 대체됐다
+    (전국 100 옆에 서울 17.5). 총계 행을 빼고 '그 외' 조각 = 100% − 부분 합 을 더한다 → 서울 17.5% · 그 외 지역 82.5%.
+    - 분모가 질문 범위인 비중 · 시점 하나 · 조각 열 하나 · 값이 모두 있고 음수 없음 일 때만
+    - 부분 합이 100% 면 총계 행만 뺀다 (계 · 남자 · 여자). 100% 를 넘으면(겹치는 부분) 그대로 둔다 — 검증이 걸러낸다
+    fixed: 갈래의 고정 좌표 (calc.fixed). 부분을 하나만 골랐으면 조각 열(시군구별 = 서울특별시)이 행이 아니라 여기에 있다 → 열로 꺼낸다"""
+    if not rows or plan.measure != "share" or not _question_share(plan):
+        return cols, rows, None, []
+    vi = cols.index(VALUE_COL)
+    if any(r[vi] is None or r[vi] < 0 for r in rows):
+        return cols, rows, None, []
+    if TIME_COL in cols and len(_distinct(cols, rows, TIME_COL)) > 1:
+        return cols, rows, None, []
+    rows, cols0 = [list(r) for r in rows], cols
+    tol = 100 * PARTS_TOLERANCE
+    total_col = total_name = None
+    totals: list[list] = []
+    for c in (c for c in cols if c != VALUE_COL):
+        ci = cols.index(c)
+        names = totals_in(c, _distinct(cols, rows, c))
+        hit = [r for r in rows if str(r[ci]) in names and abs(r[vi] - 100) <= tol]       # 분모 자신 (전국 ÷ 전국 = 100%)
+        if hit and len(hit) < len(rows):
+            total_col, total_name, totals = c, str(hit[0][ci]), hit
+            break
+    parts = [r for r in rows if not any(r is t for t in totals)]
+    var = _varying(cols, parts)
+    if len(var) > 1 or (total_col and var and var != [total_col]):
+        return cols, rows, None, []
+    den = next(s.denominator for s in plan.steps if s.op == "share" and s.denominator)
+    label_col = var[0] if var else total_col
+    if label_col is None and den.operand and len(parts) == 1:     # 부분 하나 · 총계 행 없음: 분모와 값이 다른 열이 조각 열
+        for c, vals in den.operand.select.items():
+            want = {str(v) for v in vals}
+            if c in cols and str(parts[0][cols.index(c)]) not in want:
+                label_col = c
+            elif c not in cols and c in (fixed or {}) and str(fixed[c]) not in want:
+                at = cols.index(ITEM_COL) if ITEM_COL in cols else vi          # 고정 좌표 → 열 (항목 앞)
+                cols = cols[:at] + [c] + cols[at:]
+                parts = [r[:at] + [fixed[c]] + r[at:] for r in parts]
+                vi, label_col = cols.index(VALUE_COL), c
+            if label_col:
+                total_name = next(iter(vals), None)
+                break
+    if label_col is None:
+        return cols0, rows, None, []
+    li = cols.index(label_col)
+    total_name = str(total_name or den.basis or "전체")
+    s = sum(r[vi] for r in parts)
+    if s > 100 + tol:
+        return cols0, rows, None, []                 # 고정 좌표를 꺼낸 열이 아니라 원래 열 · 행 그대로
+    if s >= 100 - tol:
+        return cols, parts, None, ([f"총계 '{total_name}' 는 조각이 아니라서 뺌"] if totals else [])
+    label = f"{REMAINDER_LABEL} 지역" if _is_region(label_col) else REMAINDER_LABEL
+    rest = list(parts[0])
+    rest[li], rest[vi] = label, 100 - s
+    names = [str(r[li]) for r in parts]
+    note = f"'{label}' = {total_name} − {' − '.join(names)} (나머지 {100 - s:.1f}%)"
+    return cols, parts + [rest], {"label": label, "col": label_col, "parts": names, "total": total_name}, [note]
 
 
 def _value_axis(label: str, branch: _Branch, values: list, rule: str | None) -> AxisSpec:
@@ -471,10 +563,13 @@ def _title(plan: Plan, branches: list[_Branch], names: list[str], category: str 
 
 
 def _options(chart_type: str, plan: Plan, branches: list[_Branch], content_rows, cols, enc, displays, record,
-             dual: dict[str, str] | None = None) -> dict:
+             dual: dict[str, str] | None = None, rest: dict | None = None) -> dict:
     opt: dict[str, Any] = {}
     if label := next((b.calc.scope_label for b in branches if b.calc.scope_label), None):
         opt["scope_label"] = label
+    # [NEW 11-27] 환산 지수(minmax · mean). 모듈 5 가 반지름 · 값 축을 0~100 으로 잡거나 100 기준선을 그린다 (합친 레이더도 물려받는다)
+    if scale := next((sc for b in branches if b.step and (sc := (b.step.model_extra or {}).get("scale"))), None):
+        opt["index_scale"] = scale
     ref = branches[0].step.display_ref if branches else None
     if chart_type in _NO_AXIS and ref:
         opt["display_ref"] = ref
@@ -490,10 +585,17 @@ def _options(chart_type: str, plan: Plan, branches: list[_Branch], content_rows,
         total = sum(r[cols.index(VALUE_COL)] for r in content_rows)
         shown = format_value(total, displays[ref]) if ref in displays else f"{total:g}"
         opt["center_text"] = f"합계 {shown}"
+    elif chart_type == "donut" and rest and len(rest["parts"]) == 1:
+        # [NEW 11-27] 전체 대비 부분 하나 → 가운데에 그 부분의 비중 ('서울특별시 17.5%')
+        v = next(r[cols.index(VALUE_COL)] for r in content_rows if str(r[cols.index(rest["col"])]) == rest["parts"][0])
+        shown = format_value(v, displays[ref]) if ref in displays else f"{v:.1f}%"
+        opt["center_text"] = f"{rest['parts'][0]}<br>{shown}"
     elif chart_type == "map":
         opt["geo_level"] = (record.metadata.get("geo_level") if record else None)
         opt["region_key"] = "name"           # View 행에는 지역 이름만 있다 (코드는 Record.source.dims)
         opt["color_bins"] = None             # TODO(명세 9장 후속)
+    if rest:
+        opt["remainder_label"] = rest["label"]      # [NEW 11-27] 모듈 5 가 이 조각을 회색으로 칠한다
     return opt
 
 
@@ -503,10 +605,16 @@ def _compose(chart_type: str, plan: Plan, branches: list[_Branch], displays: dic
     live = [b for b in branches if b.calc.points]
     warnings = [n for b in live for n in b.calc.notes]
     dual = None                      # 이중 축 꺾은선의 {지표: y|y2}. long 형식의 line 에서만 정해진다
+    rest = None                      # [NEW 11-27] 원 · 도넛의 '그 외' 조각 (_whole_remainder)
     if SPECS[chart_type].rows == "joined":
         cols, rows, enc, axis, more = _joined(chart_type, live)
     else:
         cols, rows, more = _long(live, keep_missing=chart_type in _TIME_X)
+        if chart_type == "radar":                    # [NEW 11-27] 월 · 분기 · 반기 시점 → [주기 칸, 연도] (같은 주기끼리 견준다)
+            cols, rows = _cycle_split(cols, rows)
+        elif chart_type in ("pie", "donut"):         # [NEW 11-27] 전국 대비 서울 비중 → 서울 · 그 외 지역 두 조각
+            cols, rows, rest, notes = _whole_remainder(plan, cols, rows, live[0].calc.fixed if len(live) == 1 else None)
+            more += notes
         enc = _assign(chart_type, cols, rows) if rows else {}
         dual = _dual_axis(live) if chart_type == "line" and rows else None
         axis = _long_axis(chart_type, enc, cols, rows, live, dual) if rows else {}
@@ -529,7 +637,7 @@ def _compose(chart_type: str, plan: Plan, branches: list[_Branch], displays: dic
         # HCX 가 질문의 말로 쓴 제목이 있으면 그것 (대체 차트·합계로 바뀌어도 질문 기준이라 그대로 맞다), 없으면 규칙 제목
         title=plan.title or _title(plan, live, [n for n in names if n], category,
                                    record.metadata.get("prd_se") if record else None),
-        encoding=enc, axis=axis, options=_options(chart_type, plan, live, rows, cols, enc, displays, record, dual),
+        encoding=enc, axis=axis, options=_options(chart_type, plan, live, rows, cols, enc, displays, record, dual, rest),
         columns=cols, rows=rows, record_ids=list(dict.fromkeys(i for b in branches for i in b.calc.record_ids)),
         # [CHANGED 11-17] 이전: 계산 단계의 내부 문구 그대로 ('2023: 직전 시점(2022) 값이 없어 계산하지 않음'). 모듈 5 가 ⚠ 로 사용자에게
         #   보여 주므로 모듈 6 의 답변 · 주의사항과 같은 문장으로 바꾼다 (자체 검토 A-6). 원문은 CalcResult.note · validation 에 남는다

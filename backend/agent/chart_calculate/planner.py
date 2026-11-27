@@ -22,11 +22,14 @@
     - 질문의 연령 범위(0~5세) 안에서 일부 나이만 고르면(['0세']) → View 의 그 범위 나이 전체로 (fix_age)
     - 같은 하위 질문·같은 연산·같은 View·같은 항목의 질문용 계산이 여럿이면 → 하나로 합친다
       (2026-11-11 '최근 2년 미취학아동수': HCX 가 나이마다 raw 를 하나씩 6개 만들어 응답이 출력 한도에서 끊겼다)
+    - [NEW 11-26] 차트 단계가 '가장 ○○한 것 하나'(순위 1개 · 최댓값 · 최솟값)면 → 차트에는 비교 대상 전체 (widen_single_pick).
+      답은 질문용 계산(extreme)이 내고 모듈 5 가 그 점을 강조한다
     (2026-11-10 테스트 화면 첫 실행에서 나온 실수들. tests/chart_calculate/test_hcx_regression.py)
 
   검증 방침: HCX 가 없는 열·값을 골라도 계획에서 빼지 않는다. 그대로 실행하면 계산 단계가 None + 사유로 처리하고
             (차트는 validation 의 data_present 실패), 여기서는 같은 사유를 ChartPlan.notes 에 미리 적어 QA 가 보게 한다.
 """
+import json
 import re
 from typing import Literal, get_args
 
@@ -41,6 +44,9 @@ from backend.agent.chart_calculate.display import (STANDARD_UNITS, data_digits, 
                                                    unit_of)
 from backend.agent.chart_calculate.select import (age_span, AGE_HINTS, CATEGORY_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL, find_item_column,
                                                    select_rows)
+from backend.agent.chart_calculate.specs import requirements_for
+from backend.agent.index_scale import SCALE_NAME, index_scale
+from backend.agent.period_cycle import cycle_info, year_labels
 from backend.core.korean import strip_unit
 from backend.schemas.chart import (ChartPlan, ChartRequest, ChartType, Denominator, Display, Measure, Operand, Plan, PlanOutput,
                                    Role, Select, Step, Withheld)
@@ -278,6 +284,37 @@ class Decision(BaseModel):
     answers: list[AnswerDecision] = Field(default_factory=list)
 
 
+# [NEW 11-27] 2차 계산: 1차 계산(하위 질문마다의 질문용 계산) 결과를 표 하나(STAGE1_ID)로 묶고 그 안에서 다시 계산한다 (stage2.py).
+#   HCX 는 이 표를 쓰는 계산을 answers 에 적는다 (record_id = STAGE1_ID, item = 하위 질문 ID). 1차가 끝나야 표가 생기므로
+#   make_plan 은 이 계산을 건너뛰고, 그래프의 second_stage 노드가 1차 실행 뒤에 계획 · 실행한다
+STAGE1_ID = "1차결과"
+STAGE2_OPS = ("combine", "diff", "ratio")
+
+# [NEW 11-27] 질문이 요청한 수록 주기. 받은 표의 시점이 그 주기가 아니면(월별을 물었는데 연도 자료) 계산 · 차트를 보류한다.
+#   '최근 12개월 월별 혼인건수 추이' 에 연도 자료(2021~2025)가 와서 연도 값을 월별 추이처럼 답했다 (one_20261127_163246).
+#   CSV 에는 월별 표가 없다 (연간 961 · 분기 15 · 부정기 28). 분기 · 반기도 같은 규칙 (연도 값을 분기 값처럼 답하지 않게)
+_ASKED_CYCLE = (("M", re.compile(r"월별|매월|매달|달마다|월간|개월|월\s*단위")), ("Q", re.compile(r"분기")),
+                ("H", re.compile(r"반기")))
+_AXIS_CYCLE = {"월": "M", "월별": "M", "분기": "Q", "분기별": "Q", "반기": "H", "반기별": "H"}
+CYCLE_WORD = {"M": "월별", "Q": "분기별", "H": "반기별"}
+
+
+def asked_cycle(bundle: QueryBundle | None) -> str | None:
+    """질문이 요청한 주기 (M · Q · H). 원 질문의 말 → 비교축 순서. 연도만 물었으면 None"""
+    if bundle is None:
+        return None
+    for kind, pat in _ASKED_CYCLE:
+        if pat.search(bundle.original or ""):
+            return kind
+    axes = (bundle.filters.비교축 if bundle.filters else None) or []
+    return next((_AXIS_CYCLE[a.strip()] for a in ([axes] if isinstance(axes, str) else axes) if a.strip() in _AXIS_CYCLE), None)
+
+
+def is_stage2(a: "AnswerDecision") -> bool:
+    """1차결과 표를 쓰는 계산(2차 계산)인가"""
+    return any(p.record_id == STAGE1_ID for p in a.operands)
+
+
 # ── 규칙 ─────────────────────────────────────────────────────────
 class _Planner:
     def __init__(self, records: list[Record], fixed: dict[str, dict[str, list[str]]] | None = None):
@@ -291,6 +328,18 @@ class _Planner:
         self.scope: dict[str, tuple[str | None, str | None, str | None]] = {}   # tag → (하위 질문 ID, chart_id, 연산)
         self.alias_ok: set[tuple[str, str]] = set()   # (record_id, 항목) — 지표 대응 검사를 별칭(원문표현·조건 값)으로 통과한 항목
         self.answer_sub: dict[str, str] = {}      # 질문용 step_id → 하위 질문 ID (같은 세트의 차트 단계를 찾을 때 쓴다)
+        self.single_pick: dict[str, str] = {}     # [NEW 11-26] 넓힌 차트 계획(chart_id) → 질문이 묻던 쪽 (max · min). 질문용 계산을 채울 때 extreme 으로
+        self.scale: str | None = None             # [NEW 11-27] 원 질문이 요청한 지수 환산 방식 (minmax · mean). None 이면 기준 시점 = 100 지수
+        self.cycle: str | None = None             # [NEW 11-27] 원 질문이 요청한 주기 (M · Q · H). 받은 표가 다르면 보류 (cycle_mismatch)
+
+    def scaled_index(self, tag: str, op: str, d: "_Args") -> "_Args":
+        """[NEW 11-27] 환산 지수(0~100 · 평균=100)는 기준 시점을 쓰지 않는다 → HCX 가 적은 base · from · to 를 지운다.
+        레이더 20선 R01: HCX 가 base '2025 전국' (전국 = 100 이라는 뜻)을 적어 시점 조건에 '2025 전국' 이 붙고 지수 계산이 모두 실패했다"""
+        if op != "index" or not self.scale:
+            return d
+        if d.base or d.from_ or d.to:
+            self.note(tag, f"index: {SCALE_NAME[self.scale]} 로 환산 (기준 시점 base={d.base} · from={d.from_} 은 쓰지 않음)")
+        return d.model_copy(update={"base": None, "from_": None, "to": None})
 
     def note(self, tag: str, text: str):
         self.notes.append(f"{tag}: {text}")
@@ -631,7 +680,7 @@ class _Planner:
         have = [str(v) for v in select.get(TIME_COL, [])]
         if op == "cagr" and len(years) >= 2:
             how, upd = f"{years[0]} → {years[-1]}", {"base": None, "from_": years[0], "to": years[-1]}
-        elif op == "index" and len(years) >= 2:
+        elif op == "index" and len(years) >= 2 and not self.scale:     # [CHANGED 11-27] 환산 지수(0~100 · 평균=100)는 기준 시점이 없다
             base = d.base if d.base in years else years[0]
             how, upd = f"기준 시점 {base}", {"base": base, "from_": None, "to": None}
         else:
@@ -715,6 +764,11 @@ class _Planner:
         kept = [y for y in years if y in have]
         if kept == years:
             return years
+        # [NEW 11-27] 고정 연도 ↔ 주기 시점: '2015·2020·2025년' 인데 View 시점이 '2015 1분기' · '2015.01' … 이면 그 해의 시점 전부.
+        #   이전: 연도 그대로 고정해 고를 행이 없었다 (월 · 분기 표. period_cycle.py)
+        if not kept and (labels := year_labels(years, have)):
+            self.note(tag, f"고정 시점 {years} → 그 해의 {cycle_info(labels)['col']} 시점 {len(labels)}개 ({labels[0]}~{labels[-1]})")
+            return labels
         gone = [y for y in years if y not in have]
         # [CHANGED 11-17 외부 피드백] 이전: View 에 없으면 무조건 뺐다 → 메모 없는 입력에서 2026 질문이 조용히 2025 값으로 답했다.
         #   View 가 그 시점의 대체를 기록했을 때(build_view.match_period 의 missing · default, 최신값 조회의 latest_shift)만 뺀다
@@ -1184,11 +1238,41 @@ class _Planner:
             if args.get("order") != order:
                 self.note(tag, f"rank 의 kind 를 정렬 방향으로 바꿈 → order {order}")
             args["order"] = order
+        if op == "index" and self.scale:          # [NEW 11-27] 환산 방식 (Step 은 정의되지 않은 인자도 받는다. calculate._index 가 읽는다)
+            args["scale"] = self.scale
         return args
 
     def columns(self, record_id: str) -> list[str]:
         rec = self.records.get(record_id)
         return list(rec.table.columns) if rec else []
+
+    def cycle_mismatch(self, tag: str, record_ids: list[str | None]) -> bool:
+        """[NEW 11-27] 질문이 요청한 주기(월별 · 분기별 · 반기별)가 받은 표의 시점과 다르면 보류한다 → True.
+        시점 열이 없는 표는 보지 않는다. 요청한 주기가 없으면(연도 · 값 하나) 아무것도 하지 않는다"""
+        if not self.cycle:
+            return False
+        for rid in dict.fromkeys(r for r in record_ids if r):
+            rec = self.records.get(rid)
+            if rec is None or TIME_COL not in rec.table.columns:
+                continue
+            ti = rec.table.columns.index(TIME_COL)
+            info = cycle_info(str(r[ti]) for r in rec.table.rows)
+            have = info["kind"] if info else None
+            if have == self.cycle:
+                continue
+            want, got = CYCLE_WORD[self.cycle], CYCLE_WORD.get(have, "연도별")
+            self.withhold(tag, f"{want} 자료를 물었지만 받은 표({rid})는 {got} 자료",
+                          f"요청한 {want} 자료가 없어 답변할 수 없습니다 (지금 자료는 {got} 자료입니다).")
+            return True
+        return False
+
+    def time_count(self, pick: Pick) -> int:
+        """[NEW 11-27] 피연산자가 고르는 행의 시점 수 (시점 열이 없으면 1)"""
+        rec = self.records.get(pick.record_id)
+        if rec is None:
+            return 0
+        sel = select_rows(rec, pick.select, pick.item)
+        return len({str(r[sel.col(TIME_COL)]) for r in sel.rows}) if TIME_COL in sel.columns else 1
 
     def range_total(self, tag: str, picks: list[Pick], fixed: dict) -> bool:
         """질문에 연령 범위가 있는데 raw 가 나이별 행 여럿을 골랐는가 (미취학아동수 → 0세·1세 … 5세 나열)"""
@@ -1296,13 +1380,62 @@ class _Planner:
         if want not in fallbacks:
             self.note(tag, f"HCX 가 고른 {want} 는 차트 후보 {[chart.chart_type, *fallbacks]} 밖이라 쓰지 않음")
             return chart.chart_type, fallbacks
+        # [NEW 11-27] 증감 · 증감률은 0 기준 위아래 막대 (모듈 2 chart_type_preference 와 같은 정책). HCX 가 '추이' 로 읽어 꺾은선을 골라도
+        #   막대가 먼저다 ('최근 5년 혼인건수 매년 증감률'). 막대가 20개를 넘는 등 검증에 실패하면 대체 후보(꺾은선)로 간다
+        if chart.chart_type == "bar" and want in ("line", "area") and chart.measure in ("change", "growth_rate"):
+            self.note(tag, f"HCX 가 {want} 를 골랐지만 {chart.measure} 는 막대(0 기준 위아래)로 그림 — 모듈 2 1순위 bar")
+            return chart.chart_type, fallbacks
         self.note(tag, f"HCX 가 질문 의도로 {want} 를 고름 (모듈 2 1순위 {chart.chart_type} 는 대체 후보 맨 앞)")
         return want, [chart.chart_type, *[c for c in fallbacks if c != want]]
+
+    def widen_single_pick(self, tag: str, chart: ChartRequest, chart_type: str, op: str, d: _Args, record_id: str,
+                          select: Select, picks: list[Pick]) -> tuple[str, _Args]:
+        """[NEW 11-26] 차트 계산이 '가장 ○○한 것 하나'(순위 1개 · 최댓값 · 최솟값)면 차트에는 비교 대상 전체를 그린다.
+        '최근 10년 혼인건수가 가장 적은 해는?' 에 HCX 가 차트 단계를 rank + kind=min + top_n 1 로 적어 막대가 1개뿐이었고,
+        검증(min_categories_2)에 걸려 차트가 없었다 (골든 one_20261126_174403). 가장 ○○한 것은 질문용 계산(extreme)이 답하고,
+        모듈 5 가 그 점을 차트 위에 강조한다 (draw_chart_highlight).
+          비교 대상이 시점뿐 (해끼리)        → raw: 시간 순서 그대로 (작은 순으로 정렬하면 연도 순서가 섞인다)
+          비교 대상이 지역 등 범주           → rank 전체 (정렬 방향은 질문이 묻는 쪽). 차트 한도(max_categories_N)를 넘으면 그 개수까지
+          시점도 범주도 여럿 (시점마다 비교) → 그대로 (시점마다 1개씩이라 이미 여럿)
+          값이 하나뿐                       → 그대로 (넓힐 것이 없다. 검증이 '값 1개' 로 알린다)
+        '상위 3개' 처럼 2개 이상을 원하는 순위는 건드리지 않는다. 반환: (차트 단계 연산, 인자)"""
+        single = op == "extreme" or (op == "rank" and d.top_n == 1)
+        if not single or len(picks) > 1:
+            return op, d
+        p = picks[0] if picks else Pick(record_id=record_id, select=select)
+        rec = self.records.get(p.record_id)
+        if rec is None:
+            return op, d
+        sel = select_rows(rec, p.select, p.item)
+        if not sel.rows:
+            return op, d
+        distinct = {c: {str(r[sel.col(c)]) for r in sel.rows} for c in sel.columns if c != VALUE_COL}
+        others = [c for c, v in distinct.items() if c != TIME_COL and len(v) > 1]
+        n_time = len(distinct.get(TIME_COL, ()))
+        if (others and n_time > 1) or (not others and n_time < 2):
+            return op, d
+        kind = (d.kind or "max") if op == "extreme" else (d.kind or ("min" if d.order == "asc" else "max"))
+        order = "asc" if kind == "min" else "desc"
+        given = chart.requirements if chart_type == chart.chart_type else None      # 모듈 2 조건은 1순위 차트의 것
+        limit = next((int(m[1]) for r in requirements_for(chart_type, given) if (m := re.fullmatch(r"max_categories_(\d+)", r))), None)
+        n = len(sel.rows) if others else n_time
+        cleared = d.model_copy(update={"top_n": None, "kind": None, "order": None, "denominator": None})
+        self.single_pick[tag] = kind
+        what = "가장 작은" if kind == "min" else "가장 큰"
+        if not others and (limit is None or n <= limit):
+            self.note(tag, f"차트 {op}(값 1개) → raw: {what} 해 하나만 남기면 차트에 값이 1개라 시점 {n}개를 시간 순서로 그림 "
+                           f"(답은 질문용 계산 · 모듈 5 가 강조)")
+            return "raw", cleared
+        top = limit if limit is not None and n > limit else None
+        self.note(tag, f"차트 {op}(값 1개) → rank {f'상위 {top}개' if top else f'전체 {n}개'} ({order}): {what} 것 하나만 남기면 "
+                       f"차트에 값이 1개라 비교 대상을 함께 그림 (답은 질문용 계산 · 모듈 5 가 강조)")
+        return "rank", cleared.model_copy(update={"top_n": top, "order": order})
 
     def plan(self, chart: ChartRequest, d: ChartDecision) -> Plan | None:
         tag, op = chart.chart_id, chart.measure
         self.scope[tag] = (chart.sub_question_ids[0] if len(chart.sub_question_ids) == 1 else None, tag, op)
         self.withheld.discard(tag)
+        d = self.scaled_index(tag, op, d)                    # [NEW 11-27] 0~100 · 평균=100 지수는 기준 시점 없이
         fixed = self.fixed_for(tag, chart.sub_question_ids)
         chart_type, fallbacks = self.choose_chart(chart, d)  # [NEW 11-25 4단계] HCX 가 고른 차트 (갈래 역할도 이 차트 기준)
         picks, d2 = self.normalize(tag, op, d.operands, d, chart_type, fixed)
@@ -1315,6 +1448,8 @@ class _Planner:
             self.note(tag, "record_id 가 없어 차트 계획을 만들지 않음")
             return None
         self.check_set(tag, chart.view_ids, [record_id, *(p.record_id for p in picks)])
+        if self.cycle_mismatch(tag, [record_id, *(p.record_id for p in picks)]):     # [NEW 11-27] 월별을 물었는데 연도 자료
+            return None
         if not picks:      # [NEW 11-20] 피연산자가 없으면 상위 record_id · select 가 고르는 행 전체의 항목을 검사한다 (KOS-26 A-3)
             narrowed = self.check_rows_indicator(tag, record_id, select, fixed, op)
             if narrowed is not None:
@@ -1328,11 +1463,22 @@ class _Planner:
         d = self.same_view_total(tag, picks, d, chart.view_ids, fixed) or d
         if self.denominator_outside(tag, d, chart.view_ids):
             return None
-        output, step_op = None, op
+        output, step_op, measure = None, op, op
         # 연령 범위의 값 하나를 묻는 질문이면 차트도 나이별이 아니라 합계로 (질문용 계산과 같은 규칙)
-        if op == "raw" and self.range_total(tag, picks or [Pick(record_id=record_id, select=select)], fixed):
-            self.note(tag, f"차트 raw → aggregate(sum): 연령 {fixed[AGE][0]}~{fixed[AGE][1]}세 범위의 값 하나를 묻는 질문")
-            step_op, d = "aggregate", d.model_copy(update={"agg": "sum"})
+        # [CHANGED 11-27] 단, 시점이 하나면 합계가 값 하나라 차트가 되지 않는다 → 차트는 나이별 (합계는 질문용 계산이 답한다).
+        #   '2024년 미취학아동 수는?' 이 차트 없이 나왔다. 시점이 여럿이면 이전처럼 해마다의 합계
+        pick0 = (picks or [Pick(record_id=record_id, select=select)])[0]
+        if op == "raw" and self.range_total(tag, picks or [pick0], fixed):
+            if self.time_count(pick0) <= 1:
+                self.note(tag, f"차트는 연령 {fixed[AGE][0]}~{fixed[AGE][1]}세의 나이별 (시점이 하나라 합계는 값 하나 — 합계는 질문용 계산)")
+            else:
+                self.note(tag, f"차트 raw → aggregate(sum): 연령 {fixed[AGE][0]}~{fixed[AGE][1]}세 범위의 값 하나를 묻는 질문")
+                step_op, d = "aggregate", d.model_copy(update={"agg": "sum"})
+        # [NEW 11-26] '가장 ○○한 것 하나' 차트 → 비교 대상 전체. 해끼리면 원값(raw)이라 계획의 measure 도 raw
+        #   (measure 가 rank 면 막대가 가로로 눕고 제목이 '순위' 가 된다 — content._options · _title)
+        step_op, d = self.widen_single_pick(tag, chart, chart_type, step_op, d, record_id, select, picks)
+        if step_op == "raw" and op != "raw":
+            measure = "raw"
         if not picks:                                  # 갈래 하나, 상위 record_id·select 를 그대로 쓴다
             self.check(tag, record_id, select, None)
             by = {"by": [TIME_COL]} if step_op == "aggregate" and TIME_COL in self.columns(record_id) else {}
@@ -1358,7 +1504,7 @@ class _Planner:
         changed = chart_type != chart.chart_type             # HCX 가 바꾸지 않았으면 대체 순서는 이전과 완전히 같다
         return Plan(chart_id=chart.chart_id, sub_question_ids=chart.sub_question_ids, record_id=record_id,
                     chart_type=chart_type, fallback_chart=(fallbacks[0] if fallbacks else None) if changed else chart.fallback_chart,
-                    measure=op, select=select, steps=steps, output=output, title=title, fallback_charts=fallbacks)
+                    measure=measure, select=select, steps=steps, output=output, title=title, fallback_charts=fallbacks)
 
     # ── 질문용 ───────────────────────────────────────────────────
     def answer(self, n: int, d: AnswerDecision, charts: list[ChartRequest]) -> list[Step]:
@@ -1370,6 +1516,7 @@ class _Planner:
         tag = d.sub_question_id or f"a{n}"
         self.scope[tag] = (d.sub_question_id, None, d.op)
         self.withheld.discard(tag)       # [NEW 11-16] 보류는 계산 하나마다 따로 — 같은 하위 질문의 다른 답변까지 지우지 않는다 (검수 M3-04)
+        d = self.scaled_index(tag, d.op, d)                  # [NEW 11-27] 0~100 · 평균=100 지수는 기준 시점 없이
         # [NEW] 세트: 이 하위 질문이 속한 세트들. 세트 형식 입력(view_ids 가 하나라도 있음)에서 View 가 없는 세트뿐이면 계산하지 않는다
         sets = [c for c in charts if d.sub_question_id in c.sub_question_ids]
         expected = list(dict.fromkeys(v for c in sets for v in c.view_ids))
@@ -1389,6 +1536,8 @@ class _Planner:
             self.note(tag, f"질문용 계산 {d.op} 에 피연산자가 없어 건너뜀")
             return []
         self.check_set(tag, expected, [p.record_id for p in picks])
+        if self.cycle_mismatch(tag, [p.record_id for p in picks]):                    # [NEW 11-27] 월별을 물었는데 연도 자료
+            return []
         # 질문용 연산(HCX)과 모듈 2 의 measure(차트용)를 대조. 다른 것은 오류가 아니다 (차트는 추이, 답은 증감률일 수 있다)
         # → 둘 다 그대로 실행하고, 다르다는 사실만 QA 가 볼 수 있게 남긴다
         for c in charts:
@@ -1396,8 +1545,8 @@ class _Planner:
                 self.note(tag, f"질문용 연산 {d.op} ≠ 모듈 2 measure {c.measure} ({c.chart_id})")
         fixed = self.fixed_for(tag, [d.sub_question_id])
         groups = [picks] if d.op in MULTI_OPERAND else [[p] for p in picks]     # 단계 하나에 쓸 피연산자들
-        steps = []
-        for i, group in enumerate(groups, 1):
+        built, seen = [], set()
+        for group in groups:
             op, args = d.op, d
             if op == "rank" and d.kind and (d.top_n or 1) <= 1:
                 # [NEW 11-17] rank + kind (+ top_n 1) = '가장 ○○한 것'. rank 는 같은 시점 안에서만 순위를 매겨 '가장 적은 해' 를
@@ -1412,10 +1561,45 @@ class _Planner:
             elif op == "raw" and self.range_total(tag, group, fixed):
                 self.note(tag, f"raw → aggregate(sum): 연령 {fixed[AGE][0]}~{fixed[AGE][1]}세 범위의 값 하나를 묻는 질문")
                 op, args = "aggregate", d.model_copy(update={"agg": "sum"})
-            steps.append(self.step(tag, f"a{n}" if len(groups) == 1 else f"a{n}-{i}", op, group, args)
-                         .model_copy(update={"sub_question_id": d.sub_question_id}))
+            # [NEW 11-27] 같은 계산은 하나만. HCX 가 0세 … 5세를 피연산자 6개로 적으면 항목마다 단계가 되고, 위의 연령 합계 규칙이
+            #   각각을 0~5세 전체 합계로 바꿔 같은 합계 6개 → 답변이 '1,557,996명, 1,557,996명, …' 을 되풀이했다
+            key = (op, tuple(p.model_dump_json() for p in group), args.model_dump_json())
+            if key in seen:
+                continue
+            seen.add(key)
+            built.append((op, group, args))
+        if len(built) < len(groups):
+            self.note(tag, f"같은 계산 {len(groups) - len(built) + 1}개를 하나로 합침 (연령 합계로 바뀌어 같아진 계산)")
+        steps = [self.step(tag, f"a{n}" if len(built) == 1 else f"a{n}-{i}", op, group, args)
+                 .model_copy(update={"sub_question_id": d.sub_question_id})
+                 for i, (op, group, args) in enumerate(built, 1)]
         self.answer_sub.update({st.step_id: d.sub_question_id for st in steps})
         return steps
+
+    @staticmethod
+    def _calc_key(s: Step) -> tuple:
+        """계산이 같은지 볼 열쇠: 하위 질문 · 연산 · 인자 · 피연산자(View · 항목 · 조건, 값 순서 무시). 단계 번호 · 표시 설정은 보지 않는다"""
+        ops = tuple(sorted(
+            (o.record_id, o.item or "", o.sign or "", o.role if s.op in TWO_OPERAND else "",
+             tuple(sorted((c, tuple(sorted(map(str, v)))) for c, v in (o.select or {}).items())))
+            for o in s.operands or []))
+        args = s.model_dump(mode="json", exclude={"step_id", "display_ref", "operands", "sub_question_id"})
+        return s.sub_question_id, s.op, ops, json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+
+    def drop_same_answers(self, answers: list[Step]) -> list[Step]:
+        """[NEW 11-27] 같은 하위 질문의 같은 계산(연산 · 인자 · 피연산자)은 하나만 남긴다.
+        '2024년 미취학아동 수는?' 의 답변이 '1,557,996명입니다. 이는 1,557,996명로도 확인됩니다' 처럼 되풀이됐다.
+        HCX 가 질문용 계산을 둘(나이별 raw · 합계 aggregate 등)로 적으면 연령 합계 규칙(widen_age_items · range_total)이
+        둘 다 0~5세 합계로 바꿔 같은 계산이 되고, 모듈 6 이 같은 수치를 두 번 말했다 (answer() 안의 중복 제거는 결정 하나 안만 본다)"""
+        out, seen = [], {}
+        for s in answers:
+            key = self._calc_key(s)
+            if key in seen:
+                self.note(s.sub_question_id or s.step_id, f"질문용 계산 {s.step_id} 는 {seen[key]} 와 같은 계산이라 뺌")
+                continue
+            seen[key] = s.step_id
+            out.append(s)
+        return out
 
     def fill_missing_answers(self, plans: list[Plan], answers: list[Step], asked: set[str | None], start: int) -> list[Step]:
         """[NEW 11-25] HCX 가 질문용 계산(answers)을 비운 하위 질문 → 그 차트의 단계를 질문용 단계로 복사한다 (체크리스트 1-9).
@@ -1441,10 +1625,14 @@ class _Planner:
                 continue
             sid = subs[0]
             made = []
+            kind = self.single_pick.get(pl.chart_id)
             for i, st in enumerate(pl.steps, 1):
                 ops = st.operands or [Operand(role="value", record_id=pl.record_id, select=pl.select)]
                 step_id = f"a{n}" if len(pl.steps) == 1 else f"a{n}-{i}"
-                made.append(st.model_copy(update={"step_id": step_id, "operands": ops, "sub_question_id": sid}))
+                update = {"step_id": step_id, "operands": ops, "sub_question_id": sid}
+                if kind:       # [NEW 11-26] 차트는 넓혔지만(widen_single_pick) 질문은 가장 ○○한 것 하나 → 답은 최댓값 · 최솟값
+                    update |= {"op": "extreme", "kind": kind, "order": None, "top_n": None}
+                made.append(st.model_copy(update=update))
                 self.answer_sub[step_id] = sid
             self.note(sid, f"HCX 가 질문용 계산을 비워 차트 계산 {', '.join(f'{pl.chart_id}.{st.step_id}' for st in pl.steps)} 을 "
                            f"질문용({', '.join(s.step_id for s in made)})으로 씀")
@@ -1545,6 +1733,8 @@ def make_plan(charts: list[ChartRequest], records: list[Record], decision: Decis
               bundle: QueryBundle | None = None) -> tuple[ChartPlan, dict[str, Display]]:
     """→ (ChartPlan, displays). 모듈 2 가 차트 없음(chart_type None)으로 판단한 것은 plans 에 넣지 않는다"""
     p = _Planner(records, fixed_conditions(bundle))
+    p.scale = index_scale(bundle.original if bundle else None)      # [NEW 11-27] 지수 환산 방식 (원 질문. 모듈 2 measure 판단과 같은 규칙)
+    p.cycle = asked_cycle(bundle)                                     # [NEW 11-27] 요청한 주기 (월별 · 분기별 · 반기별)
     by_chart = {d.chart_id: d for d in decision.charts}
     plans = []
     for chart in charts:
@@ -1555,12 +1745,14 @@ def make_plan(charts: list[ChartRequest], records: list[Record], decision: Decis
             continue
         if plan := p.plan(chart, by_chart[chart.chart_id]):
             plans.append(plan)
-    merged = p.merge_answers(decision.answers)
+    # [NEW 11-27] 2차 계산(1차결과 표를 쓰는 것)은 여기서 만들지 않는다 — 1차 실행 뒤 stage2.run_stage2 가 만든다
+    merged = p.merge_answers([a for a in decision.answers if not is_stage2(a)])
     answers = [s for n, d in enumerate(merged, 1) for s in p.answer(n, d, charts)]
     # [NEW 11-25] HCX 가 비운 하위 질문의 질문용 계산을 차트 단계로 채운다 (1-9). 번호는 HCX 결정 다음부터
     answers += p.fill_missing_answers(plans, answers, {d.sub_question_id for d in merged}, len(merged) + 1)
     plans = [p.narrow_to_answered_item(pl, answers) for pl in plans]
     plans, answers = p.final_conditions(plans, answers)
+    answers = p.drop_same_answers(answers)                # [NEW 11-27] 같은 계산은 하나만 (결정 여러 개가 같은 계산이 된 경우)
     reuse = p.reuse(plans, answers)
     withheld = list({(w.sub_question_id, w.chart_id, w.text): w for w in p.withheld_list}.values())
     return ChartPlan(plans=plans, answer_steps=answers, answer_reuse=reuse, notes=list(dict.fromkeys(p.notes)),

@@ -75,9 +75,10 @@ def column_axis(col, values):
     return name
 
 
-def classify_dims(dims, sub_filter, filters, intents=None):
+def classify_dims(dims, sub_filter, filters, intents=None, n_points=None):
     """dims(값이 2개 이상인 열 목록: {"name", "col", "values", "n"}) → (요청한 나눔 dims, 뺀 dims, 메모 문장, 요청한 축)
-    요청한 나눔 dims 는 질문이 요청한 순서로 정렬하고 각 dim 에 "axis" 를 붙인다. 뺀 dims 에는 "kind"(range · extra)"""
+    요청한 나눔 dims 는 질문이 요청한 순서로 정렬하고 각 dim 에 "axis" 를 붙인다. 뺀 dims 에는 "kind"(range · extra)
+    n_points: [NEW 11-27] 시점 수. 하나뿐이고 나눌 기준이 연령 범위의 구성 요소뿐이면 구간별로 그린다 (아래)"""
     req = requested_axes(sub_filter, filters)
     age_range = age_is_range(sub_filter, filters) and "연령" not in req
     kept, dropped, notes = [], [], []
@@ -99,6 +100,15 @@ def classify_dims(dims, sub_filter, filters, intents=None):
             kept = [{k: v for k, v in d.items() if k != "kind"} for d in back]
             dropped = [d for d in dropped if d["kind"] != "extra"]
             notes += [f"요청한 나눔에 맞는 열이 없어 '{d['col']}'({d['n']}개)을 범주로 씀" for d in kept]
+
+    # [NEW 11-27] 연령 범위의 구성 요소만 있고 시점이 하나면 구간별로 그린다 ('2024년 미취학아동 수' → 0세~5세 막대).
+    #   합계로 보면 값이 하나라 차트가 없었다. 합계는 모듈 3 의 질문용 계산이 답한다. 시점이 여럿이면 이전처럼 합계의 추이
+    if not kept and n_points is not None and n_points <= 1:
+        ranges = [d for d in dropped if d["kind"] == "range"]
+        if len(ranges) == 1:
+            kept = [{k: v for k, v in ranges[0].items() if k != "kind"}]
+            dropped = [d for d in dropped if d is not ranges[0]]
+            notes.append(f"'{kept[0]['col']}' {kept[0]['n']}구간은 요청한 연령 범위의 구성 요소 — 시점이 하나라 구간별로 그림 (합계는 답변)")
 
     order = {a: i for i, a in enumerate(req)}
     kept.sort(key=lambda d: order.get(d["axis"], len(order)))
