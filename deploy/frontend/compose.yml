@@ -9,8 +9,17 @@ services:
         VITE_SUPABASE_PUBLISHABLE_KEY: "${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
         VITE_ADMIN_EMAIL_DOMAIN: "${VITE_ADMIN_EMAIL_DOMAIN:-team.local}"
         VITE_USER_URL: "${VITE_USER_URL:-/}"
+    volumes:
+      # [NEW] KOS-58 certbot 이 호스트에 만드는 검증 파일
+      - "${CERTBOT_WEBROOT:-/var/www/certbot}:/var/www/certbot:ro"
+      # [NEW] KOS-58 인증서. live/ 는 archive/ 를 가리키는 심볼릭 링크라 상위 폴더를 통째로 마운트한다
+      - "${LETSENCRYPT_DIR:-/etc/letsencrypt}:/etc/letsencrypt:ro"
     ports:
       - "80:80"
+      - "443:443" # [NEW] KOS-58
     environment:
       BACKEND_UPSTREAM: "${BACKEND_UPSTREAM:-backend:8000}"
+      # [NEW] KOS-58 HTTPS 는 서버 .env 에서 /etc/nginx/templates-tls 로 지정한다 (기본은 HTTP)
+      NGINX_ENVSUBST_TEMPLATE_DIR: "${NGINX_TEMPLATE_DIR:-/etc/nginx/templates}"
+      TLS_CERT_NAME: "${TLS_CERT_NAME:-}"
     restart: unless-stopped

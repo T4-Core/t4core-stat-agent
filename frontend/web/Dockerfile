@@ -24,5 +24,8 @@ RUN npm run build && npm run build:admin
 FROM nginx:1.27-alpine AS runtime
 
 COPY nginx/default.conf.template /etc/nginx/templates/
+# [NEW] KOS-58 공통 location, HTTPS 템플릿(NGINX_ENVSUBST_TEMPLATE_DIR 로 선택)
+COPY nginx/app-locations.conf /etc/nginx/
+COPY nginx/tls/default.conf.template /etc/nginx/templates-tls/
 COPY --from=build /web/dist/ /usr/share/nginx/html/
 COPY --from=build /web/admin/dist/ /usr/share/nginx/html/admin/
