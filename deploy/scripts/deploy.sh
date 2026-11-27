@@ -2,6 +2,7 @@
 # [NEW] KOS-57 역할별 배포 — CD(GitHub Actions)와 사람이 같은 경로를 쓴다.
 #
 #   bash deploy/scripts/deploy.sh <db|backend|front> [sha] [force]
+#   bash deploy/scripts/deploy.sh current <db|backend|front>   # 롤백 기준 SHA 출력 (deploy_all.sh 가 사용)
 #
 #   sha   배포할 커밋 (생략하면 origin/develop). origin/develop 이력에 있는 커밋만 허용
 #   force 1 이면 변경 파일과 무관하게 다시 기동
@@ -11,6 +12,8 @@
 # 출력은 public 저장소의 Actions 로그에 그대로 남는다: compose config · .env · /health 본문은 출력하지 않는다.
 set -euo pipefail
 
+MODE=deploy
+if [[ "${1:-}" == current ]]; then MODE=current; shift; fi
 ROLE="${1:-}"
 SHA_IN="${2:-}"
 FORCE="${3:-0}"
@@ -41,6 +44,16 @@ ENV_FILE="deploy/$ROLE/.env"
 [[ "$ROLE" == front ]] && ENV_FILE="deploy/frontend/.env"
 COMPOSE_FILE="${ENV_FILE%/.env}/compose.yml"
 dc() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
+
+# [NEW] 실행 단위 롤백의 기준: 마지막 배포 기록, 없거나 찾을 수 없으면 지금 HEAD. 읽기만 하므로 잠금·사전 조건 검사 없음
+if [[ "$MODE" == current ]]; then
+  if [[ -s "$STATE_FILE" ]] && git cat-file -e "$(<"$STATE_FILE")^{commit}" 2>/dev/null; then
+    git rev-parse "$(<"$STATE_FILE")"
+  else
+    git rev-parse HEAD
+  fi
+  exit 0
+fi
 
 # 사람이 같은 서버에서 동시에 돌리거나 CD 가 겹쳐도 한 번에 하나만
 exec 9>"$GIT_DIR_ABS/t4core-deploy.lock"

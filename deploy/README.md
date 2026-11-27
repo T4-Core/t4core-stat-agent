@@ -354,8 +354,17 @@ dcb exec -T postgres pg_restore -U t4core -d t4core --clean < ~/app_2026-12-01.d
 
 ```
 GitHub-hosted runner ──SSH──▶ front-server ──ProxyJump──▶ backend-server · db-server
-                     deploy.sh 를 stdin 으로 보내 각 서버에서 실행 (db → backend → front)
+  deploy_all.sh          deploy.sh 를 stdin 으로 보내 각 서버에서 실행 (db → backend → front)
 ```
+
+<!-- [CHANGED] 이전: 실패한 역할만 롤백 -->
+**실행 단위 롤백** (`deploy/scripts/deploy_all.sh`): 배포 전에 세 서버의 기준 SHA(마지막 배포 기록, 없으면 현재 HEAD)를 읽고, 한 역할이라도 실패하면 이번 실행에서 이미 끝낸 역할을 역순으로 그 SHA 에 다시 배포한다. 세 서버는 성공하면 모두 새 SHA, 실패하면 모두 실행 전 SHA 에 있다. 변경이 없던 역할은 롤백 때도 checkout 만 되돌리고 재기동하지 않는다.
+
+| 종료 코드 | 의미 |
+|---|---|
+| 0 | 세 역할 배포 완료 |
+| 1 | 실패했고 모든 역할을 실행 전 SHA 로 되돌림 |
+| 2 | 롤백 중 실패 또는 상태를 확인하지 못한 역할이 있음 (SSH 실패 등) → job 로그의 "결과" 목록을 보고 서버에서 확인 |
 
 ### 12-1. `deploy/scripts/deploy.sh` 가 하는 일
 
@@ -367,6 +376,7 @@ GitHub-hosted runner ──SSH──▶ front-server ──ProxyJump──▶ ba
 | 기동 | db `up -d` · backend `build backend && up -d backend` · front `up -d --build` |
 | 헬스 확인 | db 컨테이너 healthy · `localhost:8000/health` · `localhost/health`, 최대 180초 (`T4_HEALTH_TIMEOUT`) |
 | 실패 시 | 이전 배포 SHA 로 checkout 해 다시 기동하고 종료 코드 1 (롤백도 실패하면 2) |
+| `current <역할>` | 롤백 기준 SHA 출력 (`deploy_all.sh` 가 사용) |
 
 | 역할 | 변경 판정 경로 |
 |---|---|
@@ -375,6 +385,13 @@ GitHub-hosted runner ──SSH──▶ front-server ──ProxyJump──▶ ba
 | front | `frontend/web/` `deploy/frontend/` |
 
 `.env` 와 데이터(`/srv/t4core/storage`, 묶음 적재)는 다루지 않는다. 데이터 갱신은 8장대로 한다.
+
+**DB 스키마는 롤백되지 않는다.** backend 가 시작할 때 실행하는 마이그레이션(`DB_MIGRATE_ON_START`)은 앞으로만 진행한다. 그래서 스키마는 이전 코드와도 호환되게만 바꾼다.
+
+| 변경 | 방법 |
+|---|---|
+| 테이블 · 컬럼 추가 (NULL 허용 또는 기본값) | PR 하나로 가능 |
+| 컬럼 삭제 · 이름 변경 · 타입 변경 | PR 두 개로 나눔: ① 새 컬럼 추가 + 코드가 새 컬럼 사용 → 배포 확인 → ② 옛 컬럼 삭제 |
 
 ### 12-2. 처음 한 번 설정 (관리자)
 
@@ -402,6 +419,6 @@ GitHub-hosted runner ──SSH──▶ front-server ──ProxyJump──▶ ba
 
 - front 공인 IP 가 바뀌면 (탄력적 IP 전까지 켤 때마다) `FRONT_HOST` secret 만 고친다. 호스트 키는 그대로라 `DEPLOY_KNOWN_HOSTS` 는 그대로 둔다.
 - 서버가 꺼져 있으면 deploy job 이 SSH 타임아웃으로 실패한다. 서버를 켠 뒤 Actions 에서 그 실행을 "Re-run failed jobs" 한다.
-- 손으로 배포 · 롤백: 서버에서 `bash deploy/scripts/deploy.sh backend <이전 SHA>`. 강제 재기동은 셋째 인자 `1`.
+- 손으로 배포 · 롤백: 서버에서 `bash deploy/scripts/deploy.sh backend <이전 SHA>`. 강제 재기동은 셋째 인자 `1`. 세 서버를 한 SHA 로 맞추려면 db → backend → front 순서로 같은 SHA 를 준다.
 - 실패 원인은 Actions 로그에 남기지 않는다 (컨테이너 로그에 질문 · 내부 주소가 담길 수 있음). 서버에서 `dcb logs --tail 200 backend` 로 본다.
 - develop 의 CI 실행은 서로 취소하지 않고 순서대로 돈다 (배포 도중 취소 방지). 대기 중에 더 새 커밋이 오면 중간 실행은 건너뛰고, 다음 배포가 누적 변경을 반영한다.
