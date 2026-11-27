@@ -298,6 +298,9 @@ def get_vocab(idx=None, settings=None):
 
 
 # ── 근거 없는 값 지우기 ─────────────────────────────────────────
+AXIS_VALUE = re.compile(r"([^=<>!]*[^=<>!\s][^=<>!]*)=([^=<>!]*[^=<>!\s][^=<>!]*)")  # '축=값' (기준값 >= <= 은 아님)
+
+
 def _numeric(v):
     return bool(re.fullmatch(r"[\d,\.\s~%]+(?:명|가구|건|세|년)?", str(v or "")))
 
@@ -326,6 +329,9 @@ def check_value(v, slot, question, vocab, lex=None, hints=(), protect=()):
         return {**out, "verdict": "move", "to": to, "why": f"사전에 {to} 값으로만 있음"}
     if norm(s) in norm(question):
         return {**out, "why": "질문 원문"}
+    m = AXIS_VALUE.fullmatch(s)  # 재작성 지시대로 쓴 '축=값' 조건 → 값 부분이 질문에 있으면 남김
+    if m and norm(m.group(2)) in norm(question):
+        return {**out, "why": f"질문 원문 (조건 값 '{m.group(2).strip()}')"}
     if norm(s) in {norm(h) for h in hints}:
         return {**out, "why": "용어·동의어 사전 (질문의 말을 바꾼 값)"}
     if lex is not None:
