@@ -49,7 +49,7 @@ s = ok(c.post("/api/v1/csv-index/build", json={"scope": "all", "workers": 2}))
 assert s["n_errors"] == 0, s
 
 # ── 최근 5년 + 변화 ──
-a = ok(c.post("/api/v1/rag/analyze", json={"question": "최근 5년 혼인건수 얼마나 변했어?", "today": TODAY, "overrides": OV}))
+a = ok(c.post("/api/v1/rag/analyze", json={"question": "최근 5년 전국 혼인건수 얼마나 변했어?", "today": TODAY, "overrides": OV}))
 vb = a["view_bundle"]
 assert a["status"] == "ok", a["status"]
 assert vb["filters"]["시점"] == [2021, 2022, 2023, 2024, 2025], vb["filters"]

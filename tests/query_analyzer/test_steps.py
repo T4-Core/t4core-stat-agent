@@ -114,7 +114,7 @@ def test_region_slot_holds_indicators():
     v = _region_case("2021~2025년 혼인건수와 출생아수 그리고 사망자수 추이",
                      {"시점": years, "지역": ["혼인건수", "출생아수", "사망자수"], "전출지": ["추이"]})
     s = v["slots"]
-    assert s["지역"] == ["전국"] and s["전출지"] == [] and s["지표"] == ["혼인건수", "출생아수", "사망자수"]
+    assert s["지역"] == [] and s["전출지"] == [] and s["지표"] == ["혼인건수", "출생아수", "사망자수"]  # 지역 없는 질문은 비워 두고 되묻기
     assert s["의도"] == ["추이"]  # 질문의 '추이' + 연도 5개
     # 하위 질문의 지표가 지역 칸에 있어도 지워지지 않고 지표로 옮겨짐 (
     v2 = _region_case("2021~2025년 혼인건수와 출생아수 추이",
@@ -139,9 +139,9 @@ def test_split_by_indicator_when_hcx_does_not():
                      {"시점": years, "지역": ["혼인건수", "출생아수", "사망자수"], "전출지": ["추이"]})
     assert v["sub_source"] == "code"
     assert [x["지표"] for x in v["sub_slots"]] == [["혼인건수"], ["출생아수"], ["사망자수"]]
-    assert all(x["시점"] == years and x["지역"] == ["전국"] and x["의도"] == "추이" for x in v["sub_slots"])
+    assert all(x["시점"] == years and x["지역"] == [] and x["의도"] == "추이" for x in v["sub_slots"])
     sres = build_sentences(v)
-    assert sres["sub_questions"][0].startswith("2021~2025년 전국 혼인건수"), sres["sub_questions"]
+    assert sres["sub_questions"][0].startswith("2021~2025년 혼인건수"), sres["sub_questions"]
     # 대상은 글자가 겹치는 지표 쪽으로 / 이름이 겹치는 지표는 하나로 봄
     v2 = _region_case("2022년 대전 출생아 수와 1인가구 가구수",
                       {"지역": ["대전광역시"], "대상": ["출생아", "1인가구"], "지표": ["출생아수", "가구수"]})

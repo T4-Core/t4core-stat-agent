@@ -174,7 +174,7 @@ print("[서브쿼리]", full["decompose_reason"], "|", sub3["decompose_reason"])
 YRS = [f"{y}년" for y in range(2021, 2026)]
 fake_kosis.SLOTS["사망자수 추이"] = {"slots": {"시점": YRS, "지역": ["혼인건수", "출생아수", "사망자수"], "전출지": ["추이"],
                                              "의도": ["값 조회"]}, "sub_questions": []}
-mis = analyze("2021~2025년 혼인건수와 출생아수 그리고 사망자수 추이")
+mis = analyze("2021~2025년 전국 혼인건수와 출생아수 그리고 사망자수 추이")  # 지역이 없으면 되묻기라 '전국' 을 적음
 assert mis["status"] == "ok", mis.get("clarifications") or mis["notes"]
 assert mis["state"]["raw_slots"]["지역"] == ["전국"] and "전출지" not in mis["state"]["raw_slots"], mis["state"]["raw_slots"]
 assert [x["slots"]["지표"] for x in mis["sub_queries"]] == [["혼인건수"], ["출생아수"], ["사망자수"]], mis["sub_queries"]
