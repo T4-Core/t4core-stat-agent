@@ -1,6 +1,13 @@
+# [CHANGED] KOS-58 이전: server 블록 안에 location 을 직접 정의, proxy_pass http://${BACKEND_UPSTREAM}
+# HTTP 전용 (로컬·CI 기본값). 공통 location 은 app-locations.conf
+upstream backend_app {
+    server ${BACKEND_UPSTREAM};
+}
+
 server {
     listen 80;
     root /usr/share/nginx/html;
+
     # [NEW] KOS-58 Let's Encrypt HTTP-01 검증 파일 (certbot webroot)
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -8,29 +15,5 @@ server {
         try_files $uri =404;
     }
 
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /admin/ {
-        try_files $uri $uri/ /admin/index.html;
-    }
-
-    location /api/v1/ {
-        proxy_pass http://${BACKEND_UPSTREAM};
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 200s;
-        client_max_body_size 5m;
-    }
-
-    location = /health {
-        proxy_pass http://${BACKEND_UPSTREAM};
-    }
-
-    location /assets/ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
+    include /etc/nginx/app-locations.conf;
 }
