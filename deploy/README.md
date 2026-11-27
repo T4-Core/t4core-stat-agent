@@ -422,3 +422,44 @@ GitHub-hosted runner ──SSH──▶ front-server ──ProxyJump──▶ ba
 - 손으로 배포 · 롤백: 서버에서 `bash deploy/scripts/deploy.sh backend <이전 SHA>`. 강제 재기동은 셋째 인자 `1`. 세 서버를 한 SHA 로 맞추려면 db → backend → front 순서로 같은 SHA 를 준다.
 - 실패 원인은 Actions 로그에 남기지 않는다 (컨테이너 로그에 질문 · 내부 주소가 담길 수 있음). 서버에서 `dcb logs --tail 200 backend` 로 본다.
 - develop 의 CI 실행은 서로 취소하지 않고 순서대로 돈다 (배포 도중 취소 방지). 대기 중에 더 새 커밋이 오면 중간 실행은 건너뛰고, 다음 배포가 누적 변경을 반영한다.
+
+## 12. HTTPS (KOS-58) — front-server
+
+도메인 없이 고정 IP에 Let's Encrypt IP 인증서(유효 약 6일)를 쓴다. 보안 그룹은 80·443 인바운드가 필요하고, **80은 갱신 검증 때문에 계속 `0.0.0.0/0`으로 열어 둔다.**
+
+### 발급 (80에서 nginx가 떠 있는 상태)
+
+```sh
+sudo snap install --classic certbot                  # 5.4 이상
+sudo certbot certonly --preferred-profile shortlived \
+  --webroot --webroot-path /var/www/certbot --ip-address <고정 IP>
+# 절차를 먼저 시험하려면 --staging 추가
+```
+
+### 적용
+
+`deploy/frontend/.env`에 추가한 뒤 다시 기동한다. 인증서가 없는데 설정하면 nginx가 기동에 실패한다.
+
+```dotenv
+NGINX_TEMPLATE_DIR=/etc/nginx/templates-tls
+TLS_CERT_NAME=<고정 IP>
+```
+
+```sh
+docker compose --env-file deploy/frontend/.env -f deploy/frontend/compose.yml up -d --build
+```
+
+### 갱신 후 nginx reload
+
+certbot이 자동 갱신하지만, nginx는 reload해야 새 인증서를 읽는다.
+
+```sh
+sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh >/dev/null <<'EOF'
+#!/bin/sh
+docker exec $(docker ps -qf label=com.docker.compose.service=web) nginx -s reload
+EOF
+sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+sudo certbot renew --dry-run
+```
+
+IP가 바뀌면 인증서를 다시 발급하고 `TLS_CERT_NAME`을 바꾼다. HTTP로 되돌리려면 두 변수를 지우고 다시 기동한다.
