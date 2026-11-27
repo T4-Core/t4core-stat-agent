@@ -4,9 +4,9 @@
 .clarify-tag { display: inline-flex; flex: none; align-items: center; height: 29px; padding: 0 13px; border: 1px solid var(--line-200); border-radius: 999px; background: var(--surface-120); color: var(--primary-900); font-size: 12px; font-weight: 600; }
 .clarify-tag.ask { border: 1px dashed var(--primary-500); background: #fff; }
 
-/* 3D 캐릭터는 같은 상자에서 시안 그림보다 크게 그려져 0.8배로 줄여 시안의 크기·위치에 맞춥니다. */
-.clarify-sloth { position: absolute; left: 310px; top: 138px; transform: scale(0.8); transform-origin: 0 0; z-index: 1; }
-.clarify-heading { position: absolute; left: 462px; top: 190.5px; width: 660px; }
+/* 3D 캐릭터는 같은 상자에서 시안 그림보다 크게 그려져 0.9배로 줄여 그립니다. */
+.clarify-sloth { position: absolute; left: 320px; top: 115px; transform: scale(0.9); transform-origin: 0 0; z-index: 1; }
+.clarify-heading { position: absolute; left: 497px; top: 197.5px; width: 660px; }
 .clarify-heading h1 { color: var(--text-900); font-size: 23px; font-weight: 600; line-height: 34.5px; letter-spacing: -0.4px; white-space: nowrap; }
 .clarify-heading p { margin-top: 5px; color: var(--text-700); font-size: 14px; font-weight: 500; line-height: 21px; }
 
