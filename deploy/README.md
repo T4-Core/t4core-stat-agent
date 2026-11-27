@@ -140,8 +140,8 @@ ssh -i .\team-key.pem ubuntu@<공인 IP>
 ### 2-3. 세 서버 공통 준비
 
 ```sh
-git clone -b develop https://github.com/T4-Core/t4core-stat-agent.git ~/t4core   # 또는 패치를 푸시한 브랜치
-cd ~/t4core
+git clone -b develop https://github.com/T4-Core/t4core-stat-agent.git ~/t4core-stat-agent   # 또는 패치를 푸시한 브랜치
+cd ~/t4core-stat-agent
 # 브랜치에 패치를 푸시하지 않았다면: (PC 에서) scp -i team-key.pem t4core-aws-db.patch ubuntu@<공인 IP>:~/
 git apply ~/t4core-aws-db.patch
 sudo bash deploy/scripts/ec2_bootstrap.sh backend    # db-server 는 db, front-server 는 front
@@ -155,7 +155,7 @@ exit                                                 # docker 그룹 적용을 �
 ## 3. db-server (pgvector)
 
 ```sh
-cd ~/t4core
+cd ~/t4core-stat-agent
 cp deploy/db/.env.example deploy/db/.env
 nano deploy/db/.env                    # VECTOR_PG_PASSWORD=긴 비밀번호 (backend 의 VECTOR_DB_URL 에 같은 값)
 docker compose --env-file deploy/db/.env -f deploy/db/compose.yml up -d
@@ -184,7 +184,7 @@ sudo chown -R 1000:1000 /srv/t4core/storage          # 컨테이너 사용자(ap
 ### 4-2. 환경설정
 
 ```sh
-cd ~/t4core
+cd ~/t4core-stat-agent
 cp deploy/backend/.env.example deploy/backend/.env
 nano deploy/backend/.env
 #   PG_PASSWORD=긴 비밀번호
@@ -244,7 +244,7 @@ curl -s localhost:8000/api/v1/system/db     # database · vector_db · redis 모
 ## 5. front-server (nginx)
 
 ```sh
-cd ~/t4core
+cd ~/t4core-stat-agent
 cp deploy/frontend/.env.example deploy/frontend/.env
 nano deploy/frontend/.env
 #   BACKEND_UPSTREAM=<backend-server 프라이빗 IP>:8000
@@ -293,7 +293,7 @@ python -m backend.db bundle create --out t4core_bundle.tar.gz
 scp -i team-key.pem t4core_bundle.tar.gz ubuntu@<backend 공인 IP>:/srv/t4core/
 # backend-server
 cd /srv/t4core && tar -xzf t4core_bundle.tar.gz && rm t4core_bundle.tar.gz && sudo chown -R 1000:1000 storage
-cd ~/t4core
+cd ~/t4core-stat-agent
 dcb run --rm backend python -m backend.db stats load --all          # 바뀐 표만 (서버를 켠 채로 바꿔 끼움)
 dcb run --rm backend python -m backend.db vectors import-sqlite /app/storage/indices/embed_cache.sqlite
 dcb restart backend                                                  # 새 색인 파일을 메모리로
@@ -347,7 +347,7 @@ dcb exec -T postgres pg_restore -U t4core -d t4core --clean < ~/app_2026-12-01.d
 
 규칙은 두 가지다. **통계값은 `stat_store` 로만 읽는다.** 정규화 결과의 열을 바꾸면 `backend/db/sql/main/001_kosis.sql` · `stat_store.py` · `stats.py` 를 함께 고친다 (테스트 실패 메시지가 파일을 알려 준다).
 
-<!-- [NEW] KOS-57 -->
+<!-- [NEW] KOS-57 · [CHANGED] 작업 트리 경로 ~/t4core → ~/t4core-stat-agent (실제 서버 경로) -->
 ## 12. 자동 배포 (CD)
 
 `develop` 에 push(병합)되면 `.github/workflows/ci.yml` 의 `deploy` job 이 backend · frontend · docker job 통과 뒤 실행된다. PR · fork · 다른 브랜치에서는 실행되지 않는다.

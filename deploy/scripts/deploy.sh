@@ -15,7 +15,8 @@ ROLE="${1:-}"
 SHA_IN="${2:-}"
 FORCE="${3:-0}"
 
-REPO="${T4_REPO_DIR:-$HOME/t4core}"
+# [CHANGED] 이전: REPO="${T4_REPO_DIR:-$HOME/t4core}" — 서버는 git clone 기본 폴더 이름으로 받아 둔 상태
+REPO="${T4_REPO_DIR:-$HOME/t4core-stat-agent}"
 BRANCH="${T4_DEPLOY_BRANCH:-develop}"
 HEALTH_TIMEOUT="${T4_HEALTH_TIMEOUT:-180}"
 
