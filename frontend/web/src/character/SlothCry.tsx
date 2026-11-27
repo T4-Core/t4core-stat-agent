@@ -98,7 +98,7 @@ function pose(rig: Rig, time: number) {
 
 const CRY: SlothMotion = {
   model: 'sloth-sad-optimized.glb',
-  paw: { y: -0.58, r: 0.15 }, // 이 모델은 손이 조금 아래에 달려 있음
+  arm: { paw: [0.78, -0.58, 0.18], pawR: 0.15 }, // 이 모델은 손이 조금 아래에 달려 있음
   camera: [0.1, 1.55, 4.7],
   target: [0, 0.9, 0],
   turnY: 0, // 우는 표정이 잘 보이도록 정면
