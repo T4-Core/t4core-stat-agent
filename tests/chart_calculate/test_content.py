@@ -180,16 +180,23 @@ def test_share_of_selected_pie_has_scope_label():
 
 
 def test_share_of_question_total_must_sum_to_100():
-    """전국 대비 비중인데 일부 지역만 고르면 원형 차트는 오해를 부른다 → 막대로 대체"""
-    rows = [["2025", n, "인구수(명)", v] for n, v in [("전국", 100.0), ("가", 30.0), ("나", 20.0), ("다", 50.0)]]
+    """전국 대비 비중인데 일부 지역만 고르면 '그 외 지역' 조각(100% − 부분 합)을 더해 원을 채운다.
+    [CHANGED 11-27] 이전: 원형 차트가 오해를 부른다고 막대로 대체했다 ('2024년 전국 대비 서울 출생아 비중' 이 전국 100 · 서울 17.5 막대).
+    부분 합이 100% 를 넘으면(겹치는 지역) 그대로 막대로 대체한다"""
+    rows = [["2025", n, "인구수(명)", v] for n, v in
+            [("전국", 100.0), ("가", 30.0), ("나", 20.0), ("다", 50.0), ("가나", 50.0)]]
     den = {"scope": "question", "label": "전국 대비 비중",
            "operand": {"record_id": VID, "item": "인구수(명)", "select": {"행정구역별": ["전국"]}}}
     rec = view(rows, REGION_COLS)
     whole, v1 = build_chart(share_plan("pie", ["가", "나", "다"], den), [rec])
     assert v1.final_chart_type == "pie" and whole.options["scope_label"] == "전국 대비 비중"
     part, v2 = build_chart(share_plan("pie", ["가", "나"], den), [rec])
-    assert v2.original.failed == ["parts_sum_to_total"] and part.chart_type == "bar"
-    assert part.axis["y"].scale == "percent"
+    assert v2.original.passed and part.chart_type == "pie"
+    assert {r[1]: r[-1] for r in part.rows} == {"가": 30.0, "나": 20.0, "그 외 지역": 50.0}
+    assert part.options["remainder_label"] == "그 외 지역"
+    over, v3 = build_chart(share_plan("pie", ["가", "다", "가나"], den), [rec])     # 30 + 50 + 50 = 130%
+    assert v3.original.failed == ["parts_sum_to_total"] and over.chart_type == "bar"
+    assert over.axis["y"].scale == "percent"
 
 
 def test_donut_center_text_uses_display():
