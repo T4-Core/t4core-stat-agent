@@ -9,6 +9,9 @@ services:
         VITE_SUPABASE_PUBLISHABLE_KEY: "${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
         VITE_ADMIN_EMAIL_DOMAIN: "${VITE_ADMIN_EMAIL_DOMAIN:-team.local}"
         VITE_USER_URL: "${VITE_USER_URL:-/}"
+    volumes:
+      # [NEW] KOS-58 certbot 이 호스트에 만드는 검증 파일
+      - "${CERTBOT_WEBROOT:-/var/www/certbot}:/var/www/certbot:ro"
     ports:
       - "80:80"
     environment:
