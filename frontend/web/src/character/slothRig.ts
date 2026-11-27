@@ -1,5 +1,6 @@
 // 나무늘보 3D 공통 부품: 모델 불러오기 · 뼈대 만들기 · 장면/조명 · 그리기 반복 · 정리
-// 원본: public/character/sloth-3d-glb.html(타이핑), sloth-wave.html(손 흔들기), sloth-cry.html(울기)
+// 원본: public/character/sloth-3d-glb.html(타이핑), sloth-wave.html(손 흔들기), sloth-cry.html(울기),
+//       sloth-megaphone.html(확성기)
 // 모션마다 다른 것(모델·카메라·몸 방향·소품·동작)은 SlothMotion 으로 넘겨받습니다.
 // 뼈대 좌표(RIG)는 원본과 같게 유지해야 모양이 깨지지 않습니다.
 import { useEffect, useRef } from 'react';
@@ -29,13 +30,21 @@ export const RIG = {
 
 type RigSpec = typeof RIG;
 
-// 모델마다 손이 달린 높이가 조금 달라 손 위치·반지름만 바꿔 씁니다.
+// 모델마다 팔이 달린 위치가 조금 달라, 넘겨받은 값만 바꿔 씁니다.
+// 좌표의 x 는 바깥쪽 거리(양수)로 적으면 팔마다 부호를 붙입니다.
 // (손 아랫부분이 손 영역에서 빠지면 손을 들 때 그 부분이 막처럼 늘어납니다)
-function rigFor(paw?: SlothMotion['paw']): RigSpec {
-  if (!paw) return RIG;
+function rigFor(arm?: SlothMotion['arm']): RigSpec {
+  if (!arm) return RIG;
+  const at = (s: number, v: Vec3 | undefined, fallback: THREE.Vector3) => (v ? new THREE.Vector3(s * v[0], v[1], v[2]) : fallback);
   return {
     ...RIG,
-    arms: RIG.arms.map((a) => ({ ...a, paw: new THREE.Vector3(a.paw.x, paw.y, a.paw.z), pawR: paw.r })),
+    arms: RIG.arms.map((a) => ({
+      ...a,
+      shoulder: at(a.s, arm.shoulder, a.shoulder),
+      elbow: at(a.s, arm.elbow, a.elbow),
+      paw: at(a.s, arm.paw, a.paw),
+      pawR: arm.pawR ?? a.pawR,
+    })),
   };
 }
 
@@ -47,10 +56,12 @@ export type ArmBone = (typeof RIG.arms)[number] & {
 };
 export type Rig = { skinned: THREE.SkinnedMesh; root: THREE.Bone; headBone: THREE.Bone; armBones: ArmBone[] };
 
+type Vec3 = [number, number, number];
+
 // 모션마다 다른 설정
 export type SlothMotion = {
   model?: string; // public/character 안의 GLB 파일 이름 (없으면 기본 나무늘보)
-  paw?: { y: number; r: number }; // 손 위치 높이·반지름 보정 (모델이 다를 때만)
+  arm?: { shoulder?: Vec3; elbow?: Vec3; paw?: Vec3; pawR?: number }; // 팔 좌표 보정 (모델이 다를 때만)
   camera: [number, number, number]; // 카메라 위치
   target: [number, number, number]; // 카메라가 바라보는 곳
   turnY: number; // 몸을 돌리는 각도(라디안)
@@ -193,7 +204,7 @@ function mountSloth(stage: HTMLElement, motion: SlothMotion) {
       const source = gltf.scene.getObjectByProperty('isMesh', true) as THREE.Mesh | undefined;
       if (!source) throw new Error('GLB 안에 메시가 없어요.');
       source.geometry.computeBoundingBox();
-      rig = buildSkin(source, motion.elbowBlend, rigFor(motion.paw));
+      rig = buildSkin(source, motion.elbowBlend, rigFor(motion.arm));
       const body = new THREE.Group();
       body.position.y = -source.geometry.boundingBox!.min.y; // 발바닥을 바닥(y=0)에 맞춤
       body.add(rig.skinned);

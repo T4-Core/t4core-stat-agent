@@ -2,10 +2,12 @@
 // <Character motion size /> 사용법만 유지해 주세요.
 // - wave: 손 흔들며 인사 (3D)
 // - error(오류·범위 밖 안내 화면): 흐느끼며 눈물 훔치기 (3D, 우는 표정 모델)
-// - judging(사용자 표 판정 화면)·asking(되묻기 화면): 움직이지 않는 이미지 (시안 그대로)
+// - asking(되묻기 화면): 확성기 들고 "알려주세요!" (3D, 외치는 표정 모델)
+// - judging(사용자 표 판정 화면): 움직이지 않는 이미지 (시안 그대로)
 // - 나머지: 노트북 타이핑 (3D)
 import slothImage from '../assets/figma/sloth.png';
 import { SlothCry } from './SlothCry';
+import { SlothMegaphone } from './SlothMegaphone';
 import { SlothTyping } from './SlothTyping';
 import { SlothWave } from './SlothWave';
 
@@ -27,7 +29,8 @@ type Props = {
 export function Character({ motion = 'idle', size = 'L', className }: Props) {
   if (motion === 'wave') return <SlothWave className={className} {...SIZES[size]} />;
   if (motion === 'error') return <SlothCry className={className} {...SIZES[size]} />;
-  if (motion === 'judging' || motion === 'asking') {
+  if (motion === 'asking') return <SlothMegaphone className={className} {...SIZES[size]} />;
+  if (motion === 'judging') {
     // 상자 안에 비율을 유지한 채 맞춰 넣습니다.
     return <img src={slothImage} className={className} {...SIZES[size]} style={{ objectFit: 'contain' }} alt="" aria-hidden="true" />;
   }
