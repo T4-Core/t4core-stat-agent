@@ -13,6 +13,53 @@ import type { ChartSpec } from '../data/types';
 export const CHART_COLORS = ['#1f5fbf', '#f5781f', '#24a148', '#c8102e', '#8a3ffc', '#e3b100', '#1fb3d4', '#f572b0'];
 // 차트가 한 개이고 항목도 한 개일 때는 기존 디자인 색을 씁니다.
 export const SINGLE_COLOR = '#7ba39d';
+// 증감·증감률 막대에서 줄어든 막대 색 (빨강). 늘어난 막대는 차트 색 그대로입니다.
+export const DOWN_COLOR = CHART_COLORS[3];
+// 원·도넛의 '그 외' 조각 (전체에서 고른 부분을 뺀 나머지). 흰 글씨가 읽히는 회색입니다.
+export const REMAINDER_COLOR = '#7d8694';
+
+/** '그 외', '그 외 지역'처럼 나머지를 뜻하는 조각인지 */
+export const isRemainder = (label: string) => label.trim().startsWith('그 외');
+
+// 최댓값·최솟값처럼 답이 되는 막대·점의 강조 색 (주황). 백엔드 모듈 5의 HIGHLIGHT_COLOR 와 같은 색입니다.
+export const EMPHASIS_COLOR = CHART_COLORS[1];
+
+type MarkedTrace = { marker?: Record<string, unknown>; x?: unknown[]; y?: unknown[]; orientation?: unknown; meta?: unknown };
+const metaOf = (trace: MarkedTrace) => (trace.meta && typeof trace.meta === 'object' ? (trace.meta as Record<string, unknown>) : {});
+
+/**
+ * 증감·증감률 막대의 막대별 색. 백엔드(모듈 5)가 부호 색으로 칠한 막대(meta.signed)만 해당하며,
+ * 백엔드의 색 값 대신 값의 부호로 정합니다: 줄어든 막대(음수)는 빨강, 나머지는 차트 색.
+ * 해당하지 않으면 undefined (항목마다 한 색 규칙 그대로)
+ */
+export function signedBarColors(trace: MarkedTrace, up: string) {
+  if (!Array.isArray(trace.marker?.color)) return undefined;
+  const meta = metaOf(trace);
+  // meta.signed 가 없는 예전 결과는 목록 색 = 부호 색으로 봅니다 (강조 색 목록이면 meta.highlight 가 있음)
+  if (!meta.signed && Array.isArray(meta.highlight)) return undefined;
+  const values = (trace.orientation === 'h' ? trace.x : trace.y) ?? [];
+  const down = up === DOWN_COLOR ? '#5f6b73' : DOWN_COLOR;
+  return values.map((value) => (typeof value === 'number' && value < 0 ? down : up));
+}
+
+/**
+ * 강조한 막대·점의 색. 백엔드(모듈 5)가 답이 되는 점(최댓값·최솟값·1위 등)의 번호를 meta.highlight 에 적어 둡니다.
+ * 그 점만 강조 색, 나머지는 차트 색. 강조가 없으면 undefined
+ */
+export function highlightColors(trace: MarkedTrace, base: string) {
+  const marks = metaOf(trace).highlight;
+  if (!Array.isArray(marks) || marks.length === 0) return undefined;
+  const count = ((trace.orientation === 'h' ? trace.x : trace.y) ?? []).length;
+  const hot = base === EMPHASIS_COLOR ? '#3f6661' : EMPHASIS_COLOR;
+  return Array.from({ length: count }, (_, index) => (marks.includes(index) ? hot : base));
+}
+
+/** 조각 색: '그 외' 조각은 회색, 나머지 조각은 colorsFor(조각 수) 순서대로 */
+export function sliceColors(labels: string[], colorsFor: (count: number) => string[]) {
+  const parts = colorsFor(labels.filter((label) => !isRemainder(label)).length);
+  let next = 0;
+  return labels.map((label) => (isRemainder(label) ? REMAINDER_COLOR : parts[next++ % Math.max(parts.length, 1)]));
+}
 
 export type ChartPaint = {
   /** 차트 번호 색 (차트가 2개 이상일 때만) */
@@ -169,7 +216,7 @@ export function paintFigure(figure: PlotlyFigure, paint: ChartPaint = {}) {
   const slice = traces.length === 1 && SLICE_TYPES.has(traceKind(traces[0]));
   if (slice) {
     const labels = (traces[0].labels ?? []).map(String);
-    const colors = seriesColors(labels.length, paint.color ?? CHART_COLORS[0]);
+    const colors = sliceColors(labels, (count) => seriesColors(count, paint.color ?? CHART_COLORS[0]));
     const legend: LegendItem[] = labels.map((name, index) => ({ name, color: colors[index], shape: 'box' }));
     return { colors, slice: true, legend: legend.length >= 2 ? legend : [], indices: [0] };
   }
