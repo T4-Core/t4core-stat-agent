@@ -207,7 +207,7 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
                 members = [f for f in SIDO_GROUPS[v] if f in rule_found.get("지역", [])]
                 out += members
                 log.append(f"{tag}{k} 권역 풀기: {v} → {members}" if members else f"{tag}{k} 삭제(질문에 없음): {v}")
-            elif full and (full in rule_found.get("지역", []) or (full == "전국" and not rule_found.get("지역"))):  # 지역 없는 질문의 "전국"은 프롬프트 규칙
+            elif full and full in rule_found.get("지역", []):  # '전국' 도 질문에 있을 때만 (지역 없는 질문은 비워 두고 되묻기)
                 out.append(full)
                 if full != v:
                     log.append(f"{tag}{k} 정식 이름: {v} → {full}")
@@ -243,8 +243,6 @@ def fix_slots(s, q, rule_found, term_hits=(), main=True):
                 s["지역"] = list(dict.fromkeys(s["지역"])); log.append(f"지역 바꿈(코드가 찾음): {part} → {full}")
             else:
                 s["지역"].append(full); log.append(f"지역 채움(코드가 찾음): {full}")
-        if not used and not s["지역"] and (s["대상"] or s["지표"]):  # 프롬프트: 질문에 지역이 없으면 "전국" (찾을 대상·지표가 있을 때만)
-            s["지역"] = ["전국"]; log.append("지역 채움(질문에 지역 없음): 전국")
 
     # 국적: 질문에 있는 국가만
     nat = []

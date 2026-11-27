@@ -95,6 +95,23 @@ def domain_terms(question, lex):
     return list(dict.fromkeys(out))
 
 
+# 통계를 달라는 일반어 — 화면에서 조건만 고른 질문('서울 통계 보여줘')에 붙는 말
+STAT_REQUEST_RE = re.compile(r"통계|자료|현황|데이터|수치")
+DEFINITION_RE = re.compile(r"뜻|의미|정의|뭐야|무엇인가|란\s*무엇")
+
+
+def condition_request(question, today=None):
+    """조건(지역·시점)만 있는 통계 요청인가 → 코드가 찾은 슬롯 이름 목록 (아니면 [])
+    HCX 가 '범위 밖' 으로 판정해도 끝내지 않고 빠진 대상을 되묻는다. 용어 뜻을 묻는 질문은 제외"""
+    if not STAT_REQUEST_RE.search(question or "") or DEFINITION_RE.search(question or ""):
+        return []
+    from datetime import date
+
+    from backend.rag.query_analyzer.extract import rule_extract
+    _, found, _ = rule_extract(question, _as_date(today) or date.today())
+    return [k for k in ("지역", "시점") if found.get(k)]
+
+
 # table_terms 에서 근거로 치지 않는 말 — 보여 주는 방식 요청 · 어디에나 붙는 일반어
 SCOPE_STOP = {"그려줘", "그려", "보여줘", "보여", "알려줘", "알려", "그래프", "원그래프", "막대그래프", "꺾은선그래프", "차트",
               "도표", "표로", "시각화", "통계", "자료", "데이터", "현황", "조사", "결과", "수치", "정보", "궁금해", "싶어"}
@@ -177,6 +194,20 @@ def region_shaped(v):
     t = str(v or "").split()[-1] if str(v or "").split() else ""
     return bool(REGION_SHAPE.match(t)) and not NOT_REGION.search(t) and t not in NOT_REGION_WORDS \
         and not re.search(r"(?:가구|주택|인구|세대|건수|명수|호수|평균|비율|이동|전입|전출|혼인|이혼|출생|사망)", t)
+
+
+def _region_term(term, raw, lex):
+    """질문 속 표현이 지역 이름인가 — 대상 보충에서 뺀다 ('서울 통계' 의 '서울' 은 성씨본관 분류 값과 같지만 지역)
+    시도 이름·줄임말, 지역 칸 값의 일부, 값 사전에서 지역으로 접지되는 지역 모양 이름"""
+    from backend.rag.ingestion.normalize import std_geo_name
+    from backend.rag.query_analyzer.extract import norm_sido
+    if norm_sido(term):
+        return True
+    t = norm(term)
+    if t and any(t in norm(v) for k in REGION_SLOTS for v in raw.get(k) or []):
+        return True
+    rg = lex.best(std_geo_name(term), "지역") if region_shaped(term) else None
+    return bool(rg and rg.grounded)
 
 
 def fix_region_slots(raw, lex):
@@ -333,6 +364,9 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
             elif words:
                 state = rule_state(question, today, "범위 밖 판정을 뒤집음 (표 이름·열 이름)")
                 notes.append(f"재작성 모듈은 '범위 밖' 이라 했지만 질문 낱말 {words[:5]} 이(가) 수집된 표 이름·열 이름에 있어 검색함")
+        elif is_out_of_scope(state["bundle"]) and (slots := condition_request(question, today)):  # strict: 끝내지 않고 되묻기
+            state = rule_state(question, today, "범위 밖 판정을 뒤집음 (조건만 있는 통계 요청)")
+            notes.append(f"재작성 모듈은 '범위 밖' 이라 했지만 통계 요청에 조건 {slots} 이 있어 빠진 칸을 되물음")
         if not state.get("hcx_ok", True):
             notes.append(f"HCX 슬롯 추출 실패 → 코드 추출 값만 사용: {state.get('hcx_error')}")
         st.output = {"rewritten": state["bundle"].get("rewritten"), "raw_slots": state["raw_slots"],
@@ -398,7 +432,8 @@ def analyze(question, today=None, *, query_id=None, overrides=None, previous=Non
         with tr.step("대상 보충 (질문 문장 × CSV 값 사전)", min_alias_len=s.min_alias_len) as st:
             times = " ".join(str(t) for t in raw.get("시점") or [])
             found = [(k, v, n) for k, v, n in lex.scan(question)
-                     if n and not _numeric(k) and not _numeric(v) and norm(k) not in norm(times)]
+                     if n and not _numeric(k) and not _numeric(v) and norm(k) not in norm(times)
+                     and not _region_term(k, raw, lex)]
             if found:
                 raw = {**raw, "지표": list(dict.fromkeys(v for _, v, _ in found))}
                 notes.append(f"재작성 모듈이 대상·지표를 내지 않아 질문 속 CSV 표현으로 채움: {[(k, v) for k, v, _ in found]}")

@@ -58,7 +58,7 @@ def test_recent_years_restored_when_hcx_shrinks():
     assert v["slots"]["시점"] == YEARS_5
     assert v["slots"]["의도"] == ["증감", "추이"]  # 5년치 값 + 2021 대비 2025 증감
     m, b = _measure(v, q)
-    assert b.rewritten == "2021~2025년 전국 혼인건수 추이 증감" and b.intent == "증감" and m == "change"
+    assert b.rewritten == "2021~2025년 혼인건수 추이 증감" and b.intent == "증감" and m == "change"  # 질문에 없는 '전국' 은 넣지 않음
     # HCX 가 '추이' 로만 읽어도 변화 표현이 있으면 증감
     v = _v(q, {"시점": ["2021년", "2025년"], "대상": ["혼인"], "지표": ["혼인건수"], "의도": ["추이"]})
     assert v["slots"]["의도"] == ["증감", "추이"] and _measure(v, q)[0] == "change"
