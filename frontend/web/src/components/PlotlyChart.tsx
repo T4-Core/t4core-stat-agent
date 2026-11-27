@@ -2,14 +2,14 @@
 // 사용자 화면은 담백하게 그립니다: 모듈 5가 넣은 화살표·출처 주석은 빼고, 항목 색은 chartColors 규칙을 따릅니다.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PlotlyFigure } from '../api/types';
-import { paintFigure, type ChartPaint } from './chartColors';
+import { highlightColors, paintFigure, signedBarColors, sliceColors, type ChartPaint } from './chartColors';
 
 const PALETTE = ['#7ba39d', '#3f6661', '#b9ccc8', '#5f8b85', '#dce9e6', '#8a9794'];
 const FONT = 'Pretendard Variable, Pretendard, sans-serif';
 // 덤벨의 두 점을 잇는 선처럼 색으로 구분할 필요가 없는 보조 선
 const HELPER_COLOR = '#d3dbd9';
 
-type Trace = Record<string, unknown> & { type?: string; x?: unknown[]; y?: unknown[]; marker?: Record<string, unknown>; line?: Record<string, unknown>; fill?: unknown };
+type Trace = Record<string, unknown> & { type?: string; x?: unknown[]; y?: unknown[]; labels?: unknown[]; marker?: Record<string, unknown>; line?: Record<string, unknown>; fill?: unknown };
 type Props = {
   figure: PlotlyFigure;
   width: number;
@@ -38,12 +38,15 @@ function originalTraces(data: Trace[], fontSize: number) {
     if (trace.type === 'bar') {
       const count = (trace.x ?? trace.y ?? []).length;
       const colors = Array.from({ length: count }, (_, point) => (point === 0 || point === count - 1 ? PALETTE[0] : PALETTE[4]));
-      next.marker = { ...trace.marker, color: singleBar ? colors : color, line: { width: 0 } };
+      const signed = signedBarColors(trace, PALETTE[0]);
+      const marked = highlightColors(trace, singleBar ? PALETTE[0] : color);
+      next.marker = { ...trace.marker, color: signed ?? marked ?? (singleBar ? colors : color), line: { width: 0 } };
     } else if (trace.type === 'scatter' || trace.type === 'scattergl') {
       next.line = { ...trace.line, color, width: 2 };
-      next.marker = { ...trace.marker, color, line: { width: 0 } };
+      next.marker = { ...trace.marker, color: highlightColors(trace, color) ?? color, line: { width: 0 } };
     } else if (trace.type === 'pie' || trace.type === 'treemap') {
-      next.marker = { ...trace.marker, colors: PALETTE };
+      const labels = (trace.labels ?? []).map(String);
+      next.marker = { ...trace.marker, colors: trace.type === 'pie' ? sliceColors(labels, () => PALETTE) : PALETTE };
     }
     return next;
   });
@@ -67,10 +70,12 @@ function plainTraces(figure: PlotlyFigure, paint: ChartPaint | undefined, fontSi
     }
     const color = colors[at] ?? colors[0];
     if (type === 'bar' || type === 'histogram' || type === 'funnel' || type === 'waterfall') {
-      themed.marker = { ...trace.marker, color, line: { width: 0 } };
+      // 증감·증감률 막대는 늘어난 막대 = 차트 색, 줄어든 막대 = 빨강 (백엔드가 부호 색을 넣은 경우만)
+      // 최댓값·최솟값 등 답이 되는 막대는 강조 색 (백엔드가 meta.highlight 에 적은 막대만)
+      themed.marker = { ...trace.marker, color: signedBarColors(trace, color) ?? highlightColors(trace, color) ?? color, line: { width: 0 } };
     } else {
       themed.line = { ...trace.line, color, width: 2 };
-      themed.marker = { ...trace.marker, color, line: { width: 0 } };
+      themed.marker = { ...trace.marker, color: highlightColors(trace, color) ?? color, line: { width: 0 } };
       if (trace.fill && trace.fill !== 'none') themed.fillcolor = rgba(color, 0.15);
     }
     return themed;
