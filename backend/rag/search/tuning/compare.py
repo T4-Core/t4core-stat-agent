@@ -62,14 +62,31 @@ def get_search_for(dense="hcx", llm=False, settings=None):
     return get_search(dense=dense, llm_rerank=llm, settings=settings)
 
 
-def analyze_units(question, mode="analyze", today=None):
-    """질문 → 검색 단위 [{unit, text, search_query, filters, status}] (analyze → run.units_of → search_query)"""
+def analyze_units(question, mode="analyze", today=None, state=None, record=None):
+    """질문 → 검색 단위 [{unit, text, search_query, filters, status}] (analyze → run.units_of → search_query)
+    state : 저장해 둔 재작성(HCX) 답 → 재작성 없이 후처리만 다시 (HCX 0)
+    record: dict 를 주면 재작성 직후의 답을 record['state'] 에 남김 (후처리로 바뀌기 전 값 — 다시 넣으면 같은 분석)"""
     if mode == "none":
         return [{"unit": "main", "text": question, "search_query": question, "filters": None, "status": "none"}]
-    from backend.rag.query_analyzer.analyze import analyze
+    import backend.rag.query_analyzer.analyze as A
     from backend.rag.search.resolve import search_query
     from backend.rag.view.run import units_of
-    a = analyze(question, today=today)
+    if state is not None:
+        a = A.analyze(question, today=today, previous={"state": state})
+    elif record is None:
+        a = A.analyze(question, today=today)
+    else:
+        orig = A.rewrite_state
+
+        def keep(*x, **k):
+            st = orig(*x, **k)
+            record["state"] = json.loads(json.dumps(st, ensure_ascii=False, default=str))  # 후처리가 고치기 전 사본
+            return st
+        A.rewrite_state = keep
+        try:
+            a = A.analyze(question, today=today)
+        finally:
+            A.rewrite_state = orig
     vb = a.get("view_bundle")
     if not vb or vb.get("filters") is None:
         return [{"unit": "main", "text": question, "search_query": question, "filters": None, "status": a["status"],
@@ -236,7 +253,9 @@ def load_golden(path, variants=("O", "P"), answerable_only=True, limit=None, spl
 
 
 # ── 질의 분석 (한 번만) ───────────────────────────────────────────
-def analyze_all(rows, mode, today, cache_path: Path, log=print):
+def analyze_all(rows, mode, today, cache_path: Path, log=print, replay=False):
+    """질의 분석 (캐시 키 mode|today|question). 새로 분석한 줄엔 재작성 답(state)도 남김.
+    replay: state 가 있는 캐시 줄은 그 답으로 후처리만 다시 (HCX 0 — 분석기 코드를 고친 뒤 회귀용). 갱신한 줄은 파일 끝에 덧붙임(뒤 줄이 이김)"""
     cache = {}
     if cache_path.exists():
         for line in cache_path.read_text(encoding="utf-8").splitlines():
@@ -245,22 +264,41 @@ def analyze_all(rows, mode, today, cache_path: Path, log=print):
                 cache[r["key"]] = r
     sig = analyzer_sig() if mode != "none" else None
     out, n_new, t0 = {}, 0, time.time()
+    n_replay, no_state = 0, []
     with cache_path.open("a", encoding="utf-8") as f:
         for i, r in enumerate(rows, 1):
             key = hashlib.sha1(f"{mode}|{today}|{r['question']}".encode()).hexdigest()[:16]
+            if key in cache and replay and mode != "none":
+                st = cache[key].get("state")
+                if st is None:
+                    no_state.append(r["qid"])
+                elif cache[key].get("sig") != sig:   # 같은 코드로 이미 다시 돌린 줄은 건너뜀
+                    try:
+                        units = analyze_units(r["question"], mode, today, state=st)
+                    except Exception as e:  # noqa: BLE001
+                        units = [{"unit": "main", "text": r["question"], "search_query": r["question"], "filters": None,
+                                  "status": f"error:{e.__class__.__name__}"}]
+                    cache[key] = {**cache[key], "units": units, "sig": sig}
+                    f.write(json.dumps(cache[key], ensure_ascii=False, default=str) + "\n")
+                    n_replay += 1
             if key not in cache:
+                rec = {}
                 try:
-                    units = analyze_units(r["question"], mode, today)
+                    units = analyze_units(r["question"], mode, today, record=rec if mode != "none" else None)
                 except Exception as e:  # noqa: BLE001  (분석 실패 → 원문 검색)
                     units = [{"unit": "main", "text": r["question"], "search_query": r["question"], "filters": None,
                               "status": f"error:{e.__class__.__name__}"}]
-                cache[key] = {"key": key, "question": r["question"], "mode": mode, "today": today, "units": units, "sig": sig}
+                cache[key] = {"key": key, "question": r["question"], "mode": mode, "today": today, "units": units, "sig": sig,
+                              **({"state": rec["state"]} if "state" in rec else {})}
                 f.write(json.dumps(cache[key], ensure_ascii=False, default=str) + "\n")
                 f.flush()
                 n_new += 1
                 if n_new % 20 == 0:
                     log(f"  분석 {i}/{len(rows)} ({time.time() - t0:.0f}초)")
             out[r["qid"]] = cache[key]["units"]
+    if replay:
+        log(f"[분석 재생] 재작성 답으로 후처리 다시 {n_replay} · 재작성 답이 없어 캐시 분석 그대로 {len(no_state)}"
+            + (f" (예: {no_state[:3]})" if no_state else ""))
     log(f"[분석] {len(rows)}문항 (새로 {n_new}, 캐시 {len(rows) - n_new}) · 상태 "
         f"{dict(Counter(u[0].get('status') for u in out.values()))}")
     return out
@@ -1018,6 +1056,8 @@ def main(argv=None):
     ap.add_argument("--audit", default=None,
                     help="정답 표시 검토 파일 (gold_audit.py 의 gold_audit.jsonl) → '검토 반영' 지표를 따로 (엄격·완화는 그대로)")
     ap.add_argument("--cache", default=None, help="다른 compare 폴더의 analysis_cache.jsonl — 같은 질의 분석을 다시 씀")
+    ap.add_argument("--replay-state", action="store_true",
+                    help="캐시 줄에 남은 재작성(HCX) 답으로 분석 후처리만 다시 (HCX 0). 답이 없는 옛 줄은 캐시 분석 그대로")
     ap.add_argument("--tuned", nargs="?", const="configs", default=None, metavar="폴더",
                     help="dense 마다 <폴더>/search.tuned.<dense>.yaml (tune 결과) 가중치로. 폴더 기본 configs. 이름 뒤 * = 맞춘 가중치")
     ap.add_argument("--split", nargs="*", default=None,
@@ -1096,7 +1136,7 @@ def main(argv=None):
                 import shutil
                 shutil.copyfile(prev_rc, rc)
         LR.use_cache_file(rc)
-    analysis = analyze_all(rows, a.analyze, a.today, cache)
+    analysis = analyze_all(rows, a.analyze, a.today, cache, replay=a.replay_state)
     cache_stats = check_cache(rows, analysis, a.analyze, a.today, cache)
     raw_analysis, n_pruned = analysis, 0
     if not a.raw_units:
@@ -1117,7 +1157,7 @@ def main(argv=None):
             "variants": a.variants, "analyze": a.analyze, "today": a.today, "top_k": a.top_k, "pool": a.pool,
             "dense": a.dense, "dense_docs": a.dense_docs, "ce": ce, "configs": info, "alt": a.alt, "audit": a.audit,
             "llm_variants": a.llm_variants, "llm_thinking": a.llm_thinking, "only_missed": a.only_missed,
-            "arms": a.arms, "okf": a.okf, "prune_units": not a.raw_units, "n_pruned": n_pruned,
+            "arms": a.arms, "okf": a.okf, "prune_units": not a.raw_units, "replay_state": a.replay_state, "n_pruned": n_pruned,
             "analysis_status": dict(Counter(u[0].get("status") for u in analysis.values())),
             "analysis_cache": cache_stats, "app": app_settings()}
     (out / "summary.json").write_text(json.dumps({"meta": meta, "table": table, "fails": fails, "wins": wins,

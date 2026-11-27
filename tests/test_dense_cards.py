@@ -190,7 +190,7 @@ def test_compare_from_run_reuses_paths(tmp_path, monkeypatch, capsys):
         seen.update(rows=rows, analysis=analysis, docs=kw.get("docs"))
         return [], {}
     monkeypatch.setattr(C, "run", fake_run)
-    monkeypatch.setattr(C, "analyze_all", lambda rows, mode, today, cache, log=print: (seen.update(cache=cache) or {}))
+    monkeypatch.setattr(C, "analyze_all", lambda rows, mode, today, cache, log=print, **kw: (seen.update(cache=cache) or {}))
     C.main(["--from-run", "hard", "--dense", "hash", "--dense-docs", "rule", "--analyze", "none", "--out", str(tmp_path / "o")])
     assert seen["rows"][0]["qid"] == "g1" and seen["docs"] == ["rule"]
     assert (tmp_path / "o" / "analysis_cache.jsonl").exists()                   # 이전 실행의 캐시를 복사해 씀
