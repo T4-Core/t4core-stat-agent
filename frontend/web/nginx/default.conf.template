@@ -1,6 +1,12 @@
 server {
     listen 80;
     root /usr/share/nginx/html;
+    # [NEW] KOS-58 Let's Encrypt HTTP-01 검증 파일 (certbot webroot)
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+        try_files $uri =404;
+    }
 
     location / {
         try_files $uri $uri/ /index.html;
