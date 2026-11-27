@@ -4,6 +4,7 @@ import { USE_MOCK } from '../api/client';
 import { createSeedRuns } from '../data/examples';
 import type { RunRecord, TableChoice } from '../data/types';
 import { deletePayload } from './payloads';
+import { randomUUID } from '../utils/uuid';
 
 // 예시 기록과 실제 기록이 섞이지 않도록 저장 위치를 나눕니다.
 const STORAGE_KEY = USE_MOCK ? 'kosis.history.v1' : 'kosis.history.live.v1';
@@ -61,7 +62,8 @@ export function getRun(id: string) {
 export function createRun(input: Pick<RunRecord, 'question' | 'tags'> & Partial<RunRecord>) {
   const needsSelection = input.needsSelection ?? input.question.includes('1인 가구');
   const run: RunRecord = {
-    id: crypto.randomUUID(),
+    // [CHANGED] 이전: id: crypto.randomUUID(),
+    id: randomUUID(),
     status: 'pending',
     favorite: false,
     chartCount: 2,

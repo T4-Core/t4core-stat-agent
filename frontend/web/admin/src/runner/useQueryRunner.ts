@@ -8,6 +8,7 @@ import { toRunDetail, toRunSummary } from './compact';
 import { setRunBusy } from './guard';
 import type { LiveStatus, ParentMessage, PreviewMessage, RunOutcome } from './protocol';
 import { toStoredDetail } from './responseCodec';
+import { randomUUID } from '../../../src/utils/uuid';
 
 export type RunPhase = 'idle' | 'starting' | 'running' | 'paused' | 'done';
 export type ItemState = 'queued' | 'running' | 'input' | 'saving' | 'saved' | 'save_failed' | 'skipped';
@@ -106,7 +107,8 @@ export function useQueryRunner() {
       finish();
       return;
     }
-    const token = crypto.randomUUID();
+    // [CHANGED] 이전: const token = crypto.randomUUID();
+    const token = randomUUID();
     tokenRef.current = token;
     update({ phase: 'running', current: index });
     patchItem(index, { state: 'running', live: 'pending', startedAt: Date.now() });
