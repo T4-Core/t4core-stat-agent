@@ -18,7 +18,7 @@ import difflib
 import json
 import re
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +30,7 @@ SLOT_CSV = {"지역": ("지역",), "전출지": ("지역",), "전입지": ("지�
             "조건": ("분류", "항목"), "이동": ("항목", "분류"), "비교축": ("열",)}
 RULE_SLOT = {"지역": "지역", "전출지": "지역", "전입지": "지역", "성별": "성별", "국적": "국적", "비교축": "축",
              "이동": "이동", "조건": "조건", "연령": "연령"}
+POSSESSIVE = re.compile(r"(\S)의(?=\s|$)")  # 낱말 끝 '의' (주민의 → 주민)
 SCORE = {"learned": 1.0, "rule": 0.98, "csv": 0.95, "term>csv": 0.9, "contains": 0.6, "term": 0.5}
 
 
@@ -175,6 +176,13 @@ class Lexicon:
                 continue
             rows_t = self._csv(t, slot) or self._csv(t, slot, contains=True)
             out.append(self._hit(text, rows_t, slot, "term>csv" if rows_t else "term", None if rows_t else t, fallback=t))
+        if not any(h.grounded for h in out) and slot in ("대상", "지표"):
+            # 구어 소유격: '외국인 주민의 자녀' → '외국인주민자녀'. '의' 를 뗀 값이 CSV 이름과 정확히 맞을 때만
+            bare = POSSESSIVE.sub(r"\1", str(text))
+            if bare != text:
+                h = next((h for h in self.resolve(bare, slot) if h.source == "csv" and h.match == "exact"), None)
+                if h:
+                    out.append(replace(h, surface=text))
         if not any(h.grounded for h in out):
             rows = self._csv(text, slot, contains=True)
             if rows:
