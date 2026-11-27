@@ -1,13 +1,14 @@
 // 나무늘보 3D 공통 부품: 모델 불러오기 · 뼈대 만들기 · 장면/조명 · 그리기 반복 · 정리
-// 원본: public/character/sloth-3d-glb.html(타이핑), sloth-wave.html(손 흔들기)
-// 모션마다 다른 것(카메라·몸 방향·소품·동작)은 SlothMotion 으로 넘겨받습니다.
+// 원본: public/character/sloth-3d-glb.html(타이핑), sloth-wave.html(손 흔들기), sloth-cry.html(울기)
+// 모션마다 다른 것(모델·카메라·몸 방향·소품·동작)은 SlothMotion 으로 넘겨받습니다.
 // 뼈대 좌표(RIG)는 원본과 같게 유지해야 모양이 깨지지 않습니다.
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-const MODEL_URL = `${import.meta.env.BASE_URL}character/sloth-optimized.glb`;
+const DEFAULT_MODEL = 'sloth-optimized.glb'; // public/character 안의 파일 이름
+const modelUrl = (file: string) => `${import.meta.env.BASE_URL}character/${file}`;
 // 모델이 Draco 로 압축되어 있어 해제 도구를 CDN 에서 받습니다. (three 버전과 맞춰야 함)
 const DRACO_DECODER = 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/';
 
@@ -26,6 +27,18 @@ export const RIG = {
   legGuard: [-0.75, -0.7], // 이 높이 아래(다리·발)는 팔에서 제외
 };
 
+type RigSpec = typeof RIG;
+
+// 모델마다 손이 달린 높이가 조금 달라 손 위치·반지름만 바꿔 씁니다.
+// (손 아랫부분이 손 영역에서 빠지면 손을 들 때 그 부분이 막처럼 늘어납니다)
+function rigFor(paw?: SlothMotion['paw']): RigSpec {
+  if (!paw) return RIG;
+  return {
+    ...RIG,
+    arms: RIG.arms.map((a) => ({ ...a, paw: new THREE.Vector3(a.paw.x, paw.y, a.paw.z), pawR: paw.r })),
+  };
+}
+
 export type ArmBone = (typeof RIG.arms)[number] & {
   upper: THREE.Bone;
   fore: THREE.Bone;
@@ -36,6 +49,8 @@ export type Rig = { skinned: THREE.SkinnedMesh; root: THREE.Bone; headBone: THRE
 
 // 모션마다 다른 설정
 export type SlothMotion = {
+  model?: string; // public/character 안의 GLB 파일 이름 (없으면 기본 나무늘보)
+  paw?: { y: number; r: number }; // 손 위치 높이·반지름 보정 (모델이 다를 때만)
   camera: [number, number, number]; // 카메라 위치
   target: [number, number, number]; // 카메라가 바라보는 곳
   turnY: number; // 몸을 돌리는 각도(라디안)
@@ -63,20 +78,20 @@ function segment(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3) { // 점 
 }
 
 // 뼈 번호: 0 몸, 1 머리, 2·3 왼팔(위·아래), 4·5 오른팔(위·아래)
-function computeWeights(geometry: THREE.BufferGeometry, elbowBlend: number) {
+function computeWeights(geometry: THREE.BufferGeometry, elbowBlend: number, spec: RigSpec) {
   const pos = geometry.attributes.position;
   const count = pos.count;
   const skinIndex = new Uint16Array(count * 4);
   const skinWeight = new Float32Array(count * 4);
   const p = new THREE.Vector3();
-  const pawTips = RIG.arms.map((a) => a.paw.clone().add(a.paw.clone().sub(a.elbow).setLength(0.06)));
+  const pawTips = spec.arms.map((a) => a.paw.clone().add(a.paw.clone().sub(a.elbow).setLength(0.06)));
 
   for (let i = 0; i < count; i++) {
     p.fromBufferAttribute(pos, i);
-    const head = smooth(RIG.headStart, RIG.headFull, p.y);
-    const legGuard = smooth(RIG.legGuard[0], RIG.legGuard[1], p.y);
+    const head = smooth(spec.headStart, spec.headFull, p.y);
+    const legGuard = smooth(spec.legGuard[0], spec.legGuard[1], p.y);
     const w = [0, head, 0, 0, 0, 0];
-    RIG.arms.forEach((a, k) => {
+    spec.arms.forEach((a, k) => {
       if (Math.sign(p.x) !== a.s && Math.abs(p.x) > 0.02) return; // 반대쪽 팔은 무시
       const dUpper = segment(p, a.shoulder, a.elbow);
       const dFore = segment(p, a.elbow, pawTips[k]);
@@ -101,17 +116,17 @@ function computeWeights(geometry: THREE.BufferGeometry, elbowBlend: number) {
   geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
 }
 
-function buildSkin(mesh: THREE.Mesh, elbowBlend: number): Rig {
+function buildSkin(mesh: THREE.Mesh, elbowBlend: number, spec: RigSpec): Rig {
   const geometry = mesh.geometry;
-  computeWeights(geometry, elbowBlend);
+  computeWeights(geometry, elbowBlend, spec);
 
   // 뼈 만들기 (팔꿈치는 위팔의 자식)
   const root = new THREE.Bone();
   const headBone = new THREE.Bone();
-  headBone.position.copy(RIG.neck);
+  headBone.position.copy(spec.neck);
   root.add(headBone);
   const bones = [root, headBone];
-  const armBones = RIG.arms.map((a) => {
+  const armBones = spec.arms.map((a) => {
     const upper = new THREE.Bone();
     upper.position.copy(a.shoulder);
     root.add(upper);
@@ -172,13 +187,13 @@ function mountSloth(stage: HTMLElement, motion: SlothMotion) {
   sloth.rotation.y = motion.turnY;
   scene.add(sloth);
   const draco = new DRACOLoader().setDecoderPath(DRACO_DECODER);
-  new GLTFLoader().setDRACOLoader(draco).loadAsync(MODEL_URL)
+  new GLTFLoader().setDRACOLoader(draco).loadAsync(modelUrl(motion.model ?? DEFAULT_MODEL))
     .then((gltf) => {
       if (disposed) return;
       const source = gltf.scene.getObjectByProperty('isMesh', true) as THREE.Mesh | undefined;
       if (!source) throw new Error('GLB 안에 메시가 없어요.');
       source.geometry.computeBoundingBox();
-      rig = buildSkin(source, motion.elbowBlend);
+      rig = buildSkin(source, motion.elbowBlend, rigFor(motion.paw));
       const body = new THREE.Group();
       body.position.y = -source.geometry.boundingBox!.min.y; // 발바닥을 바닥(y=0)에 맞춤
       body.add(rig.skinned);
