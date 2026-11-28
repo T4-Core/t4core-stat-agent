@@ -118,12 +118,13 @@ def judge(state: QAState, point: str, to_raw, rebuild, can_retry: bool, value=No
 
 
 def _stage2_charts(m3) -> set[str]:
-    """[NEW 11-27] 모듈 3 의 2차 결과 차트 id (options.stage2). 모듈 2 계획 밖에서 만든 것이 정상이라 chart_ids 에 더한다"""
+    """[NEW 11-27] 모듈 3 이 모듈 2 계획 밖에서 만든 차트 id — 2차 결과 차트(options.stage2) · [NEW 11-28] 비중 차트의 수치 차트
+    (options.source_of). 정상이라 chart_ids 에 더한다"""
     contents = (m3.get("chart_contents") if isinstance(m3, dict) else getattr(m3, "chart_contents", None)) or []
     out = set()
     for c in contents:
         opt, cid = (c.get("options"), c.get("chart_id")) if isinstance(c, dict) else (c.options, c.chart_id)
-        if (opt or {}).get("stage2"):
+        if (opt or {}).get("stage2") or (opt or {}).get("source_of"):
             out.add(cid)
     return out
 

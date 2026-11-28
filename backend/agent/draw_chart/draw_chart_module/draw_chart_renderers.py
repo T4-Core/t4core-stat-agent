@@ -249,6 +249,21 @@ def draw_treemap(df, content, displays):
 RADAR_REFERENCE = {"전국", "계", "합계", "총계", "전체"}      # [NEW 11-27] 기준선으로 그리는 총계 계열 (점선 · 채우지 않음)
 
 
+# [NEW 11-28] (최댓값 − 최솟값) / 최댓값 이 이보다 작으면 반지름을 0 에서 시작하지 않는다 (+ 안내).
+#   0.2 → 0.3: 서울 · 부산 · 대구 조출생률 3.9~5.0(차이 22%)이 0 부터 그려 세 다각형이 거의 겹쳤다
+RADAR_ZOOM_SPREAD = 0.3
+
+
+def _radar_zoom(vals) -> tuple[float, float] | None:
+    """반지름 범위 (아래, 위) | None(0 부터 그대로). 보기 좋은 눈금 간격으로 반올림 (17.1~17.9 → 16~18.5)"""
+    if len(vals) < 3 or min(vals) <= 0 or (max(vals) - min(vals)) / max(vals) >= RADAR_ZOOM_SPREAD:
+        return None
+    lo, hi = min(vals), max(vals)
+    span = (hi - lo) or hi * 0.05
+    step = nice_step(span * 2.5)
+    return math.floor((lo - span * 0.5) / step) * step, math.ceil((hi + span * 0.3) / step) * step
+
+
 def draw_radar(df, content, displays):
     """레이더: 계열별로 닫힌 다각형. 단위가 다른 지표의 정규화는 모듈 3 몫 (아직 없음)
     약속: 필수 label(지표 축)·series·value / long 행 / 숫자 value"""
@@ -268,9 +283,15 @@ def draw_radar(df, content, displays):
             vals = [v if is_missing(v) else min(max(v, 0), 100) for v in vals]
         # [NEW 11-27] 전국 · 계 같은 총계 계열은 기준선: 채우지 않은 점선 (다른 계열이 있을 때만. 레이더 20선 '전국과 함께')
         ref = len(groups) > 1 and str(name).strip() in RADAR_REFERENCE
+        # [NEW 11-28] 다각형이 하나면 꼭짓점에 값 ('2021 17.5%'). 여럿이면 글씨가 겹쳐 마우스를 올렸을 때만
+        labels = len(groups) == 1 and len(axes) <= LABEL_MAX_POINTS
+        # [CHANGED 11-28] 다각형이 하나면 불투명 (선 · 점 · 값 글씨가 옅어 보였다). 채우기는 Plotly 기본 반투명 그대로. 여럿이면 겹쳐 보이게 0.6
         traces.append(go.Scatterpolar(r=vals + vals[:1], theta=axes + axes[:1], name=name or v_col,
-                                      fill="none" if ref else "toself", opacity=1.0 if ref else 0.6,
+                                      fill="none" if ref else "toself", opacity=1.0 if ref or len(groups) == 1 else 0.6,
                                       line={"dash": "dash", "width": 2} if ref else None,
+                                      mode="lines+markers+text" if labels else None,
+                                      text=[fmt(v, d) for v in raw] + [""] if labels else None,
+                                      textposition="top center" if labels else None,
                                       customdata=[fmt(v, d) for v in raw + raw[:1]],
                                       hovertemplate="%{theta}<br>" + HOVER))
     # 반지름 눈금은 위쪽 세로축에 가로 글씨로 (기본 위치는 지표 이름·축 제목과 겹친다), 단위는 눈금 뒤에 붙인다
@@ -284,7 +305,14 @@ def draw_radar(df, content, displays):
     elif scale == "mean" and axes:         # [NEW 11-27] 평균=100 지수: 100 기준선 (점선 원)
         traces.append(go.Scatterpolar(r=[100] * (len(axes) + 1), theta=axes + axes[:1], name="평균=100", mode="lines",
                                       line={"dash": "dot", "width": 1, "color": "#888"}, hoverinfo="skip"))
-    layout = {"polar": {"radialaxis": radial, "angularaxis": {"direction": "clockwise", "rotation": 90}}}
+    elif zoom := _radar_zoom([v for t in traces for v in t.r if not is_missing(v)]):
+        # [NEW 11-28] 값이 모두 양수이고 서로 가까우면(차이가 큰 값의 20% 미만) 반지름을 0 에서 시작하지 않는다.
+        #   서울 출생아 비중 17.1~17.9% 가 0~18% 반지름에서는 정오각형처럼 보여 해마다의 차이가 보이지 않았다
+        radial["range"] = list(zoom)
+        warns.append(f"차이가 보이도록 반지름을 {zoom[0]:g}~{zoom[1]:g}{unit_text(d)} 로 그림 (0에서 시작하지 않음)")
+    # [CHANGED 11-28] 축은 범주(지역 · 지표) · 시점(연도) 이름이다 → type category. 이전: 지정하지 않아 '2021' 같은 숫자 모양 시점을
+    #   화면(Plotly)이 각도(2021°)로 읽어 축이 각도로 나왔다 ('최근 5년 … 비중 추이를 레이더차트로', one_20261128_191329)
+    layout = {"polar": {"radialaxis": radial, "angularaxis": {"type": "category", "direction": "clockwise", "rotation": 90}}}
     return traces, layout, warns
 
 

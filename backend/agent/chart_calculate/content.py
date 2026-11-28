@@ -25,7 +25,8 @@ from typing import Any
 
 from backend.agent.chart_calculate.axis import axis_range, group_sums
 from backend.agent.chart_calculate.calculate import TIME_COL, Calc, period_index, run_steps
-from backend.agent.chart_calculate.display import format_value, indicator_name, strip_unit, unit_of
+from backend.agent.chart_calculate.display import (data_digits, format_value, indicator_name, make_display, register, strip_unit,
+                                                   unit_of)
 from backend.agent.chart_calculate.select import INDICATOR_HINTS, ITEM_COL, REGION_HINTS, VALUE_COL  # noqa: F401  (REGION_HINTS: 예전 위치 호환)
 from backend.agent.chart_calculate.specs import SPECS, requirements_for
 from backend.agent.chart_calculate.validate import PARTS_TOLERANCE, check_chart, totals_in
@@ -199,15 +200,19 @@ def _cycle_split(cols: list[str], rows: list[list]) -> tuple[list[str], list[lis
 
 
 def _radar_spokes(cols: list[str], rows: list[list], var: list[str]) -> str:
-    """[NEW 11-25 6-2] 레이더의 축(label)으로 쓸 열. 주기 칸 → 지표(항목) → 시점이 아닌 범주 → 시점 순서로, 값이 3~8개(주기 칸은 12개)인 첫 열.
-    나머지 열은 계열(다각형)이 된다. 맞는 열이 없으면 이전과 같다 (항목이 달라지면 항목, 아니면 첫 열 — 검증이 걸러낸다)
+    """[NEW 11-25 6-2] 레이더의 축(label)으로 쓸 열. 주기 칸 → 지표(항목) → 시점 → 시점이 아닌 범주 순서로, 값이 3~8개
+    (주기 칸 · 시점은 12개)인 첫 열. 나머지 열은 계열(다각형)이 된다. 맞는 열이 없으면 이전과 같다 (항목이 달라지면 항목, 아니면 첫 열)
     이전: 항목이 아니면 항상 첫 열 → '2020년과 2024년 서울·부산·대구·인천·광주' 는 시점 2개가 축이 되어 레이더가 실패하고 막대로 대체됐다.
-    지금: 지역 5곳이 축, 2020 · 2024 가 다각형 (15유형 T2-radar). 시점 5개 · 지역 3곳이면 지역 3곳이 축이 된다
-    [CHANGED 11-27] 주기 칸(월 · 분기 · 반기, _cycle_split)을 먼저 본다: 같은 주기끼리 견주는 질문은 1월~12월이 축이다"""
+    지금: 시점이 2개뿐이라 지역 5곳이 축, 2020 · 2024 가 다각형 (15유형 T2-radar)
+    [CHANGED 11-27] 주기 칸(월 · 분기 · 반기, _cycle_split)을 먼저 본다: 같은 주기끼리 견주는 질문은 1월~12월이 축이다
+    [CHANGED 11-28] 시점을 지역 · 범주보다 먼저 본다: 레이더는 꺾은선(시점이 가로축, 지역마다 선)을 동그랗게 만든 것.
+      '2020년부터 2024년까지 서울·부산·대구의 조출생률을 레이더로' 가 지역 3곳이 축 · 해마다 다각형으로 나왔다 → 연도 5개가 축 · 지역마다 다각형.
+      지표가 여럿이면 이전처럼 지표가 축 ('전국 인구동태 30년 변화': 지표 6개가 축, 연도마다 다각형 — 레이더 20선 ⑩)"""
     lo, hi = RADAR_SPOKES
-    order = [c for c in var if c in CYCLE_COLS] + ([ITEM_COL] if ITEM_COL in var else []) \
-        + [c for c in var if c not in (ITEM_COL, TIME_COL) and c not in CYCLE_COLS] + ([TIME_COL] if TIME_COL in var else [])
-    fit = next((c for c in order if lo <= len(_distinct(cols, rows, c)) <= (CYCLE_SPOKES_MAX if c in CYCLE_COLS else hi)), None)
+    order = [c for c in var if c in CYCLE_COLS] + ([ITEM_COL] if ITEM_COL in var else []) + ([TIME_COL] if TIME_COL in var else []) \
+        + [c for c in var if c not in (ITEM_COL, TIME_COL) and c not in CYCLE_COLS]
+    wide = (*CYCLE_COLS, TIME_COL)
+    fit = next((c for c in order if lo <= len(_distinct(cols, rows, c)) <= (CYCLE_SPOKES_MAX if c in wide else hi)), None)
     return fit or (ITEM_COL if ITEM_COL in var else (var[0] if var else ITEM_COL))
 
 
@@ -240,6 +245,10 @@ def _assign(chart_type: str, cols: list[str], rows: list[list]) -> dict[str, str
         enc["label"] = _radar_spokes(cols, rows, var)
         if series := _merge_series(cols, rows, [enc["label"]]):
             enc["series"] = series
+        else:
+            # [NEW 11-28] 다각형이 하나(서울의 해마다 비중)면 값이 하나뿐인 분류 열(시군구별 = 서울특별시)을 계열로, 없으면 항목 열.
+            #   이전: 계열 열이 없어 필수 역할(series) 검사에서 떨어져 막대로 대체됐다
+            enc["series"] = next((c for c in cols if c not in (VALUE_COL, ITEM_COL, TIME_COL, enc["label"])), ITEM_COL)
         enc["value"] = VALUE_COL
     elif chart_type == "map":
         if region := next((c for c in cols if _is_region(c)), None):
@@ -329,6 +338,22 @@ def _whole_remainder(plan: Plan, cols: list[str], rows: list[list], fixed: dict 
     names = [str(r[li]) for r in parts]
     note = f"'{label}' = {total_name} − {' − '.join(names)} (나머지 {100 - s:.1f}%)"
     return cols, parts + [rest], {"label": label, "col": label_col, "parts": names, "total": total_name}, [note]
+
+
+def _drop_share_total(plan: Plan, cols: list[str], rows: list[list]) -> list[list]:
+    """[NEW 11-28] 분모가 질문에 정해진 비중(전국 대비)의 차트에서 분모 자신의 행(전국 = 100%)을 뺀다. 원 · 도넛 밖의 차트.
+    '최근 5년 서울 출생아수가 전국에서 차지하는 비중 추이' 의 레이더 · 꺾은선에 전국 100% 다각형 · 선이 함께 그려졌다.
+    남는 값이 2개 미만이면(한 해 · 서울 하나의 막대) 그대로 둔다 — 값 1개짜리 차트가 되지 않게"""
+    if not rows or plan.measure != "share" or not _question_share(plan) or VALUE_COL not in cols:
+        return rows
+    vi, tol = cols.index(VALUE_COL), 100 * PARTS_TOLERANCE
+    for c in (c for c in cols if c != VALUE_COL):
+        ci = cols.index(c)
+        names = totals_in(c, _distinct(cols, rows, c))
+        keep = [r for r in rows if not (str(r[ci]) in names and r[vi] is not None and abs(r[vi] - 100) <= tol)]
+        if names and len(keep) < len(rows):
+            return keep if len(keep) >= 2 else rows
+    return rows
 
 
 def _value_axis(label: str, branch: _Branch, values: list, rule: str | None) -> AxisSpec:
@@ -615,6 +640,8 @@ def _compose(chart_type: str, plan: Plan, branches: list[_Branch], displays: dic
         elif chart_type in ("pie", "donut"):         # [NEW 11-27] 전국 대비 서울 비중 → 서울 · 그 외 지역 두 조각
             cols, rows, rest, notes = _whole_remainder(plan, cols, rows, live[0].calc.fixed if len(live) == 1 else None)
             more += notes
+        if chart_type not in ("pie", "donut"):
+            rows = _drop_share_total(plan, cols, rows)
         enc = _assign(chart_type, cols, rows) if rows else {}
         dual = _dual_axis(live) if chart_type == "line" and rows else None
         axis = _long_axis(chart_type, enc, cols, rows, live, dual) if rows else {}
@@ -691,6 +718,33 @@ def build_chart(plan: Plan, records: list[Record], requirements: list[str] | Non
     return (content if ok else None), ChartValidation(
         original=original, fallback=fallback, fallbacks=tried, final_chart_type=content.chart_type if ok else None,
         content_built=ok)
+
+
+SOURCE_SUFFIX = "-v"          # [NEW 11-28] 비중 차트의 원래 수치 차트 번호 (c1 → c1-v)
+
+
+def source_chart(plan: Plan, records: list[Record], displays: dict[str, Display]) -> ChartContent | None:
+    """[NEW 11-28] 비중 차트의 원래 수치 차트 — 비중을 계산한 표의 값(같은 View · 같은 조건)을 원값으로 그린다.
+    비중은 수치에서 계산한 것이라 수치를 먼저 보여 주고 사용자가 원한 차트(비중 레이더 · 도넛 …)를 그린다 (모듈 5 가 앞에 둔다).
+    시점 3개 이상이면 꺾은선, 아니면 막대. 값이 2개 미만이면 만들지 않는다. options.source_of = 비중 차트 번호"""
+    share = next((s for s in plan.steps if s.op == "share"), None)
+    if share is None:
+        return None
+    raw = Step(step_id="v1", op="raw", operands=share.operands)
+    rp = Plan(chart_id=f"{plan.chart_id}{SOURCE_SUFFIX}", sub_question_ids=plan.sub_question_ids, record_id=plan.record_id,
+              chart_type="bar", measure="raw", select=plan.select, steps=[raw])
+    calc = run_steps([raw], records, default=rp)["v1"]
+    pts = [p for p in calc.points if p.value is not None]
+    if len(pts) < 2:
+        return None
+    many_times = len({str(p.key.get(TIME_COL)) for p in pts if TIME_COL in p.key}) >= 3
+    ref = register(displays, make_display(calc.unit, auto_digits=data_digits([p.value for p in pts], calc.unit)))
+    rp = rp.model_copy(update={"chart_type": "line" if many_times else "bar", "fallback_charts": ["bar"] if many_times else [],
+                               "steps": [raw.model_copy(update={"display_ref": ref})]})
+    content, _ = build_chart(rp, records, None, displays)
+    if content is None:
+        return None
+    return content.model_copy(update={"options": {**content.options, "source_of": plan.chart_id}})
 
 
 def build_charts(chart_plan: ChartPlan, records: list[Record], requirements: dict[str, list[str]] | None = None,

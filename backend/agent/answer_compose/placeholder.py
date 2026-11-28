@@ -111,11 +111,15 @@ _APPROX_AFTER = re.compile(r"\s*(?:정도|가량|쯤)(?=[\s.,)]|$|입니다|이�
 _NUMERIC = re.compile(r"^-?\d")
 # 값이 이미 단위로 끝날 때, 템플릿이 같은 뜻으로 또 쓰는 말 (긴 것부터)
 _ECHOES = {"%p": ("퍼센트포인트", "포인트", "%p", "%"), "%": ("퍼센트", "%"), "‰": ("퍼밀", "‰")}
+# [NEW 11-28] 띄어 쓴 단위 반복 ('{a1} 가구입니다' → '8,044,948가구 가구입니다'). 단위 뒤가 조사 · 서술어 · 구두점 · 띄어쓰기일 때만
+#   지운다 — '{a1} 명단' 의 '명' 처럼 다른 낱말의 첫 글자는 건드리지 않는다
+_AFTER_UNIT = r"(?=입니다|이었|였|이며|이고|이다|이나|이|가|은|는|을|를|의|에|로|으로|와|과|도|만|[\s.,)!?·]|$)"
 
 
 def _fill_text(template: str, replace) -> str:
     """자리표시자를 바꾼다. 채운 값이 이미 단위로 끝나는데('6,092,672명') 템플릿이 그 단위를 또 쓰면('{a1}명') 한 번만 남긴다.
-    HCX 가 '{a1}명' 이라고 써서 '6,092,672명명' 이 되던 문제 (실제 HCX 시험에서 확인)"""
+    HCX 가 '{a1}명' 이라고 써서 '6,092,672명명' 이 되던 문제 (실제 HCX 시험에서 확인)
+    [CHANGED 11-28] 띄어 쓴 경우도 ('{a1} 가구입니다' → '8,044,948가구 가구입니다', one_20261128_155624)"""
     out, pos = [], 0
     for m in _BRACE.finditer(template):
         before = template[pos:m.start()]
@@ -132,6 +136,8 @@ def _fill_text(template: str, replace) -> str:
             echo = next((e for e in echoes if template.startswith(e, pos)), None)
             if echo:
                 pos += len(echo)
+            elif spaced := next((s for e in echoes if (s := re.compile(rf"\s+{re.escape(e)}{_AFTER_UNIT}").match(template, pos))), None):
+                pos = spaced.end()                    # [NEW 11-28] '{a1} 가구입니다' 의 ' 가구'
         if _NUMERIC.match(got) and (a := _APPROX_AFTER.match(template, pos)):     # 숫자 값 뒤의 '정도' · '가량' 도
             pos = a.end()
     out.append(template[pos:])

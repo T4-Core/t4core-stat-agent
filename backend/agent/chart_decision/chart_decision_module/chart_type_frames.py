@@ -2,7 +2,7 @@
 
   check_frame(chart, profile, measure, requested) → (통과 여부, 못 맞춘 이유 목록, 맞춘 자리 설명)
                                                     requested = 사용자가 요청한 차트 [NEW 11-25] · 값 1개면 이유 SINGLE_VALUE
-  chart_measure(m, query_bundle)        → (차트에 쓸 measure, 바꾼 이유 | None)
+  chart_measure(m, query_bundle)        → (차트에 쓸 measure, 바꾼 이유 | None)  차이 · 합계의 결과가 1개면 비교 · 합친 값(raw)
 
   - 계산하지 않는다. 표의 열 종류(시점 · 지역 · 연령 · 성별 · 기타 범주 · 지표)와 개수만 본다
   - 최소 개수와 구조만 판정한다. 최대 개수(막대 20개 · 원그래프 5개 …)는 계산 뒤 개수가 달라질 수 있어
@@ -77,6 +77,11 @@ def _frames(p, measure, requested=False):
     #   ('전국 월별 출생아수의 2015·2020·2025년' 은 시점이 아닌 범주가 없어 '범주 3개 이상 + 계열' 에서 떨어졌다)
     cyc = p.get("cycle") or {}
     by_cycle = 3 <= (cyc.get("n_positions") or 0) <= 12 and ((cyc.get("n_years") or 0) >= 2 or bool(cats) or nm >= 2)
+    # [NEW 11-28] 사용자가 레이더를 요청했으면 시점(3~12개)을 축으로 (해마다의 값 · 비중이 다각형 하나).
+    #   '최근 5년 서울 출생아수가 전국에서 차지하는 비중 추이를 레이더차트로' 는 시점이 아닌 범주가 서울 하나라 레이더에서 떨어졌다.
+    #   차트(하위 질문)가 하나일 때만: 지표마다 차트가 나뉜 질문(레이더 20선 ⑩)은 모듈 2 가 지표를 축으로 합쳐 레이더를 그리므로
+    #   각 차트는 이전처럼 꺾은선 (차트마다 다각형 하나짜리 레이더가 겹쳐 나오지 않게)
+    by_time = requested and 3 <= t <= 12 and (p.get("n_charts") or 1) == 1
     whole = _whole_and_parts(p, measure)          # [NEW 11-27] 전국 + 서울 → 서울 · 그 외 두 조각
     return {
         "line":        (t >= 3,                                  "시점 3개 이상"),
@@ -91,7 +96,7 @@ def _frames(p, measure, requested=False):
         "scatter":     (c1 >= 5 and (nm >= 2 or split == 2),     "범주 5개 이상 + 지표 2개"),
         "bubble":      (c1 >= 2 and (nm >= 3 or split == 3),     "범주 2개 이상 + 지표 3개"),
         "dumbbell":    (c1 >= 2 and bool(p.get("two_points_per_category")), "범주 2개 이상 + 비교 대상 2개"),
-        "radar":       ((c1 >= 3 and bool(second)) or by_cycle,  "범주 3개 이상 + 계열"),
+        "radar":       ((c1 >= 3 and bool(second)) or by_cycle or by_time, "범주 3개 이상 + 계열"),
         "map":         (bool(p.get("has_region")),               "지역 2곳 이상"),
         "heatmap":     ((p.get("n_dims") or 0) >= 2,             "나누는 기준 2종류"),
         "treemap":     (len(cats) >= 2 and pos,                  "상위 범주 + 하위 범주 + 음수 없음"),
@@ -133,6 +138,14 @@ def chart_measure(m, query_bundle):
     답변의 계산은 모듈 3 이 질문으로 따로 정한다 (차트 measure 만 바꾼다).
     결과가 여러 개일 수 있는 경우는 그대로 둔다: 시도별 증감(범주가 여럿) · 시점 3개 이상 · 해마다의 증감(매년 · 전년 대비)"""
     measure = m.get("measure")
+    if measure == "aggregate":
+        # [NEW 11-28] 합계 · 평균의 결과가 1개(시점 하나 + 범주 2개 이상)면 차트는 합친 값들(raw)을 그린다. 답변은 합계 계산.
+        #   '2024년 서울, 부산, 대구 인구 합계는?' 이 차트 계산까지 합계(값 1개)라 막대 1개 → 검사에서 떨어져 차트가 없었다.
+        #   시점이 여럿이면(해마다의 합계) 그대로 합계를 그린다 (모듈 3 은 시점마다 따로 합친다)
+        prof = m.get("profile") or {}
+        if (prof.get("n_points") or 0) <= 1 and _cats(prof):
+            return "raw", "합계 결과가 1개라 합친 값을 그림 (답변은 합계 계산)"
+        return measure, None
     if measure not in DIFF_MEASURES:
         return measure, None
     texts = " ".join(str(x or "") for x in (m.get("sub_question"), query_bundle.get("original"), query_bundle.get("rewritten")))

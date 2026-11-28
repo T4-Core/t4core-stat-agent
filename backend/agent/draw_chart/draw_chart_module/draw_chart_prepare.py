@@ -78,15 +78,20 @@ def build_jobs(chart_plan, chart_contents, displays, load_errors, validation=Non
     calcs: CalcResult[] → 차트와 record 가 겹치는 강조 대상만 job.calcs 에 (draw_chart_highlight)"""
     validation = validation or {}
     planned = {c["chart_id"]: c for c in chart_plan.get("charts", [])}
+    # [NEW 11-28] 비중 차트의 원래 수치 차트(options.source_of = 비중 차트)는 그 비중 차트 바로 앞 (수치 → 비중 순서)
+    source_of = {(c.options or {}).get("source_of"): k for k, c in chart_contents.items() if c is not None and (c.options or {}).get("source_of")}
+    order = [x for cid in planned for x in ([source_of[cid]] if cid in source_of else []) + [cid]]
     jobs = []
-    for cid in [*planned, *[k for k in chart_contents if k not in planned]]:
+    for cid in [*order, *[k for k in chart_contents if k not in order]]:
         p = planned.get(cid)
         job = DrawJob(chart_id=cid,
                       sub_question_ids=list((p or {}).get("sub_question_ids", [])),
                       planned_type=(p or {}).get("chart_type"),
                       warnings=list((p or {}).get("warnings") or []))      # 모듈 2 사용자용 경고 (차트 아래 · 안내 박스에 보임)
-        stage2 = bool(chart_contents.get(cid) and (chart_contents[cid].options or {}).get("stage2"))
-        if p is None and not stage2:       # [NEW 11-27] 모듈 3 의 2차 결과 차트(s1 …)는 모듈 2 계획 밖이 정상이다
+        opts = (chart_contents[cid].options or {}) if chart_contents.get(cid) else {}
+        stage2 = bool(opts.get("stage2"))
+        if p is None and not stage2 and not opts.get("source_of"):
+            # [NEW 11-27] 모듈 3 의 2차 결과 차트(s1 …) · [NEW 11-28] 비중 차트의 수치 차트(c1-v)는 모듈 2 계획 밖이 정상이다
             job.warnings.append("ChartPlan에 없는 차트 (ChartContent에만 있음)")
 
         if cid in chart_contents and chart_contents[cid] is None:

@@ -141,6 +141,7 @@ _MEASURE_WORDS: list[tuple[str, set[str]]] = [
 _INDICATOR_NAMES = ("합계출산율", "평균초혼연령", "평균출산연령", "평균기대수명", "평균가구원수", "평균수명", "평균연령", "노령화지수", "고령화지수",
                     "노년부양비", "출산순위", "출생순위", "소비자물가지수", "생산자물가지수")
 
+_TRAILING_AGG = re.compile(r"\s*(?:의\s*)?(?:합계|평균)\s*$")       # [NEW 11-28] 제목 끝의 '합계' · '평균' (합친 값들을 그리는 차트)
 _QUESTION_TITLE = re.compile(r"[?？]\s*$|(?:는지|나요|인가요?|일까요?|입니까|습니까|알려\s*줘|알려\s*주세요|어때요?)\s*[?？.]?\s*$")
 
 
@@ -409,6 +410,33 @@ class _Planner:
                               note=f"같은 표의 '{total}' 행을 분모로 씀")
             return d.model_copy(update={"denominator": den.model_copy(update={"operand": operand})})
         return None
+
+    def pin_total_denominator(self, tag: str, d: "_Args") -> "_Args":
+        """[NEW 11-28] 분모(scope=question)가 같은 시점에 행 여러 개를 고르면(지역 열을 적지 않아 전국 · 서울이 함께) 총계 행으로 좁힌다.
+        고른 행의 어떤 열에 총계 값(전국 · 계 …)이 정확히 하나 있고 그 열이 분모 조건에 없을 때만.
+        '최근 5년 서울 출생아수 … 비중 추이' 의 차트 분모가 {시점} 만이라 해마다 분모가 둘 → '분모 총계 없음' 으로 차트가 없었다
+        (같은 질문의 답변 분모는 {시군구별: 전국, 시점} 이라 맞았다)"""
+        den = d.denominator
+        op = den.operand if den and den.scope == "question" else None
+        rec = self.records.get(op.record_id) if op else None
+        if rec is None:
+            return d
+        sel = select_rows(rec, op.select, op.item)
+        if sel.errors or not sel.rows:
+            return d
+        keys = [str(r[sel.col(TIME_COL)]) if TIME_COL in sel.columns else "" for r in sel.rows]
+        if len(set(keys)) == len(keys):                    # 시점마다 한 행 → 이미 하나로 정해짐
+            return d
+        for c in sel.columns:
+            if c in (TIME_COL, ITEM_COL, VALUE_COL) or c in op.select:
+                continue
+            vals = {str(r[sel.col(c)]) for r in sel.rows}
+            total = totals_in(c, vals)
+            if len(vals) > 1 and len(total) == 1:
+                pinned = op.model_copy(update={"select": {**op.select, c: sorted(total)}})
+                self.note(tag, f"분모가 시점마다 행 여럿 → {c} 를 총계 {sorted(total)} 로 좁힘")
+                return d.model_copy(update={"denominator": den.model_copy(update={"operand": pinned})})
+        return d
 
     def sum_denominator(self, tag: str, d: "_Args") -> "_Args":
         """[NEW 11-25 D-2] 비중의 분모가 'A + B' 이면 → 분모가 같은 표의 항목 A · B 를 모두 고르게 한다 (calculate._share 가 더한다).
@@ -1266,6 +1294,17 @@ class _Planner:
             return True
         return False
 
+    def row_count(self, picks: list[Pick]) -> int:
+        """[NEW 11-28] 피연산자들이 고르는 행 수. View 가 없거나 행을 고르지 못하면(항목 없음 등) 0 — 실패할 계산을 덧붙이지 않게"""
+        total = 0
+        for p in picks:
+            rec = self.records.get(p.record_id)
+            sel = select_rows(rec, p.select, p.item) if rec else None
+            if sel is None or sel.errors:
+                return 0
+            total += len(sel.rows)
+        return total
+
     def time_count(self, pick: Pick) -> int:
         """[NEW 11-27] 피연산자가 고르는 행의 시점 수 (시점 열이 없으면 1)"""
         rec = self.records.get(pick.record_id)
@@ -1460,6 +1499,7 @@ class _Planner:
             if tag in self.withheld:
                 return None
         d = self.sum_denominator(tag, d)                     # [NEW 11-25 D-2] 분모 'A + B' → 항목들의 합
+        d = self.pin_total_denominator(tag, d)               # [NEW 11-28] 분모가 시점마다 여러 행 → 총계 행으로
         d = self.same_view_total(tag, picks, d, chart.view_ids, fixed) or d
         if self.denominator_outside(tag, d, chart.view_ids):
             return None
@@ -1497,6 +1537,12 @@ class _Planner:
                 self.note(tag, "축 역할이 없는 갈래가 있음 (차트에 쓰이지 않음)")
             output = output or None
         title, why = clean_title(d.title, step_op)
+        if why and step_op == "raw" and (trimmed := _TRAILING_AGG.sub("", (d.title or "").strip())) != (d.title or "").strip():
+            # [NEW 11-28] 합계 · 평균의 결과가 1개라 차트는 합친 값들을 그린다 (모듈 2 chart_measure). HCX 제목 끝의 '합계' · '평균' 만 뗀다
+            #   ('2024년 서울, 부산, 대구 인구 합계' → '2024년 서울, 부산, 대구 인구'). 이전: 제목을 통째로 버려 '… 행정구역별(읍면동)별 비교'
+            if (kept := clean_title(trimmed, step_op))[0]:
+                self.note(tag, f"HCX 제목 '{d.title}' 끝의 합계 · 평균을 뗌 (차트는 합친 값들)")
+                title, why = kept
         if why:
             self.note(tag, f"HCX 제목 '{d.title}' 버림 ({why}) → 규칙 제목")
         # [CHANGED 11-25 4단계] chart_type = 처음 시도할 차트 (HCX 가 고른 차트, 없으면 모듈 2 1순위) · 대체 후보는 choose_chart 의 순서.
@@ -1529,6 +1575,7 @@ class _Planner:
         if tag in self.withheld:
             return []
         d = self.sum_denominator(tag, d)                     # [NEW 11-25 D-2] 분모 'A + B' → 항목들의 합
+        d = self.pin_total_denominator(tag, d)               # [NEW 11-28] 분모가 시점마다 여러 행 → 총계 행으로
         d = self.same_view_total(tag, picks, d, expected, self.fixed_for(tag, [d.sub_question_id])) or d
         if self.denominator_outside(tag, d, expected):
             return []
@@ -1573,6 +1620,14 @@ class _Planner:
         steps = [self.step(tag, f"a{n}" if len(built) == 1 else f"a{n}-{i}", op, group, args)
                  .model_copy(update={"sub_question_id": d.sub_question_id})
                  for i, (op, group, args) in enumerate(built, 1)]
+        # [NEW 11-28] 비중이 여러 값이면(해마다 · 범주마다의 비중 추이) 분자의 값(수치)도 함께 계산한다 → 답변이 수치와 비중을 같이 말한다.
+        #   '최근 5년 서울 출생아수가 전국에서 차지하는 비중 추이' 의 답변에 비중만 있고 서울 출생아수가 없었다.
+        #   값 하나짜리 비중('2024년 전국 대비 서울 출생아 비중')은 그대로 (도넛이 부분을 보여 준다)
+        for st, (op, group, args) in zip(list(steps), built):
+            if op == "share" and self.row_count(group) > 1:
+                steps.append(self.step(tag, f"{st.step_id}v", "raw", group, args.model_copy(update={"denominator": None}))
+                             .model_copy(update={"sub_question_id": d.sub_question_id}))
+                self.note(tag, f"비중 {st.step_id} 의 분자 값도 함께 계산 ({st.step_id}v) — 답변은 수치와 비중을 같이")
         self.answer_sub.update({st.step_id: d.sub_question_id for st in steps})
         return steps
 

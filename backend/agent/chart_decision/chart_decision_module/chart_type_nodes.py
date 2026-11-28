@@ -200,6 +200,7 @@ def profile_node(state):
     for m in state["matches"]:
         m = dict(m)
         m["profile"] = profile_data(m["filtered_view"], m["sub_filter"], qb["filters"], qb.get("intent"))
+        m["profile"]["n_charts"] = len(state["matches"])   # [NEW 11-28] 시점을 축으로 한 레이더는 차트 하나일 때만 (chart_type_frames)
         errors += [{"node": "profile", "chart_id": m["chart_id"], "level": "warning", "reason": t}
                    for t in m["profile"].get("axis_notes") or []]          # 범주에서 뺀 열 (고도화 2단계)
         matches.append(m)

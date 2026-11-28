@@ -24,7 +24,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 from backend.agent.chart_calculate.calculate import Calc, run_answer_steps
-from backend.agent.chart_calculate.content import build_chart
+from backend.agent.chart_calculate.content import build_chart, source_chart
 from backend.agent.chart_calculate.decide import decide_trace
 from backend.agent.chart_calculate.display import format_value
 from backend.agent.chart_calculate.planner import AnswerDecision, Decision, make_plan
@@ -137,6 +137,9 @@ def build_charts_node(state: Module3State) -> dict:
         reqs = _requirements_of(p, asked)
         content, validation[p.chart_id] = build_chart(p, request.records, reqs, displays, attempts, chart_calcs)
         if content is not None:
+            # [NEW 11-28] 비중 차트면 그 비중을 계산한 원래 수치 차트(c1-v)를 앞에 (수치 → 비중 순서로 보여 준다)
+            if p.measure == "share" and (src := source_chart(p, request.records, displays)) is not None:
+                contents.append(src)
             contents.append(content)
         traces[p.chart_id] = ChartTrace(plan=p, requirements=requirements_for(p.chart_type, reqs),
                                         attempts=[ChartAttempt(content=c, check=k) for c, k in attempts],
@@ -149,7 +152,7 @@ def build_charts_node(state: Module3State) -> dict:
             validation[c.chart_id] = ChartValidation(original=CheckResult(
                 chart_type=c.chart_type, passed=False, checked=[PLAN_PRESENT], failed=[PLAN_PRESENT],
                 reasons=why or list(dt.notes) or ["차트 계획 없음"]))
-    return {"charts": traces, "contents": contents, "validation": validation, "chart_calcs": chart_calcs}
+    return {"charts": traces, "contents": contents, "validation": validation, "chart_calcs": chart_calcs, "displays": displays}
 
 
 def answer_steps_node(state: Module3State) -> dict:

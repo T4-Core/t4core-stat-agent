@@ -43,6 +43,7 @@ def decide_charts(query_bundle, view_input, use_llm=True):
         m["measure_info"] = decide_measure(m["sub_question"], query_bundle, use_llm=use_llm)
         m["measure"] = m["measure_info"]["measure"]
         m["profile"] = profile_data(fv, m["sub_filter"], query_bundle["filters"], query_bundle.get("intent"))
+        m["profile"]["n_charts"] = len(ms)       # [NEW 11-28] 차트(하위 질문) 수 — 시점을 축으로 한 레이더는 차트 하나일 때만 (chart_type_frames)
         errors += [{"node": "profile", "chart_id": m["chart_id"], "level": "warning", "reason": t}
                    for t in m["profile"].get("axis_notes") or []]                  # 범주에서 뺀 열 (고도화 2단계)
         targets.append(m)

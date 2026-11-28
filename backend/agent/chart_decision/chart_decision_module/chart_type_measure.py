@@ -14,6 +14,25 @@ from .chart_type_rules import (
 )
 
 _RAW_VALUE = re.compile(RAW_VALUE_PATTERN)
+TREND_INTENT = "추이"
+# [NEW 11-28] '○○ 추이' 에서 ○○ 가 이 계산이면 measure 는 ○○ (비중 추이 → share). 증감 · 합계 · 순위는 넣지 않는다
+#   ('총인구 추이' 의 '총' 이 합계로, '증감 추이' 가 증감 막대로 바뀌지 않게 — 이전 동작 그대로)
+TREND_MEASURES = ("share", "growth_rate", "index")
+
+
+def _trend_measure(text, query_bundle):
+    """'추이' 앞의 계산 → (measure, 근거) | None. 재작성 → 원 질문 → intent 순서로 본다 (각각 하나로 정해질 때만).
+    [CHANGED 11-28] 재작성이 '비중' 을 지웠다: '최근 5년 서울 출생아수가 전국에서 차지하는 비중 추이를 레이더차트로' →
+    '2021~2025년 서울특별시 전국 출생아수 시점별 추이' (intent '구성비'). 재작성만 보면 원값 추이가 됐다"""
+    for where, src in (("재작성", text), ("원 질문", query_bundle.get("original"))):
+        hits = [h for h in keyword_hits(src or "") if h in TREND_MEASURES]
+        if len(hits) == 1:
+            return hits[0], f"{where} 의 {hits[0]}"
+    raw = query_bundle.get("intent") or []
+    intents = {INTENT_TO_MEASURE.get(i) for i in ([raw] if isinstance(raw, str) else raw)} & set(TREND_MEASURES)
+    if len(intents) == 1:
+        return intents.pop(), "intent"
+    return None
 
 
 def _ns(s):
@@ -60,6 +79,10 @@ def decide_measure_rule(sub_question, query_bundle):
         if kw:
             if INTENT_TO_MEASURE[kw] is None:            # 예: '범위 밖' → LLM이 확인
                 return None, False, f"{name} '{kw}' → LLM 확인", [kw]
+            # [NEW 11-28] '비중 추이' · '증감률 추이' · '지수 추이' 의 '추이' 는 보여 주는 방식(시간 흐름)이고 값은 앞의 계산이다.
+            #   '최근 5년 서울 출생아수가 전국에서 차지하는 비중 추이' 가 원값(raw) 추이로 나와 비중 대신 출생아수를 그렸다
+            if kw == TREND_INTENT and (trend := _trend_measure(text, query_bundle)):
+                return trend[0], True, f"{name} '{kw}' + {trend[1]} → {trend[0]}", []
             return INTENT_TO_MEASURE[kw], True, f"{name} '{kw}'", []
 
     # ③ QueryBundle의 intent 필드 (INTENTS와 같은 값). 하나로 정해질 때만 확신
